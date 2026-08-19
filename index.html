@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ClassPulse — School Tracker</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◆</span>
+    <span class="brand-name">ClassPulse</span>
+    <span class="brand-tag">school tracker</span>
+  </div>
+
+  <div class="role-switcher" role="tablist" aria-label="Choose role">
+    <button class="role-pill active" data-role="student" role="tab" aria-selected="true">Student</button>
+    <button class="role-pill" data-role="parent" role="tab" aria-selected="false">Parent</button>
+    <button class="role-pill" data-role="teacher" role="tab" aria-selected="false">Teacher</button>
+  </div>
+
+  <div class="user-picker">
+    <label for="userSelect" class="visually-hidden">Viewing as</label>
+    <select id="userSelect"></select>
+  </div>
+</header>
+
+<main id="app" class="app">
+  <!-- rendered by app.js -->
+  <p class="loading">Loading ClassPulse…</p>
+</main>
+
+<footer class="footer">
+  <p>ClassPulse is a client-side prototype. All data lives only in this browser's local storage — nothing is sent to a server. Location &amp; usage "sharing" between roles is simulated for demo purposes.</p>
+</footer>
+
+<script src="app.js" defer></script>
+</body>
+</html>
