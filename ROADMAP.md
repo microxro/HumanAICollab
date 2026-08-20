@@ -25,35 +25,59 @@ before being committed. A handful of bugs were caught this way and fixed
 before shipping (see commit history for specifics), rather than only
 checked for syntax.
 
-**Functionality — 79 of 100 shipped.** F001–F045 and F048–F052 (grading,
+**Functionality — 84 of 100 shipped.** F001–F045 and F048–F052 (grading,
 assignments, study tools, scheduling), F053, F064, F065, F067, F068, F071,
 F072 (friend requests, invite links, grade-drop alerts, check-ins, guardian
 notes, emergency contacts), F073–F092 (wellbeing and insight, all of it),
-and F096, F099 (home-screen shortcuts, localization — wired into the actual
-nav and command palette, not just a persisted setting).
+F096, F099 (home-screen shortcuts, localization), and — added in a later
+pass — F046 (live calendar feed: the device pushes the same .ics it already
+builds for one-time export to a server-hosted subscribe URL), F058 (feed
+post comments), F060 (anonymous class-wide difficulty ratings, with the
+who-voted list stripped before the feed ever reaches a client), F069
+(arrival/departure alerts, computed by diffing each location push against
+the last one server-side rather than a continuous feed), and F070 (agreed
+focus windows, mirroring the existing guardian check-in request/respond
+pattern).
 
-**Not attempted — 21 items**, all genuinely blocked on infrastructure this
-sandbox doesn't have: F046, F047 (live/two-way calendar sync — needs a
-deployed backend to verify against), F054–F056, F058–F063 (deeper group
-features — task assignment, difficulty ratings, peer tutoring, attributed
-notes, challenges, feed comments — a large amount of new backend surface
-for comparatively modest individual value, deprioritized given the rest of
-the list), F066, F095, F098 (email-dependent — no email service
-configured), F069, F070 (geofence-triggered arrival/departure alerts and
-agreed focus windows — the geofencing itself is real, but the parent-facing
-push side wasn't built), F093, F094, F097, F100 (real OAuth/API credentials
-for Google, Canvas, and a public API — none exist in this environment).
+**Not attempted — 16 items**, still genuinely blocked on infrastructure
+this sandbox doesn't have or deprioritized as large, narrow-value backend
+surface: F047 (two-way calendar sync — needs a deployed backend to verify
+against), F054–F056, F057, F059, F061–F063 (deeper group features — task
+assignment, common free period, peer tutoring, attributed notes,
+challenges — each needs new cross-member data sharing beyond what groups
+currently sync), F066, F095, F098 (email-dependent — no email service
+configured), F093, F094, F097 (real OAuth credentials for Google/Canvas —
+none exist in this environment), F100 (a public API + webhooks is its own
+project: token issuance, a documented read surface, delivery retries — sized
+**L** for a reason).
 
-**Interface — 16 of 50 shipped**, chosen for real, testable value with zero
-visual redesign: U01–U03, U07, U09–U11, U13, U26, U29, U32, U38, U42, U45,
-U46, U48 (collapsible + collapsible-group + pinned + recent nav, accent
-color, density, type size, dyslexia-friendly type, true-black OLED theme,
-notification history, type-to-confirm deletes, sticky table headers,
-class-card progress rings, modal focus traps, shortcut help, colorblind
-preview, 44px touch targets). The remaining 34 are unstarted — U41 and U44
-(full ARIA audit, reduced-motion audit) are partially covered by existing
-`prefers-reduced-motion` CSS and the toast host's `aria-live` region, but
-neither got the exhaustive pass its own item calls for.
+**Interface — 45 of 50 shipped**, all with zero visual redesign — every new
+token or component layers onto the existing design system rather than
+replacing it. The first pass shipped U01–U03, U07, U09–U11, U13, U26, U29,
+U32, U38, U42, U45, U46, U48. A later pass added the rest: U04–U06, U08
+(modal-history back button, deep links to records, a mobile bottom tab bar,
+a floating quick-add); U12, U40 (a high-contrast theme layered like
+true-black already was; workload heat on the calendar month view); U17–U19,
+U27, U28 (skeleton loading, considered micro-motion, swipe actions,
+pull-to-refresh, long-press quick actions); U20–U25, U31, U33 (range
+select, context menus, inline due-date editing, draggable checklist steps,
+keyboard list navigation, a global undo stack, configurable table columns,
+incrementally-rendered lists); U34–U36, U43 (a real hover crosshair and
+drag-to-zoom on the grade trend chart, print layouts per view, a
+screen-reader data table behind every chart); U37, U41, U44, U47 (a
+compact "what's next" strip in the topbar, `role=dialog`/`aria-live` on
+every modal and several live regions, a reduced-motion gap closed on
+`scroll-behavior`, intensity-as-size on the heatmap so it doesn't rest on
+color alone); U49, U50 (a first-run wizard chaining the real class/bell
+schedule/assignment forms, and a small contextual-help popover wired up at
+the app's three invented-vocabulary terms).
+
+**Not attempted — 5 items**: U14, U15, U16 (class cover images, subject
+icons, drawn empty states — asset-heavy work that cuts against the
+zero-visual-redesign scope this whole effort held to), and U30, U39 (drag
+assignments onto any calendar view from anywhere, and a Gantt-style project
+timeline — both sized **L**, each closer to its own feature than an
+afternoon's addition).
 
 ---
 
