@@ -211,7 +211,21 @@ App.planner = (function () {
       day.blocks = merged;
 
       // Lay the sessions into the day's real gaps so they get clock times.
-      let gi = 0, cursor = day.gaps.length ? day.gaps[0].start : null;
+      // F045 energy-aware scheduling — when session ratings reveal a
+      // sharpest hour, the day's first (most urgent) block starts there
+      // instead of always at the day's earliest free gap.
+      let gi = 0, bestMin = null;
+      if (day.gaps.length) {
+        const bestHour = S.bestStudyHour();
+        if (bestHour != null) {
+          bestMin = bestHour * 60;
+          const idx = day.gaps.findIndex((g) => g.end > bestMin);
+          if (idx >= 0) gi = idx;
+        }
+      }
+      let cursor = day.gaps.length
+        ? (gi === 0 ? day.gaps[0].start : Math.max(day.gaps[gi].start, Math.min(bestMin, day.gaps[gi].end)))
+        : null;
       day.blocks.forEach((b) => {
         if (cursor == null) return;
         while (gi < day.gaps.length && cursor + b.minutes > day.gaps[gi].end) {

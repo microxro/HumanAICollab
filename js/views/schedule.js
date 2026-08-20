@@ -81,6 +81,8 @@ App.views.schedule = (function () {
     const isToday = iso === U.today();
     const now = U.nowMin();
     const cd = S.cycleDayFor(iso);
+    const variant = S.bellVariantFor(iso);      // F041/F042
+    const passingMin = S.settings.passingTimeMin || 5;   // F043
 
     return `<div class="agenda-day">
       <div class="agenda-date ${isToday ? "is-today" : ""}">
@@ -88,19 +90,29 @@ App.views.schedule = (function () {
         <span>${U.dowName(iso, true)}</span>
         ${cd ? `<span class="badge brand">Day ${U.esc(cd)}</span>` : ""}
         ${isToday ? `<span class="badge solid">Today</span>` : ""}
+        <span class="grow"></span>
+        <select class="select input-sm" data-bell-variant="${iso}" style="max-width:150px">
+          <option value="">Normal schedule</option>
+          ${Object.entries(S.settings.bellVariants).map(([k, v]) => `<option value="${k}" ${variant === k ? "selected" : ""}>${U.esc(v.label)}</option>`).join("")}
+        </select>
       </div>
-      ${items.length ? items.map((it) => {
+      ${items.length ? items.map((it, i) => {
         const past = isToday && it.end && now >= U.toMin(it.end);
+        const prev = items[i - 1];
+        // F043 — flag a tight gap between different rooms, not just adjacent periods.
+        const tight = prev && prev.end && it.start && prev.location && it.location && prev.location !== it.location
+          && (U.toMin(it.start) - U.toMin(prev.end)) < passingMin && (U.toMin(it.start) - U.toMin(prev.end)) >= 0;
         return `<div class="agenda-row" style="${past ? "opacity:.5" : ""}">
           <span class="agenda-stripe" style="background:${U.esc(it.color)}"></span>
           <span class="agenda-time">${it.start ? U.fmtTime(it.start) : "All day"}</span>
           <span class="grow" style="min-width:0">
-            <div class="bold small truncate">${U.esc(it.title)}</div>
+            <div class="bold small truncate">${U.esc(it.title)}${tight ? ` <span class="badge warn" title="Less than ${passingMin} min to get from ${U.esc(prev.location)} to ${U.esc(it.location)}">⚡ tight passing time</span>` : ""}</div>
             <div class="tiny dim truncate">${U.esc([it.location, it.sub].filter(Boolean).join(" · "))}</div>
           </span>
           <span class="badge">${U.esc(it.kind)}</span>
         </div>`;
       }).join("") : `<p class="dim small" style="padding:4px 2px">Nothing scheduled.</p>`}
+      ${variant ? `<p class="tiny dim mt-4">${U.esc(S.settings.bellVariants[variant].label)} — periods shift ${S.settings.bellVariants[variant].shiftMin > 0 ? "later" : "earlier"} by ${Math.abs(S.settings.bellVariants[variant].shiftMin)} min.</p>` : ""}
     </div>`;
   }
 
@@ -144,6 +156,11 @@ App.views.schedule = (function () {
     U.on(root, "click", "[data-add]", () => App.views.classes.classForm(null));
     U.on(root, "click", "[data-periods]", () => App.router.go("classes"));
     U.on(root, "click", "[data-weekend]", () => { showWeekend = !showWeekend; App.router.refresh(); });
+    U.on(root, "change", "[data-bell-variant]", (_e, el) => {
+      S.setBellVariant(el.dataset.bellVariant, el.value || null);
+      UI.toast(el.value ? "Bell variant set" : "Back to normal schedule", S.settings.bellVariants[el.value]?.label || "", "ok");
+      App.router.refresh();
+    });
   }
 
   return { render, mount, title: "Schedule" };
