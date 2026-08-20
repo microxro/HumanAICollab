@@ -259,6 +259,16 @@ App.views.settings = (function () {
               <option value="tritanopia" ${st.cvdPreview === "tritanopia" ? "selected" : ""}>Tritanopia</option>
             </select>
           </div>
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div><div class="bold small">Type size</div><div class="tiny dim">A real accessibility need, not just a preference</div></div>
+            <select class="select input-sm" id="fontSizeSel" style="width:150px">
+              <option value="normal" ${st.fontSize !== "large" && st.fontSize !== "larger" ? "selected" : ""}>Normal</option>
+              <option value="large" ${st.fontSize === "large" ? "selected" : ""}>Large</option>
+              <option value="larger" ${st.fontSize === "larger" ? "selected" : ""}>Larger</option>
+            </select>
+          </div>
+          ${toggleRow("Dyslexia-friendly type", "Wider letter spacing and a clearer face", st.dyslexicFont, `data-pref="dyslexicFont"`)}
+          ${toggleRow("True-black dark mode", "Pure black surfaces — saves battery on OLED screens (dark mode only)", st.trueBlack, `data-pref="trueBlack"`)}
           ${toggleRow("Hide GPA", "Show progress bars without the number, if grades cause anxiety", st.wellbeing.hideGPA, `data-pref-nested="wellbeing.hideGPA"`)}
         </div>
       </div>
@@ -925,6 +935,7 @@ App.views.settings = (function () {
         App.applyTheme();
       } else {
         S.commit((db) => { db.settings[key] = el.checked; });
+        if (key === "dyslexicFont" || key === "trueBlack") App.applyShellPrefs();
       }
     });
     U.on(root, "change", "[data-pref-num]", (_e, el) => {
@@ -937,6 +948,12 @@ App.views.settings = (function () {
 
     const localeSel = root.querySelector("#localeSel");
     if (localeSel) localeSel.addEventListener("change", (e) => { App.i18n.setLocale(e.target.value); App.router.refresh(); });
+
+    const fontSizeSel = root.querySelector("#fontSizeSel");
+    if (fontSizeSel) fontSizeSel.addEventListener("change", (e) => {
+      S.commit((db) => { db.settings.fontSize = e.target.value; });
+      App.applyShellPrefs();
+    });
 
     const collapseBtn = root.querySelector("#prefCollapseBtn");
     if (collapseBtn) collapseBtn.addEventListener("click", () => {

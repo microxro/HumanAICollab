@@ -223,3 +223,29 @@ button { cursor: pointer; }
 [data-cvd="protanopia"]  { filter: url(#cvd-protanopia); }
 [data-cvd="deuteranopia"] { filter: url(#cvd-deuteranopia); }
 [data-cvd="tritanopia"]  { filter: url(#cvd-tritanopia); }
+
+/* ==================================================== U11 — type size + dyslexia-friendly face
+   Most of the app's type is set in literal px (not rem), so scaling the root
+   font-size cascades nowhere. `zoom` scales the whole shell — fonts, icons,
+   spacing, and hit targets together — and unlike transform:scale it actually
+   reflows layout, so nothing overlaps or gets clipped. */
+[data-fontsize="large"]  body { zoom: 1.12; }
+[data-fontsize="larger"] body { zoom: 1.25; }
+[data-dyslexic="1"] {
+  --font: Verdana, Tahoma, "Trebuchet MS", sans-serif;
+  letter-spacing: .01em;
+  word-spacing: .06em;
+}
+[data-dyslexic="1"] body { line-height: 1.65; }
+
+/* ============================================================ U13 — true black
+   An OLED-friendly layer on top of dark mode: pure black surfaces save real
+   battery, without touching any other token (text, brand, semantic colors
+   stay exactly as designed). Only takes effect while dark mode is active. */
+[data-theme="dark"][data-trueblack="1"] {
+  --bg: #000000;
+  --surface: #000000;
+  --surface-2: #0a0a0a;
+  --surface-3: #131313;
+  --border: #1c1c1c;
+}

@@ -187,6 +187,10 @@
     if (S.settings.accent && S.settings.accent !== "indigo") html.setAttribute("data-accent", S.settings.accent);
     else html.removeAttribute("data-accent");
     html.setAttribute("data-cvd", S.settings.cvdPreview || "none");
+    // U11 type size + dyslexia-friendly face, U13 true-black OLED theme.
+    html.setAttribute("data-fontsize", S.settings.fontSize || "normal");
+    if (S.settings.dyslexicFont) html.setAttribute("data-dyslexic", "1"); else html.removeAttribute("data-dyslexic");
+    if (S.settings.trueBlack) html.setAttribute("data-trueblack", "1"); else html.removeAttribute("data-trueblack");
     const ico = document.getElementById("collapseIco");
     if (ico) ico.textContent = S.settings.sidebarCollapsed ? "⇥" : "⇤";
   };
