@@ -38,6 +38,7 @@
     if (!db.sleepLog) db.sleepLog = {};      // { "YYYY-MM-DD": {bed, wake, hours} }
     if (!db.sessionRatings) db.sessionRatings = []; // [{id, sessionId, quality, at}]
     if (!db.changeAlerts) db.changeAlerts = []; // dismissed/seen change-detection alerts
+    if (db.streak.freezes === undefined) db.streak.freezes = 0; // F040
 
     // ---- settings additions
     const s = db.settings;
@@ -465,6 +466,54 @@
 
   S.formulaSheet = function (classId) {
     return S.db.notes.filter((n) => (n.tags || []).includes("formula") && (!classId || n.classId === classId));
+  };
+
+  /* ------------------------------------------------------- F030 deck i/o */
+
+  S.exportDeck = function (deckId) {
+    const deck = S.byId("decks", deckId);
+    if (!deck) return null;
+    return JSON.stringify({ scholarDeck: 1, name: deck.name, cards: deck.cards.map((c) => ({ ...c, id: undefined })) }, null, 2);
+  };
+  S.importDeck = function (json, classId) {
+    const parsed = JSON.parse(json);
+    if (!parsed || !Array.isArray(parsed.cards)) throw new Error("That doesn't look like a Scholar deck file.");
+    const cards = parsed.cards.map((c) => Object.assign({}, c, { id: U.uid("c") }));
+    return S.insert("decks", { name: parsed.name || "Imported deck", classId: classId || null, cards });
+  };
+
+  /* ------------------------------------------------------ F038/039 lists */
+
+  S.vocabQuizQueue = function (listId) {
+    const list = S.byId("vocabLists", listId);
+    if (!list) return [];
+    return U.sortBy(list.terms, () => Math.random() - 0.5);
+  };
+
+  /* --------------------------------------------------------- F040 streak */
+
+  S.streakFreezes = function () { return S.db.streak.freezes || 0; };
+
+  // Overrides store.js's touchStreak: banking a freeze every 7-day
+  // milestone (cap 3) lets exactly one missed day bridge the streak
+  // instead of resetting it to 1.
+  S.touchStreak = function () {
+    const t = U.today();
+    const s = S.db.streak;
+    if (s.freezes === undefined) s.freezes = 0;
+    if (s.last === t) return;
+    if (s.last) {
+      const gap = U.diffDays(t, s.last);
+      if (gap === 1) s.count = s.count + 1;
+      else if (gap === 2 && s.freezes > 0) { s.freezes -= 1; s.count = s.count + 1; }
+      else if (gap > 1) s.count = 1;
+    } else {
+      s.count = Math.max(1, s.count);
+    }
+    if (s.count > 0 && s.count % 7 === 0) s.freezes = Math.min(3, s.freezes + 1);
+    s.xp += 15;
+    s.last = t;
+    S.save();
   };
 
   /* ============================================== F041-052 time/schedule */

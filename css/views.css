@@ -371,6 +371,7 @@
   font-size: 1.15rem;
   font-weight: 600;
   line-height: 1.45;
+  overflow: hidden;
 }
 .flashcard-face.back {
   transform: rotateY(180deg);
@@ -387,6 +388,22 @@
 .box-pips { display: flex; gap: 3px; }
 .box-pip { width: 15px; height: 4px; border-radius: 2px; background: var(--surface-3); }
 .box-pip.on { background: var(--brand-500); }
+
+/* F027 cloze + F028 occlusion */
+.cloze-blank { display: inline-block; min-width: 3em; border-bottom: 2px solid currentColor; opacity: .6; }
+.cloze-answer { font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.occlusion-wrap { position: relative; width: 100%; max-width: 100%; max-height: 100%; line-height: 0; }
+.occlusion-img { width: 100%; max-height: 190px; object-fit: contain; border-radius: var(--radius-sm); display: block; }
+.occlusion-region {
+  position: absolute;
+  display: grid; place-items: center;
+  background: var(--ink, #1e293b);
+  color: #fff;
+  font-size: .7rem; font-weight: 700;
+  border-radius: 3px;
+  opacity: .88;
+}
+.occlusion-region.revealed { background: var(--ok); padding: 0 4px; }
 
 /* ------------------------------------------------------------- notes -- */
 

@@ -44,7 +44,7 @@ App.views.dashboard = (function () {
           </div>
           <div class="center">
             <div style="font-size:1.5rem;font-weight:720" class="nums">${S.db.streak.count}🔥</div>
-            <div class="tiny" style="opacity:.85">Day streak</div>
+            <div class="tiny" style="opacity:.85">Day streak${S.streakFreezes() ? ` · ${S.streakFreezes()}❄️ banked` : ""}</div>
           </div>
         </div>
       </div>
