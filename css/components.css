@@ -583,3 +583,45 @@
 .skel-line-sm { height: 9px; margin-top: 6px; }
 .skel-avatar { width: 34px; height: 34px; border-radius: 50%; }
 .skel-chip { width: 52px; height: 18px; border-radius: var(--radius-full); }
+
+/* ------------------------------------------------ U21/U28 — flyout menu -- */
+
+.ctx-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: 5px;
+  animation: pop .12s var(--ease);
+}
+.ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-xs);
+  font-size: .85rem;
+  color: var(--text);
+  text-align: left;
+}
+.ctx-menu-item:hover, .ctx-menu-item:focus-visible { background: var(--surface-2); }
+.ctx-menu-item.danger { color: var(--danger); }
+.ctx-menu-item .ico { width: 16px; text-align: center; flex-shrink: 0; }
+.ctx-menu-sep { height: 1px; background: var(--border); margin: 5px 2px; }
+
+/* ------------------------------------------------------ U22 — inline pop -- */
+
+.inline-due-pop {
+  position: fixed;
+  z-index: 70;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+  animation: pop .12s var(--ease);
+}

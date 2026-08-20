@@ -9,6 +9,13 @@ App.views.homework = (function () {
   let filter = { cls: "", status: "open", q: "", sort: "due" };
   let selectMode = false;                  // F015 batch edit
   let selected = new Set();
+  let lastSelectedIdx = null;              // U20 — shift-click range select
+  let cursorId = null;                     // U24 — j/k keyboard cursor
+
+  // U33 — render rows incrementally instead of the whole list at once, so a
+  // year of assignments doesn't mean a year of DOM nodes on first paint.
+  const RENDER_CHUNK = 40, RENDER_STEP = 40;
+  let renderLimit = RENDER_CHUNK;
 
   const COLUMNS = [
     { id: "todo",  label: "To do",       icon: "○" },
@@ -180,6 +187,28 @@ App.views.homework = (function () {
           if (b) b.closest("[data-st]").remove();
         });
 
+        // U23 — drag a step's handle to reorder the checklist. Submit reads
+        // subtasks straight from DOM order, so reordering nodes is enough.
+        list.addEventListener("dragstart", (e) => {
+          const row = e.target.closest("[data-st]");
+          if (!row || !e.target.closest(".drag-handle")) return;
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", row.dataset.st);
+          setTimeout(() => row.classList.add("dragging"), 0);
+        });
+        list.addEventListener("dragend", () => {
+          const d = list.querySelector(".dragging");
+          if (d) d.classList.remove("dragging");
+        });
+        list.addEventListener("dragover", (e) => {
+          const dragging = list.querySelector(".dragging");
+          if (!dragging) return;
+          e.preventDefault();
+          const siblings = [...list.querySelectorAll("[data-st]:not(.dragging)")];
+          const after = siblings.find((el) => e.clientY < el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2);
+          if (after) list.insertBefore(dragging, after); else list.appendChild(dragging);
+        });
+
         const tplSel = root.querySelector("#stTemplate");
         if (tplSel) tplSel.addEventListener("change", () => {
           const steps = ST_TEMPLATES[tplSel.value];
@@ -226,6 +255,7 @@ App.views.homework = (function () {
 
   function stRow(s) {
     return `<div class="row gap-8" data-st="${s.id}" style="margin-bottom:6px">
+      <span class="drag-handle" draggable="true" aria-hidden="true" title="Drag to reorder">⠿</span>
       <input type="checkbox" class="check" data-st-done ${s.done ? "checked" : ""} aria-label="Step done" />
       <input class="input input-sm grow" data-st-text value="${U.esc(s.text)}" placeholder="Step…" />
       <button type="button" class="icon-btn btn-sm" data-del-st aria-label="Remove step">✕</button>
@@ -487,6 +517,218 @@ App.views.homework = (function () {
     });
   }
 
+  /* --------------------------------------- U19/U21/U22/U24/U28 — row UX -- */
+
+  function toggleDoneWithUndo(a) {
+    const wasDone = a.status === "done";
+    S.update("assignments", a.id, { status: wasDone ? "todo" : "done" });
+    UI.pushUndo(`${wasDone ? "Reopen" : "Complete"} "${a.title}"`,
+      () => S.update("assignments", a.id, { status: wasDone ? "done" : "todo" }));
+    UI.toast(wasDone ? "Reopened" : "Done ✅", a.title, "ok");
+  }
+
+  // Shared by the right-click context menu (U21) and the mobile long-press
+  // menu (U28) — one action list, two ways to summon it.
+  function rowMenuItems(a) {
+    return [
+      { label: "Open", icon: "↗", run: () => detail(a.id) },
+      { label: "Edit", icon: "✎", run: () => form(a) },
+      { label: a.status === "done" ? "Reopen" : "Mark done", icon: "✓", run: () => toggleDoneWithUndo(a) },
+      { label: "Duplicate", icon: "⎘", run: () => {
+          const copy = Object.assign({}, a, {
+            id: undefined, status: "todo", earned: null, graded: false, submitted: false,
+            subtasks: (a.subtasks || []).map((s) => ({ ...s, id: U.uid("st"), done: false }))
+          });
+          delete copy.id;
+          S.insert("assignments", copy);
+          UI.toast("Duplicated", a.title, "ok");
+        } },
+      { label: a.snoozeUntil ? "Clear snooze" : "Snooze…", icon: "😴", run: () => {
+          if (a.snoozeUntil) { S.update("assignments", a.id, { snoozeUntil: null, snoozeReason: "" }); UI.toast("Snooze cleared", a.title); }
+          else snoozeForm(a.id);
+        } },
+      { divider: true },
+      { label: "Delete", icon: "🗑", danger: true, run: () => UI.deleteWithUndo("assignments", a.id, a.title) }
+    ];
+  }
+
+  function openRowMenu(id, x, y) {
+    const a = S.byId("assignments", id);
+    if (!a) return;
+    UI.menu(rowMenuItems(a), x, y);
+  }
+
+  // U19 swipe (complete / snooze) + U28 long-press (quick-action menu),
+  // sharing one touch listener set so they can't both claim the same drag.
+  function initRowTouch(root) {
+    const list = root.querySelector(".list");
+    if (!list) return;
+    let row = null, id = null, startX = 0, startY = 0, dx = 0, axis = null, lpTimer = null, lpFired = false;
+    const clearLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+
+    list.addEventListener("touchstart", (e) => {
+      const r = e.target.closest("[data-row]");
+      if (!r || e.target.closest("[data-select], [data-toggle], [data-edit], [data-inline-due]")) { row = null; return; }
+      row = r; id = r.dataset.row;
+      startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+      dx = 0; axis = null; lpFired = false;
+      row.style.transition = "none";
+      const tx = startX, ty = startY;
+      lpTimer = setTimeout(() => {
+        if (axis) return;
+        lpFired = true;
+        row.style.transform = "";
+        row.classList.remove("swipe-done", "swipe-snooze");
+        if (navigator.vibrate) navigator.vibrate(12);
+        openRowMenu(id, tx, ty);
+      }, 480);
+    }, { passive: true });
+
+    list.addEventListener("touchmove", (e) => {
+      if (!row) return;
+      const x = e.touches[0].clientX, y = e.touches[0].clientY;
+      const ddx = x - startX, ddy = y - startY;
+      if (!axis) {
+        if (Math.abs(ddx) < 9 && Math.abs(ddy) < 9) return;
+        axis = Math.abs(ddx) > Math.abs(ddy) ? "x" : "y";
+        clearLp();
+      }
+      if (axis !== "x" || lpFired) return;
+      e.preventDefault();
+      dx = Math.max(-110, Math.min(110, ddx));
+      row.style.transform = `translateX(${dx}px)`;
+      row.classList.toggle("swipe-done", dx < -50);
+      row.classList.toggle("swipe-snooze", dx > 50);
+    }, { passive: false });
+
+    list.addEventListener("touchend", () => {
+      clearLp();
+      if (!row || lpFired) { row = null; return; }
+      row.style.transition = "";
+      const commitDx = dx;
+      row.style.transform = "";
+      row.classList.remove("swipe-done", "swipe-snooze");
+      if (axis === "x") {
+        const a = S.byId("assignments", id);
+        if (a && commitDx < -70) toggleDoneWithUndo(a);
+        else if (a && commitDx > 70) snoozeForm(a.id);
+      }
+      row = null; id = null; axis = null;
+    });
+
+    list.addEventListener("touchcancel", () => {
+      clearLp();
+      if (row) { row.style.transition = ""; row.style.transform = ""; row.classList.remove("swipe-done", "swipe-snooze"); }
+      row = null;
+    });
+  }
+
+  // U22 — click a due-date badge in the list to change it right there.
+  let dueEditor = null;
+  function closeDueEditor() {
+    if (!dueEditor) return;
+    dueEditor.remove();
+    dueEditor = null;
+    document.removeEventListener("click", onDueEditorOutside, true);
+  }
+  function onDueEditorOutside(e) { if (dueEditor && !dueEditor.contains(e.target)) closeDueEditor(); }
+
+  function openInlineDueEditor(anchorEl) {
+    closeDueEditor();
+    const id = anchorEl.dataset.inlineDue;
+    const a = S.byId("assignments", id);
+    if (!a) return;
+    const r = anchorEl.getBoundingClientRect();
+    const el = document.createElement("div");
+    el.className = "inline-due-pop";
+    el.innerHTML = `<input type="date" class="input input-sm" value="${a.due}" />`;
+    document.body.appendChild(el);
+    el.style.left = Math.max(8, Math.min(r.left, window.innerWidth - el.offsetWidth - 8)) + "px";
+    el.style.top = (r.bottom + 6) + "px";
+    const input = el.querySelector("input");
+    input.focus();
+    const commit = () => {
+      const newDue = input.value;
+      if (newDue && newDue !== a.due) {
+        const prevDue = a.due;
+        S.update("assignments", id, { due: newDue });
+        UI.pushUndo(`Move "${a.title}" due date`, () => S.update("assignments", id, { due: prevDue }));
+        UI.toast("Due date updated", `${a.title} · ${U.relDate(newDue)}`, "ok");
+      }
+      closeDueEditor();
+    };
+    input.addEventListener("change", commit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeDueEditor();
+      if (e.key === "Enter") { e.preventDefault(); commit(); }
+    });
+    dueEditor = el;
+    setTimeout(() => document.addEventListener("click", onDueEditorOutside, true), 0);
+  }
+
+  // U24 — j/k move a cursor through the list, Enter opens it, x selects it.
+  // Re-bound (not re-added) on every mount, since a data change repaints
+  // the view without going through the router's unmount.
+  let kbHandler = null;
+  function initKeyboardNav() {
+    if (kbHandler) document.removeEventListener("keydown", kbHandler);
+    kbHandler = (e) => {
+      if (App.router.current !== "homework" || mode !== "list") return;
+      if (document.querySelector(".modal-root")) return;
+      const tag = document.activeElement ? document.activeElement.tagName : "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      const rows = visible();
+      if (!rows.length) return;
+      let idx = cursorId ? rows.findIndex((a) => a.id === cursorId) : -1;
+
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        idx = Math.min(rows.length - 1, idx + 1);
+        cursorId = rows[idx].id;
+        renderLimit = Math.max(renderLimit, idx + 5);
+      } else if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        idx = Math.max(0, idx - 1);
+        cursorId = rows[idx].id;
+      } else if (e.key === "Enter") {
+        if (idx < 0) return;
+        e.preventDefault();
+        detail(rows[idx].id);
+        return;
+      } else if (e.key === "x") {
+        if (idx < 0) return;
+        e.preventDefault();
+        selectMode = true;
+        const id = rows[idx].id;
+        if (selected.has(id)) selected.delete(id); else selected.add(id);
+      } else return;
+
+      App.router.refresh();
+      requestAnimationFrame(() => {
+        const el = document.querySelector(".hw-row.kb-cursor");
+        if (el) el.scrollIntoView({ block: "nearest" });
+      });
+    };
+    document.addEventListener("keydown", kbHandler);
+  }
+
+  // U33 — grow the rendered window as the sentinel scrolls into view.
+  let sentinelObserver = null;
+  function initSentinel(root) {
+    if (sentinelObserver) sentinelObserver.disconnect();
+    const sentinel = root.querySelector("[data-sentinel]");
+    const page = document.getElementById("page");
+    if (!sentinel || !page) return;
+    sentinelObserver = new IntersectionObserver((entries) => {
+      if (entries.some((en) => en.isIntersecting)) {
+        renderLimit += RENDER_STEP;
+        App.router.refresh();
+      }
+    }, { root: page, rootMargin: "400px" });
+    sentinelObserver.observe(sentinel);
+  }
+
   /* ------------------------------------------------------------ render -- */
 
   function listHTML(rows) {
@@ -495,10 +737,15 @@ App.views.homework = (function () {
         filter.q || filter.cls ? "Try clearing your filters." : "You're all caught up.",
         `<button class="btn btn-primary" data-add>+ Add assignment</button>`);
     }
-    return `<div class="list">${rows.map((a) => {
+    // U33 — only the first `renderLimit` rows are in the DOM; a sentinel at
+    // the end reveals more as it scrolls into view.
+    const shown = rows.slice(0, renderLimit);
+    const hasMore = rows.length > shown.length;
+
+    return `<div class="list">${shown.map((a) => {
       const c = S.cls(a.classId);
       const prog = S.progressOf(a);
-      return `<div class="hw-row ${a.status === "done" ? "done" : ""}">
+      return `<div class="hw-row ${a.status === "done" ? "done" : ""} ${cursorId === a.id ? "kb-cursor" : ""}" data-row="${a.id}">
         ${selectMode
           ? `<input type="checkbox" class="check" data-select="${a.id}" ${selected.has(a.id) ? "checked" : ""}
                     aria-label="Select for batch edit" style="margin-top:2px" />`
@@ -518,10 +765,10 @@ App.views.homework = (function () {
           ${prog > 0 && prog < 1 ? `<div class="bar thin" style="margin-top:6px;max-width:220px"><i style="width:${prog * 100}%"></i></div>` : ""}
         </span>
         ${UI.priorityBadge(a.priority)}
-        ${UI.dueBadge(a.due)}
+        <span class="due-inline" data-inline-due="${a.id}" tabindex="0" role="button" aria-label="Edit due date">${UI.dueBadge(a.due)}</span>
         <button class="icon-btn btn-sm" data-edit="${a.id}" aria-label="Edit">✎</button>
       </div>`;
-    }).join("")}</div>`;
+    }).join("")}${hasMore ? `<div class="list-sentinel" data-sentinel></div>` : ""}</div>`;
   }
 
   function boardHTML(rows) {
@@ -694,8 +941,18 @@ App.views.homework = (function () {
       if (!selectMode) selected.clear();
       App.router.refresh();
     });
-    U.on(root, "change", "[data-select]", (_e, el) => {
-      if (el.checked) selected.add(el.dataset.select); else selected.delete(el.dataset.select);
+    // U20 — shift-click a checkbox to select the whole run since the last
+    // one you clicked, like a file manager.
+    U.on(root, "click", "[data-select]", (e, el) => {
+      const id = el.dataset.select;
+      const rows = visible();
+      const idx = rows.findIndex((a) => a.id === id);
+      if (e.shiftKey && lastSelectedIdx != null && idx >= 0) {
+        const lo = Math.min(lastSelectedIdx, idx), hi = Math.max(lastSelectedIdx, idx);
+        for (let i = lo; i <= hi; i++) selected.add(rows[i].id);
+      } else if (el.checked) selected.add(id);
+      else selected.delete(id);
+      lastSelectedIdx = idx;
       App.router.refresh();
     });
     U.on(root, "click", "[data-bulk]", (_e, el) => {
@@ -733,6 +990,7 @@ App.views.homework = (function () {
     if (search) {
       search.addEventListener("input", U.debounce((e) => {
         filter.q = e.target.value;
+        renderLimit = RENDER_CHUNK;   // U33 — a new filter starts back at the top
         App.router.refresh();
         const s = document.querySelector("#hwSearch");
         if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
@@ -740,7 +998,7 @@ App.views.homework = (function () {
     }
     const bind = (id, key) => {
       const el = root.querySelector(id);
-      if (el) el.addEventListener("change", (e) => { filter[key] = e.target.value; App.router.refresh(); });
+      if (el) el.addEventListener("change", (e) => { filter[key] = e.target.value; renderLimit = RENDER_CHUNK; App.router.refresh(); });
     };
     bind("#fCls", "cls"); bind("#fStatus", "status"); bind("#fSort", "sort");
 
@@ -791,6 +1049,25 @@ App.views.homework = (function () {
       S.update("assignments", dragId, { status: el.dataset.col });
       dragId = null;
     });
+
+    // U21 — right-click a row for its actions instead of opening it first.
+    U.on(root, "contextmenu", "[data-row]", (e, el) => {
+      e.preventDefault();
+      openRowMenu(el.dataset.row, e.clientX, e.clientY);
+    });
+
+    // U22 — click a due date in the list and change it there.
+    U.on(root, "click", "[data-inline-due]", (e, el) => {
+      e.stopPropagation();
+      openInlineDueEditor(el);
+    });
+    U.on(root, "keydown", "[data-inline-due]", (e, el) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInlineDueEditor(el); }
+    });
+
+    initRowTouch(root);     // U19 swipe + U28 long-press
+    initSentinel(root);     // U33 incremental rendering
+    initKeyboardNav();      // U24 j/k list navigation
   }
 
   return { render, mount, form, detail, title: "Homework" };

@@ -674,6 +674,16 @@
     U.on(document.getElementById("mobileTabbar"), "click", "[data-view]", (_e, el) => router.go(el.dataset.view)); // U05
     U.on(document.getElementById("mobileTabbar"), "click", "[data-tabbar-more]", openSidebar);
     initPullToRefresh(); // U27
+
+    // U25 — Ctrl+Z / Cmd+Z anywhere, not just the toast's own Undo button.
+    // Yields to native text-field undo when a text input has focus.
+    document.addEventListener("keydown", (e) => {
+      if (e.key.toLowerCase() !== "z" || e.shiftKey || !(e.ctrlKey || e.metaKey)) return;
+      const tag = document.activeElement ? document.activeElement.tagName : "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || (document.activeElement && document.activeElement.isContentEditable)) return;
+      const label = UI.popUndo();
+      if (label) { e.preventDefault(); UI.toast("Undone", label, "ok"); }
+    });
     document.getElementById("profileChip").addEventListener("click", () => router.go("settings"));
     document.getElementById("syncBtn").addEventListener("click", () => {
       if (App.sync.isSignedIn()) App.sync.push(false).then(() => UI.toast("Synced", "", "ok"));

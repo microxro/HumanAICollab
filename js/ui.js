@@ -50,14 +50,33 @@ App.ui = (function () {
     return kill;
   }
 
+  /* --------------------------------------------------------- U25 undo -- */
+  // A small LIFO of recent reversible actions. Any call site can push
+  // { label, undo() } here to get Ctrl+Z support for free — deleteWithUndo
+  // does it automatically, so every soft-delete in the app already qualifies.
+  const undoStack = [];
+  const UNDO_MAX = 20;
+  function pushUndo(label, undo) {
+    undoStack.push({ label, undo });
+    if (undoStack.length > UNDO_MAX) undoStack.shift();
+  }
+  function popUndo() {
+    const entry = undoStack.pop();
+    if (!entry) return null;
+    entry.undo();
+    return entry.label;
+  }
+
   /** Soft-delete with a one-tap Undo — the safety net for every destructive action. */
   function deleteWithUndo(coll, id, label) {
     const token = App.store.remove(coll, id);
     if (!token) return;
+    const restore = () => App.store.restore(token);
+    pushUndo(`Delete "${label || "item"}"`, restore);
     toast("Deleted", label || "", "warn", {
       label: "Undo",
       onClick() {
-        App.store.restore(token);
+        restore();
         toast("Restored", label || "", "ok");
       }
     });
@@ -367,10 +386,61 @@ App.ui = (function () {
     return `<span class="badge ${kind}">${U.esc(U.relDate(iso))}</span>`;
   }
 
+  /* ------------------------------------------------ U21/U28 — flyout menu -- */
+  // A small floating action menu anchored near a point — right-click for a
+  // context menu, or a touch point for a mobile long-press quick-action menu.
+  // Items: [{ label, icon, danger, run() }] or { divider: true }.
+
+  let openMenu = null;
+  function closeMenuNode() {
+    if (!openMenu) return;
+    openMenu.remove();
+    openMenu = null;
+    document.removeEventListener("click", onMenuOutside, true);
+    document.removeEventListener("keydown", onMenuKey);
+    document.removeEventListener("scroll", closeMenuNode, true);
+  }
+  function onMenuOutside(e) { if (openMenu && !openMenu.contains(e.target)) closeMenuNode(); }
+  function onMenuKey(e) { if (e.key === "Escape") closeMenuNode(); }
+
+  function menu(items, x, y) {
+    closeMenuNode();
+    const el = document.createElement("div");
+    el.className = "ctx-menu";
+    el.setAttribute("role", "menu");
+    el.innerHTML = items.map((it, i) => it.divider
+      ? `<div class="ctx-menu-sep"></div>`
+      : `<button type="button" class="ctx-menu-item ${it.danger ? "danger" : ""}" data-i="${i}" role="menuitem">
+           ${it.icon ? `<span class="ico">${it.icon}</span>` : ""}<span>${U.esc(it.label)}</span>
+         </button>`).join("");
+    document.body.appendChild(el);
+
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const r = el.getBoundingClientRect();
+    el.style.left = Math.max(8, Math.min(x, vw - r.width - 8)) + "px";
+    el.style.top = Math.max(8, Math.min(y, vh - r.height - 8)) + "px";
+
+    el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-i]");
+      if (!b) return;
+      const it = items[Number(b.dataset.i)];
+      closeMenuNode();
+      if (it && it.run) it.run();
+    });
+
+    openMenu = el;
+    setTimeout(() => {
+      document.addEventListener("click", onMenuOutside, true);
+      document.addEventListener("keydown", onMenuKey);
+      document.addEventListener("scroll", closeMenuNode, true);
+    }, 0);
+    return el;
+  }
+
   return {
-    toast, deleteWithUndo, modal, closeModal, confirm, confirmTyped, prompt,
+    toast, deleteWithUndo, pushUndo, popUndo, modal, closeModal, confirm, confirmTyped, prompt,
     avatar, emptyState, classOptions, teacherOptions,
     colorPicker, bindSwatches, dayPicker, bindDays,
-    gradePill, priorityBadge, dueBadge
+    gradePill, priorityBadge, dueBadge, menu
   };
 })();

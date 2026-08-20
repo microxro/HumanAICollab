@@ -266,6 +266,27 @@
 .subtask span { transition: color .25s var(--ease); }
 .subtask.done span { text-decoration: line-through; color: var(--text-3); }
 
+/* U23 — drag handle on a checklist step */
+.drag-handle { cursor: grab; color: var(--text-3); flex-shrink: 0; touch-action: none; }
+.drag-handle:active { cursor: grabbing; }
+[data-st].dragging { opacity: .4; }
+
+/* U19 — swipe-to-complete / swipe-to-snooze on mobile */
+.hw-row { touch-action: pan-y; position: relative; }
+.hw-row.swipe-done { background: var(--ok-bg); }
+.hw-row.swipe-snooze { background: var(--warn-bg); }
+
+/* U24 — keyboard list cursor (j/k) */
+.hw-row.kb-cursor { box-shadow: inset 3px 0 0 var(--brand-600); background: var(--surface-2); }
+
+/* U22 — inline-editable due badge in the list */
+.due-inline { cursor: pointer; display: inline-flex; border-radius: var(--radius-xs); }
+.due-inline:hover .badge, .due-inline:focus-visible .badge { box-shadow: 0 0 0 2px var(--brand-200); }
+.due-inline:focus-visible { outline: none; }
+
+/* U33 — the incremental-render sentinel is invisible, just a scroll trigger */
+.list-sentinel { height: 1px; }
+
 /* ------------------------------------------------------------ grades -- */
 
 .grade-pill {
