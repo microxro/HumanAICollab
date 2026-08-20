@@ -11,11 +11,20 @@
      codes      code     → groupId  (join-code lookup)
      checkins       studentId → [{ id, fromId, fromName, at, respondedAt }]
      guardianNotes  studentId → [{ id, fromId, fromName, text, at, read }]
+     focusWindows   studentId → [{ id, fromId, fromName, startAt, endAt, note, status, ... }]
+     locationEvents studentId → [{ type: "arrival"|"departure", at }]
+     icsTokens      userId    → { token }
+     icsFeeds       token     → { ics, updatedAt }
+     passwordResets token     → { userId, expiresAt }
    ========================================================================== */
 
 import { getStore } from "@netlify/blobs";
 
-const STORES = ["users", "profiles", "state", "links", "locations", "groups", "codes", "checkins", "guardianNotes"];
+const STORES = [
+  "users", "profiles", "state", "links", "locations", "groups", "codes",
+  "checkins", "guardianNotes", "focusWindows", "locationEvents",
+  "icsTokens", "icsFeeds", "passwordResets"
+];
 
 function store(name) {
   if (!STORES.includes(name)) throw new Error("Unknown store: " + name);

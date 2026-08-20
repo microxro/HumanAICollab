@@ -25,7 +25,7 @@ before being committed. A handful of bugs were caught this way and fixed
 before shipping (see commit history for specifics), rather than only
 checked for syntax.
 
-**Functionality — 84 of 100 shipped.** F001–F045 and F048–F052 (grading,
+**Functionality — 86 of 100 shipped.** F001–F045 and F048–F052 (grading,
 assignments, study tools, scheduling), F053, F064, F065, F067, F068, F071,
 F072 (friend requests, invite links, grade-drop alerts, check-ins, guardian
 notes, emergency contacts), F073–F092 (wellbeing and insight, all of it),
@@ -35,21 +35,26 @@ builds for one-time export to a server-hosted subscribe URL), F058 (feed
 post comments), F060 (anonymous class-wide difficulty ratings, with the
 who-voted list stripped before the feed ever reaches a client), F069
 (arrival/departure alerts, computed by diffing each location push against
-the last one server-side rather than a continuous feed), and F070 (agreed
+the last one server-side rather than a continuous feed), F070 (agreed
 focus windows, mirroring the existing guardian check-in request/respond
-pattern).
+pattern), F098 (password reset — a Resend-backed email with a one-time,
+30-minute token), and F066 (a weekly digest email, sent by a Netlify
+scheduled function, built entirely from the same privacy-filtered summary
+each student's device already pushes for the parent portal — so it can't
+leak anything a student didn't already agree to share).
 
-**Not attempted — 16 items**, still genuinely blocked on infrastructure
+**Not attempted — 14 items**, still genuinely blocked on infrastructure
 this sandbox doesn't have or deprioritized as large, narrow-value backend
 surface: F047 (two-way calendar sync — needs a deployed backend to verify
 against), F054–F056, F057, F059, F061–F063 (deeper group features — task
 assignment, common free period, peer tutoring, attributed notes,
 challenges — each needs new cross-member data sharing beyond what groups
-currently sync), F066, F095, F098 (email-dependent — no email service
-configured), F093, F094, F097 (real OAuth credentials for Google/Canvas —
-none exist in this environment), F100 (a public API + webhooks is its own
-project: token issuance, a documented read surface, delivery retries — sized
-**L** for a reason).
+currently sync), F095 (inbound email parsing needs a different provider
+than the outbound one F066/F098 use — deprioritized on its own), F093,
+F094, F097 (real OAuth credentials for Google/Canvas — none exist in this
+environment), F100 (a public API + webhooks is its own project: token
+issuance, a documented read surface, delivery retries — sized **L** for a
+reason).
 
 **Interface — 45 of 50 shipped**, all with zero visual redesign — every new
 token or component layers onto the existing design system rather than

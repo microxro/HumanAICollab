@@ -130,6 +130,8 @@ a:hover { text-decoration: underline; }
 
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
+.btn-link { color: var(--brand-600); background: none; border: none; padding: 0; font-weight: 600; }
+.btn-link:hover { text-decoration: underline; }
 
 :focus-visible {
   outline: 2px solid var(--brand-500);

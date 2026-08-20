@@ -4,6 +4,8 @@
    Routes (all under /api):
      POST   /auth/signup            create an account
      POST   /auth/login             exchange credentials for a bearer token
+     POST   /auth/forgot            (F098) email a password-reset link
+     POST   /auth/reset             (F098) redeem that link's token
      GET    /me                     current user
      POST   /me                     update display name
 
@@ -37,6 +39,7 @@ import {
   randomId, randomCode
 } from "./_lib/auth.js";
 import { readJSON, writeJSON, remove } from "./_lib/blobs.js";
+import { sendEmail, layout } from "./_lib/email.js";
 
 const MAX_STATE_BYTES = 5 * 1024 * 1024;
 const MAX_FAILED_LOGINS = 8;
@@ -170,6 +173,70 @@ async function login(req) {
 
 function publicUser(p) {
   return { id: p.id, email: p.email, name: p.name, role: p.role, links: p.links || [], groups: p.groups || [] };
+}
+
+/* ---------------------------------------------------- F098 password reset */
+
+const RESET_TTL_MS = 30 * 60 * 1000;   // 30 minutes
+
+function siteOrigin(req) {
+  return process.env.SITE_URL || new URL(req.url).origin;
+}
+
+async function forgotPassword(req) {
+  const b = await body(req);
+  const email = normalizeEmail(b.email);
+  // Same response whether or not the account exists, so this endpoint
+  // can't be used to check who has a Scholar account.
+  const generic = () => ok({ sent: true });
+  if (!validEmail(email)) return generic();
+
+  const key = await emailKey(email);
+  const rec = await readJSON("users", key);
+  if (!rec) return generic();
+
+  const profile = await readJSON("profiles", rec.id);
+  const token = randomId(24);
+  await writeJSON("passwordResets", token, { userKey: key, userId: rec.id, expiresAt: Date.now() + RESET_TTL_MS });
+
+  // ?resetToken=... (not a hash route) — same pattern as the existing
+  // ?join=CODE group-invite link, read once at boot in js/app.js.
+  const resetUrl = `${siteOrigin(req)}/?resetToken=${encodeURIComponent(token)}`;
+  await sendEmail({
+    to: email,
+    subject: "Reset your Scholar password",
+    html: layout("Reset your password", `
+      <p>Someone (hopefully you) asked to reset the password for this Scholar account${profile ? ", " + escapeHtml(profile.name) : ""}.</p>
+      <p style="margin:24px 0"><a href="${resetUrl}" style="background:#4f46e5;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Reset password</a></p>
+      <p style="color:#4b5568;font-size:.85rem">This link works once and expires in 30 minutes. If you didn't request this, ignore this email — your password hasn't changed.</p>
+    `)
+  }).catch((e) => console.error("[forgotPassword] send failed", e));
+
+  return generic();
+}
+
+async function resetPassword(req) {
+  const b = await body(req);
+  const token = String(b.token || "");
+  const rec = await readJSON("passwordResets", token, null);
+  if (!rec || rec.expiresAt < Date.now()) return fail(400, "That reset link is invalid or has expired.");
+
+  const pwProblem = passwordProblem(b.password);
+  if (pwProblem) return fail(400, pwProblem);
+
+  const user = await readJSON("users", rec.userKey);
+  if (!user) return fail(404, "That account no longer exists.");
+
+  user.pw = await hashPassword(b.password);
+  user.failed = 0;
+  user.lockedUntil = 0;
+  await writeJSON("users", rec.userKey, user);
+  await remove("passwordResets", token);
+  return ok({ reset: true });
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 /* ----------------------------------------------------------------- sync -- */
@@ -740,6 +807,9 @@ export default async (req) => {
     if (parts[0] === "health") return ok({ ok: true, time: Date.now() });
     if (parts[0] === "auth" && parts[1] === "signup" && method === "POST") return await signup(req);
     if (parts[0] === "auth" && parts[1] === "login" && method === "POST") return await login(req);
+    // F098 — forgotten-password flow is necessarily unauthenticated.
+    if (parts[0] === "auth" && parts[1] === "forgot" && method === "POST") return await forgotPassword(req);
+    if (parts[0] === "auth" && parts[1] === "reset" && method === "POST") return await resetPassword(req);
     // F046 — a calendar app polling a subscribe URL can't send a bearer
     // token, so this one route is public, gated by an unguessable token
     // instead (minted by the authenticated POST route below).

@@ -110,6 +110,11 @@ App.sync = (function () {
     return res.user;
   }
 
+  // F098 — password reset. Both endpoints are unauthenticated (call() only
+  // adds a bearer header when signed in, so these work fine while logged out).
+  async function forgotPassword(email) { return call("/auth/forgot", { method: "POST", body: { email } }); }
+  async function resetPassword(token, password) { return call("/auth/reset", { method: "POST", body: { token, password } }); }
+
   function adoptSession(res) {
     state.token = res.token;
     state.user = res.user;
@@ -392,7 +397,7 @@ App.sync = (function () {
 
   return {
     init, info, isSignedIn, on,
-    signUp, signIn, signOut, restore,
+    signUp, signIn, signOut, restore, forgotPassword, resetPassword,
     push, pull, pullAndMerge, queue,
     createLinkCode, redeemLinkCode, children, parents, unlink,
     pushLocation, readLocation,

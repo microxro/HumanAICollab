@@ -25,7 +25,7 @@ npm install
 npx netlify dev                 # local, with functions
 ```
 
-To deploy, connect the repo to Netlify and **set one environment variable**:
+To deploy, connect the repo to Netlify and **set one required environment variable**:
 
 | Variable | Value |
 |---|---|
@@ -37,6 +37,16 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
 Netlify Blobs needs no setup — it's provisioned automatically. The API refuses to issue tokens if `SCHOLAR_SECRET` is missing rather than falling back to a guessable default.
+
+**Optional — email** (password reset, and the weekly parent digest). Without these set, both features log a skip instead of erroring — the rest of the app works exactly the same either way.
+
+| Variable | Value |
+|---|---|
+| `RESEND_API_KEY` | From [resend.com](https://resend.com) → API Keys. |
+| `EMAIL_FROM` | An address on a domain you've **verified** in Resend (Domains → Add Domain). Falls back to `onboarding@resend.dev`, which is fine for testing but gets flagged by real inboxes — don't ship with it. |
+| `SITE_URL` | Only needed if the deploy's own URL isn't right for links inside emails (custom domain, preview deploys). Falls back to the request's own origin. |
+
+The weekly digest (`netlify/functions/weekly-digest.js`) runs on Netlify's scheduler — no extra setup, but you can change the cron expression at the bottom of that file if Monday 13:00 UTC isn't the right time for your users.
 
 ---
 

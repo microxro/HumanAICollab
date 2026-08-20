@@ -73,8 +73,17 @@ App.views.settings = (function () {
           <span class="hint">A parent account sees a linked student's status — it doesn't track homework of its own.</span>
         </div>` : ""}
       </div>
+      ${!isSignup ? `<p class="mt-8"><button type="button" class="btn-link small" data-forgot>Forgot your password?</button></p>` : ""}
       <p class="hint mt-12">Your data is stored under your account so it follows you between devices.
         Sign out any time — the local copy stays on this device.</p>`,
+      onMount(root) {
+        const forgot = root.querySelector("[data-forgot]");
+        if (forgot) forgot.addEventListener("click", () => {
+          const email = root.querySelector('[name="email"]').value.trim();
+          UI.closeModal();
+          setTimeout(() => forgotPasswordForm(email), 60);
+        });
+      },
       onSubmit(d) {
         const p = isSignup
           ? App.sync.signUp(d.email, d.password, d.name, d.role)
@@ -86,6 +95,43 @@ App.views.settings = (function () {
       }
     });
   }
+
+  /* ------------------------------------------------------- F098 reset -- */
+
+  function forgotPasswordForm(prefillEmail) {
+    UI.modal({
+      title: "Reset your password",
+      sub: "We'll email a link that works once and expires in 30 minutes.",
+      okLabel: "Send reset link",
+      body: `<div class="field">
+          <label>Email</label>
+          <input class="input" type="email" name="email" required autocomplete="email" value="${U.esc(prefillEmail || "")}" />
+        </div>`,
+      onSubmit(d) {
+        App.sync.forgotPassword(d.email.trim())
+          .then(() => UI.toast("Check your email", "If that address has an account, a reset link is on its way.", "ok"))
+          .catch((e) => UI.toast("Couldn't send that", e.message, "danger"));
+      }
+    });
+  }
+
+  function resetPasswordForm(token) {
+    UI.modal({
+      title: "Set a new password",
+      okLabel: "Set password",
+      body: `<div class="field">
+          <label>New password</label>
+          <input class="input" type="password" name="password" required minlength="8" autocomplete="new-password" />
+          <span class="hint">At least 8 characters, with a letter and a number.</span>
+        </div>`,
+      onSubmit(d) {
+        App.sync.resetPassword(token, d.password)
+          .then(() => UI.toast("Password updated", "Sign in with your new password.", "ok"))
+          .catch((e) => UI.toast("Couldn't reset it", e.message, "danger"));
+      }
+    });
+  }
+  App.resetPasswordForm = resetPasswordForm;   // reached from a ?resetToken= link at boot (js/app.js)
 
   function accountTab() {
     const s = App.sync.info();

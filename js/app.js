@@ -799,6 +799,14 @@
       }, 60);
     }
 
+    // F098 — a password-reset email link (?resetToken=...) opens the
+    // "set a new password" form directly, same pattern as ?join= above.
+    const resetToken = new URL(location.href).searchParams.get("resetToken");
+    if (resetToken) {
+      history.replaceState(null, "", location.pathname + location.hash);
+      setTimeout(() => App.resetPasswordForm && App.resetPasswordForm(resetToken), 60);
+    }
+
     // Profile chip
     const p = S.profile;
     document.getElementById("profileChip").innerHTML = `
