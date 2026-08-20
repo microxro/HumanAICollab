@@ -507,7 +507,10 @@ App.views.classes = (function () {
         const p = S.period(c.periodId);
         const pct = S.classGrade(c.id);
         const gd = S.gradeDisplay(c.id);
-        const open = S.assignmentsFor(c.id).filter((a) => a.status !== "done").length;
+        const work = S.assignmentsFor(c.id);
+        const open = work.filter((a) => a.status !== "done").length;
+        // U38 — how much of a class's work is done, visible without opening it.
+        const doneRatio = work.length ? (work.filter((a) => a.status === "done").length / work.length) * 100 : 0;
         return `<div class="card card-link" data-class="${c.id}">
           <div style="height:4px;background:${U.esc(c.color)};border-radius:var(--radius) var(--radius) 0 0"></div>
           <div class="card-body">
@@ -516,7 +519,10 @@ App.views.classes = (function () {
                 <h3 class="truncate">${U.esc(c.name)}</h3>
                 <div class="tiny dim">${U.esc(c.code || "")}${c.code && p ? " · " : ""}${U.esc(p ? p.name : "")}</div>
               </div>
-              ${gd.mode === "percentage" ? UI.gradePill(pct) : `<span class="badge">${U.esc(gd.label)}</span>`}
+              <div class="row gap-6" style="align-items:center;flex-shrink:0">
+                ${work.length ? C.ring(doneRatio, { size: 34, stroke: 4, color: c.color, label: "" }) : ""}
+                ${gd.mode === "percentage" ? UI.gradePill(pct) : `<span class="badge">${U.esc(gd.label)}</span>`}
+              </div>
             </div>
             <div class="row gap-8 small muted mb-8">
               ${t ? UI.avatar(t.name, c.color, "sm") : ""}

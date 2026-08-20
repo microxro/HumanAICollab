@@ -66,16 +66,42 @@ App.ui = (function () {
   /* ------------------------------------------------------------ modals -- */
 
   let openModal = null;
+  let lastFocused = null;   // U42 — where to return focus once every modal in the chain is closed
 
-  function closeModal() {
+  // Tears down the current modal's DOM/listeners only — no focus restore.
+  // Used internally when one modal replaces another mid-chain (edit -> confirm),
+  // where restoring focus would be premature (a new modal is about to steal it).
+  function removeModalNode() {
     if (!openModal) return;
     openModal.remove();
     openModal = null;
     document.removeEventListener("keydown", escClose);
+    document.removeEventListener("keydown", trapFocus);
+  }
+
+  function closeModal() {
+    if (!openModal) return;
+    removeModalNode();
+    if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
+    lastFocused = null;
   }
 
   function escClose(e) {
     if (e.key === "Escape") closeModal();
+  }
+
+  // U42 — Tab must not escape the dialog while it's open.
+  function focusables(root) {
+    return U.$$('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', root)
+      .filter((el) => el.offsetParent !== null);
+  }
+  function trapFocus(e) {
+    if (e.key !== "Tab" || !openModal) return;
+    const items = focusables(openModal);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
 
   /**
@@ -85,7 +111,11 @@ App.ui = (function () {
    * Return false from onSubmit to keep the modal open.
    */
   function modal(opts) {
-    closeModal();
+    // Only capture the trigger on a fresh open — a modal replacing another
+    // modal (edit -> confirm, etc.) should still return focus to whatever
+    // was focused before the *first* one in the chain, not the one just closing.
+    if (!openModal) lastFocused = document.activeElement;
+    removeModalNode();
 
     const root = document.createElement("div");
     root.className = "modal-root";
@@ -119,6 +149,7 @@ App.ui = (function () {
       if (e.target === root || e.target.closest("[data-close]")) closeModal();
     });
     document.addEventListener("keydown", escClose);
+    document.addEventListener("keydown", trapFocus);
 
     const form = root.querySelector("form");
     if (form && opts.onSubmit) {
