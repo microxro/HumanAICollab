@@ -150,12 +150,16 @@
       </div>`;
     }
 
+    const collapsedGroups = new Set(S.settings.collapsedNavGroups || []);
     html += NAV.map((g) => {
       const items = g.items.filter((it) => !pinnedSet.has(it.id));
       if (!items.length) return "";
-      return `<div class="nav-group">
-        <div class="nav-label">${g.group}</div>
-        ${items.map(navRow).join("")}
+      const collapsed = collapsedGroups.has(g.group);
+      return `<div class="nav-group ${collapsed ? "collapsed" : ""}">
+        <button type="button" class="nav-label nav-label-btn" data-toggle-group="${U.esc(g.group)}">
+          <span class="grow">${g.group}</span><span class="chev">${collapsed ? "›" : "⌄"}</span>
+        </button>
+        ${collapsed ? "" : items.map(navRow).join("")}
       </div>`;
     }).join("");
 
@@ -520,6 +524,15 @@
     U.on(document.getElementById("navScroll"), "click", "[data-pin-nav]", (e, el) => {
       e.stopPropagation();
       S.togglePinnedNav(el.dataset.pinNav);
+      renderNav();
+    });
+    U.on(document.getElementById("navScroll"), "click", "[data-toggle-group]", (_e, el) => {
+      const name = el.dataset.toggleGroup;
+      S.commit((db) => {
+        const i = db.settings.collapsedNavGroups.indexOf(name);
+        if (i >= 0) db.settings.collapsedNavGroups.splice(i, 1);
+        else db.settings.collapsedNavGroups.push(name);
+      });
       renderNav();
     });
     document.getElementById("themeBtn").addEventListener("click", toggleTheme);

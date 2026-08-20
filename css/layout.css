@@ -63,6 +63,17 @@
   margin-bottom: 6px;
 }
 
+/* U07 — nav groups collapse and remember it. Reset button chrome so a
+   clickable label reads identically to the plain caption it replaces. */
+.nav-label-btn {
+  display: flex; align-items: center; width: 100%;
+  border: none; background: transparent; cursor: pointer;
+  font: inherit; text-align: left;
+}
+.nav-label-btn .chev { font-size: .8rem; opacity: .6; }
+.nav-label-btn:hover { color: var(--text-2); }
+.nav-group.collapsed { margin-bottom: 0; }
+
 .nav-item {
   display: flex;
   align-items: center;

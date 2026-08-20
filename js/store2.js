@@ -51,6 +51,7 @@
     if (!s.fontSize) s.fontSize = "normal";                              // U11
     if (s.dyslexicFont === undefined) s.dyslexicFont = false;            // U11
     if (s.trueBlack === undefined) s.trueBlack = false;                  // U13
+    if (!s.collapsedNavGroups) s.collapsedNavGroups = [];                 // U07
     if (s.onboarded === undefined) s.onboarded = true;                   // U49 (seed data ships pre-onboarded)
     if (!s.dashboardLayout) s.dashboardLayout = ["hero", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]; // F083
     if (!s.locale) s.locale = "en";                                     // F099
