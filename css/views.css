@@ -511,9 +511,42 @@
 .scroll-x { overflow-x: auto; }
 
 @media print {
-  .sidebar, .topbar, .page-actions, .toast-host { display: none !important; }
+  .sidebar, .topbar, .page-actions, .toast-host,
+  .mobile-tabbar, .fab-add, .ptr-indicator { display: none !important; }
   .page { overflow: visible; padding: 0; }
   .card { box-shadow: none; break-inside: avoid; }
+
+  /* U36 — a schedule to pin on a wall: the scroll clip and card frame
+     are for screen only, and the class colors need to survive printing. */
+  .print-sheet { border: none; box-shadow: none; }
+  .print-sheet .scroll-x { overflow: visible; }
+  .timetable { min-width: 0 !important; }
+  .tt-cell, .cal-day[data-load], .cal-pill {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* U36 — printing while a modal is open (transcript, formula sheets)
+     should print that modal's full content, not a clipped fixed-position
+     box over a dark backdrop. */
+  body:has(.modal-root) > *:not(.modal-root) { display: none !important; }
+  .modal-root {
+    position: static !important;
+    inset: auto !important;
+    background: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+  .modal {
+    max-width: none !important;
+    max-height: none !important;
+    width: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .modal-body { overflow: visible !important; }
+  .modal-head [data-close], .modal-foot { display: none !important; }
 }
 
 /* ==========================================================================

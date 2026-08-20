@@ -145,11 +145,12 @@ App.views.schedule = (function () {
         <div class="page-actions">
           <button class="btn btn-sm" data-weekend>${showWeekend ? "Hide" : "Show"} weekend</button>
           <button class="btn" data-periods>🔔 Bell schedule</button>
+          <button class="btn" data-print title="A wall-friendly printout of this timetable">🖨 Print</button>
           <button class="btn btn-primary" data-add>+ Add class</button>
         </div>
       </div>
 
-      <div class="card mb-16">
+      <div class="card mb-16 print-sheet">
         <div class="card-head"><h3>Weekly timetable</h3><span class="sub">Click a block to open the class</span></div>
         <div class="card-body">${timetable()}</div>
       </div>
@@ -167,6 +168,7 @@ App.views.schedule = (function () {
     U.on(root, "click", "[data-add]", () => App.views.classes.classForm(null));
     U.on(root, "click", "[data-periods]", () => App.router.go("classes"));
     U.on(root, "click", "[data-weekend]", () => { showWeekend = !showWeekend; App.router.refresh(); });
+    U.on(root, "click", "[data-print]", () => window.print());
     U.on(root, "change", "[data-bell-variant]", (_e, el) => {
       S.setBellVariant(el.dataset.bellVariant, el.value || null);
       UI.toast(el.value ? "Bell variant set" : "Back to normal schedule", S.settings.bellVariants[el.value]?.label || "", "ok");
