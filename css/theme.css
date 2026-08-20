@@ -249,3 +249,43 @@ button { cursor: pointer; }
   --surface-3: #131313;
   --border: #1c1c1c;
 }
+
+/* ================================================================ U12
+   High contrast — stronger text, borders, and focus rings for low vision
+   or a bright outdoor screen. Layers over either theme without touching
+   layout, exactly like true-black does for dark mode. */
+[data-contrast="high"] {
+  --text: #000000;
+  --text-2: #141414;
+  --text-3: #3a3a3a;
+  --border: #000000;
+  --border-strong: #000000;
+  --surface-2: #ececec;
+  --surface-3: #dcdcdc;
+  --danger: #b30000;
+  --warn: #8a5200;
+  --ok: #0b6e2c;
+}
+[data-theme="dark"][data-contrast="high"] {
+  --text: #ffffff;
+  --text-2: #f2f2f2;
+  --text-3: #cfcfcf;
+  --border: #ffffff;
+  --border-strong: #ffffff;
+  --surface-2: #1a1a1a;
+  --surface-3: #292929;
+  --danger: #ff6b6b;
+  --warn: #ffc24d;
+  --ok: #5ce08a;
+}
+[data-contrast="high"] .btn,
+[data-contrast="high"] .input,
+[data-contrast="high"] .select,
+[data-contrast="high"] .textarea,
+[data-contrast="high"] .check {
+  border-width: 2px;
+}
+[data-contrast="high"] :focus-visible {
+  outline: 3px solid var(--brand-600);
+  outline-offset: 2px;
+}

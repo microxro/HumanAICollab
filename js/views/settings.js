@@ -269,6 +269,7 @@ App.views.settings = (function () {
           </div>
           ${toggleRow("Dyslexia-friendly type", "Wider letter spacing and a clearer face", st.dyslexicFont, `data-pref="dyslexicFont"`)}
           ${toggleRow("True-black dark mode", "Pure black surfaces — saves battery on OLED screens (dark mode only)", st.trueBlack, `data-pref="trueBlack"`)}
+          ${toggleRow("High contrast", "Stronger text, borders, and focus rings — for low vision or a bright outdoor screen", st.highContrast, `data-pref="highContrast"`)}
           ${toggleRow("Hide GPA", "Show progress bars without the number, if grades cause anxiety", st.wellbeing.hideGPA, `data-pref-nested="wellbeing.hideGPA"`)}
         </div>
       </div>
@@ -935,7 +936,7 @@ App.views.settings = (function () {
         App.applyTheme();
       } else {
         S.commit((db) => { db.settings[key] = el.checked; });
-        if (key === "dyslexicFont" || key === "trueBlack") App.applyShellPrefs();
+        if (key === "dyslexicFont" || key === "trueBlack" || key === "highContrast") App.applyShellPrefs();
       }
     });
     U.on(root, "change", "[data-pref-num]", (_e, el) => {

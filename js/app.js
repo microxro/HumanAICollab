@@ -229,6 +229,7 @@
     html.setAttribute("data-fontsize", S.settings.fontSize || "normal");
     if (S.settings.dyslexicFont) html.setAttribute("data-dyslexic", "1"); else html.removeAttribute("data-dyslexic");
     if (S.settings.trueBlack) html.setAttribute("data-trueblack", "1"); else html.removeAttribute("data-trueblack");
+    if (S.settings.highContrast) html.setAttribute("data-contrast", "high"); else html.removeAttribute("data-contrast"); // U12
     const ico = document.getElementById("collapseIco");
     if (ico) ico.textContent = S.settings.sidebarCollapsed ? "⇥" : "⇤";
   };
