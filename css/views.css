@@ -249,7 +249,7 @@
 .hw-row:last-child { border-bottom: none; }
 .hw-row:hover { background: var(--surface-2); }
 .hw-row.done .hw-title { text-decoration: line-through; color: var(--text-3); }
-.hw-title { font-weight: 600; font-size: .865rem; line-height: 1.35; }
+.hw-title { font-weight: 600; font-size: .865rem; line-height: 1.35; transition: color .25s var(--ease); }
 .hw-sub { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
 .hw-stripe { width: 3px; align-self: stretch; border-radius: 3px; flex-shrink: 0; min-height: 30px; }
 
@@ -263,6 +263,7 @@
   padding: 4px 0;
   font-size: .8rem;
 }
+.subtask span { transition: color .25s var(--ease); }
 .subtask.done span { text-decoration: line-through; color: var(--text-3); }
 
 /* ------------------------------------------------------------ grades -- */

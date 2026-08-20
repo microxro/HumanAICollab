@@ -159,7 +159,7 @@ App.views.settings = (function () {
         <button class="btn btn-primary" data-mint-code>Generate a link code</button>
         <div class="divider"></div>
         <h4 class="mb-8">Who can see me</h4>
-        <div id="parentList"><p class="dim small">Loading…</p></div>
+        <div id="parentList">${U.skeletonRows(1)}</div>
       </div>
     </div>`;
   }

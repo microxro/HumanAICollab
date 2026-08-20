@@ -249,7 +249,7 @@ App.views.groups = (function () {
       ${error ? `<div class="card mb-16" style="border-left:3px solid var(--danger)">
         <div class="card-body small">${U.esc(error)}</div></div>` : ""}
 
-      ${loading && !groups ? `<p class="dim center" style="padding:40px">Loading…</p>`
+      ${loading && !groups ? U.skeletonCards(3)
         : (groups && groups.length) ? `<div class="grid g-3">${groups.map((g) => `
           <div class="card card-link" data-open="${g.id}">
             <div class="card-body">

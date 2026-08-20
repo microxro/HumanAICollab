@@ -193,7 +193,7 @@ App.views.parent = (function () {
       ${error ? `<div class="card mb-16" style="border-left:3px solid var(--danger)">
         <div class="card-body small">${U.esc(error)}</div></div>` : ""}
 
-      ${loading && !kids ? `<p class="dim center" style="padding:40px">Loading…</p>`
+      ${loading && !kids ? `<div class="card">${U.skeletonRows(2)}</div>`
         : (kids && kids.length) ? kids.map(childCard).join("")
         : UI.emptyState("🔗", "No students linked yet",
             "Ask your student to open Sharing in their app and generate a link code, then enter it here.",

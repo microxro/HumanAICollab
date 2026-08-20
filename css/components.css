@@ -199,7 +199,7 @@
   transition: all .12s var(--ease);
   cursor: pointer;
 }
-.check:checked { background: var(--brand-600); border-color: var(--brand-600); }
+.check:checked { background: var(--brand-600); border-color: var(--brand-600); animation: checkPop .22s var(--ease); }
 .check:checked::after {
   content: "";
   width: 4.5px; height: 8px;
@@ -207,6 +207,14 @@
   transform: rotate(43deg) translate(-.5px, -1px);
 }
 .check.round { border-radius: 50%; }
+
+/* U18 — a small, restrained confirmation on check; killed globally under
+   prefers-reduced-motion by the animation-duration override in theme.css. */
+@keyframes checkPop {
+  0%   { transform: scale(.82); }
+  55%  { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
 
 .switch { position: relative; width: 40px; height: 23px; flex-shrink: 0; display: inline-block; }
 .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
@@ -549,3 +557,29 @@
 
 .divider { height: 1px; background: var(--border); border: none; margin: 14px 0; }
 .vdiv { width: 1px; background: var(--border); align-self: stretch; }
+
+/* ---------------------------------------------------- U17 — skeletons -- */
+/* The shape of what's coming, not the word "Loading" — a shimmering
+   placeholder sized like the real content it stands in for. */
+
+.skel {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-3);
+  border-radius: var(--radius-xs);
+  flex-shrink: 0;
+}
+.skel::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.5), transparent);
+  transform: translateX(-100%);
+  animation: skelShimmer 1.5s ease-in-out infinite;
+}
+[data-theme="dark"] .skel::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.09), transparent); }
+@keyframes skelShimmer { to { transform: translateX(100%); } }
+
+.skel-line { height: 11px; border-radius: 5px; }
+.skel-line-sm { height: 9px; margin-top: 6px; }
+.skel-avatar { width: 34px; height: 34px; border-radius: 50%; }
+.skel-chip { width: 52px; height: 18px; border-radius: var(--radius-full); }

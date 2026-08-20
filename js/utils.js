@@ -301,6 +301,27 @@ App.utils = (function () {
     return "f";
   }
 
+  // U17 — skeleton placeholders: the shape of what's loading, not the word.
+  function skeletonRows(n) {
+    return Array.from({ length: n || 3 }).map(() => `
+      <div class="row gap-10" style="padding:11px 14px;border-bottom:1px solid var(--border)">
+        <div class="skel skel-avatar"></div>
+        <div class="grow">
+          <div class="skel skel-line" style="width:${45 + Math.random() * 35}%"></div>
+          <div class="skel skel-line skel-line-sm" style="width:${25 + Math.random() * 25}%"></div>
+        </div>
+      </div>`).join("");
+  }
+
+  function skeletonCards(n) {
+    return `<div class="grid g-3">${Array.from({ length: n || 3 }).map(() => `
+      <div class="card"><div class="card-body">
+        <div class="skel skel-line" style="width:60%;height:15px;margin-bottom:10px"></div>
+        <div class="skel skel-line skel-line-sm" style="width:40%;margin-bottom:14px"></div>
+        <div class="row gap-6"><div class="skel skel-chip"></div><div class="skel skel-chip"></div></div>
+      </div></div>`).join("")}</div>`;
+  }
+
   return {
     DOW_SHORT, DOW_LONG, MONTHS, MONTHS_SHORT, LETTER_TABLE,
     uid, parseDate, dateKey, today, addDays, startOfWeek, diffDays, dowName,
@@ -308,6 +329,6 @@ App.utils = (function () {
     initials, esc, plural, titleCase,
     clamp, round, sum, avg, groupBy, sortBy,
     $, $$, on, contrastText, hexAlpha, debounce, download,
-    pctToLetter, pctToGpa, gradeClass
+    pctToLetter, pctToGpa, gradeClass, skeletonRows, skeletonCards
   };
 })();
