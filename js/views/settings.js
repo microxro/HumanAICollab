@@ -386,6 +386,23 @@ App.views.settings = (function () {
         </div>
       </div>
 
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>Commute</h3><div class="sub">Know the last bus that still gets you there on time</div></div>
+        </div>
+        <div class="card-body">
+          <div class="form-grid mb-12">
+            <div class="field"><label>Ride to school</label>
+              <input class="input" type="number" min="0" id="commuteTo" value="${S.settings.commute.toMin}" /> <span class="hint">minutes</span></div>
+            <div class="field"><label>Ride home</label>
+              <input class="input" type="number" min="0" id="commuteFrom" value="${S.settings.commute.fromMin}" /> <span class="hint">minutes</span></div>
+            <div class="field"><label>Last bus departs</label>
+              <input class="input" type="time" id="lastBus" value="${S.settings.commute.lastBus || ""}" /></div>
+          </div>
+          <button class="btn btn-primary" data-save-commute>Save</button>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-head">
           <div><h3>Terms</h3><div class="sub">Archive a finished term to keep it in your cumulative GPA</div></div>
@@ -536,8 +553,8 @@ App.views.settings = (function () {
 
   const DASHBOARD_WIDGET_LABELS = {
     hero: "Live status banner", warnings: "Heads-up warnings", stats: "Stat cards",
-    schedule: "Today's schedule", due: "Due soon", trend: "Grade trend",
-    grades: "Class averages", study: "Study activity"
+    countdowns: "Key date countdowns", schedule: "Today's schedule", due: "Due soon",
+    trend: "Grade trend", grades: "Class averages", study: "Study activity"
   };
 
   /* ------------------------------------------------------------ shortcuts */
@@ -1109,6 +1126,15 @@ App.views.settings = (function () {
       const order = (S.settings.dashboardLayout || []).slice();
       const i = order.indexOf(el.dataset.moveDown);
       if (i >= 0 && i < order.length - 1) { [order[i + 1], order[i]] = [order[i], order[i + 1]]; S.setDashboardLayout(order); App.router.refresh(); }
+    });
+
+    // F051 — commute and bus times
+    U.on(root, "click", "[data-save-commute]", () => {
+      const toMin = Number(root.querySelector("#commuteTo").value) || 0;
+      const fromMin = Number(root.querySelector("#commuteFrom").value) || 0;
+      const lastBus = root.querySelector("#lastBus").value || "";
+      S.commit((db) => { db.settings.commute = { toMin, fromMin, lastBus }; });
+      UI.toast("Commute saved", "", "ok");
     });
 
     // F090 — retention controls

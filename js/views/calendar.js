@@ -18,7 +18,7 @@ App.views.calendar = (function () {
     const out = [];
 
     S.db.events.filter((e) => e.date === iso).forEach((e) => out.push({
-      kind: "event", id: e.id, title: e.title, start: e.start,
+      kind: "event", id: e.id, title: e.title, start: e.start, end: e.end,
       color: e.classId ? S.classColor(e.classId) : "#64748b",
       sub: e.type, location: e.location
     }));
@@ -86,6 +86,14 @@ App.views.calendar = (function () {
           <label>Notes</label>
           <textarea class="textarea" name="notes" rows="2" placeholder="Anything to remember">${U.esc(e.notes || "")}</textarea>
         </div>
+        ${!ev ? `<div class="field"><label>Repeats <span class="hint">weekly club meetings, standing appointments</span></label>
+          <select class="select" name="repeat">
+            <option value="">Doesn't repeat</option>
+            <option value="1">Every week</option>
+            <option value="2">Every 2 weeks</option>
+          </select></div>
+        <div class="field"><label>Until</label>
+          <input class="input" type="date" name="repeatUntil" value="${U.dateKey(U.addDays(new Date(), 84))}" /></div>` : ""}
       </div>`,
       onMount(root) {
         const del = root.querySelector("[data-del]");
@@ -103,19 +111,55 @@ App.views.calendar = (function () {
           location: d.location.trim(), notes: d.notes.trim()
         };
         if (ev) { S.update("events", ev.id, patch); UI.toast("Event updated", patch.title); }
-        else { S.insert("events", patch); UI.toast("Event added", `${patch.title} · ${U.fmtDate(patch.date)}`, "ok"); }
+        else {
+          const weeks = Number(d.repeat) || 0;
+          if (weeks) {
+            let n = 0, iso = patch.date;
+            while (iso <= d.repeatUntil) {
+              S.insert("events", { ...patch, date: iso });
+              n++;
+              iso = U.dateKey(U.addDays(U.parseDate(iso), weeks * 7));
+            }
+            UI.toast("Recurring event added", `${n} occurrences through ${U.fmtDate(d.repeatUntil)}`, "ok");
+          } else {
+            S.insert("events", patch);
+            UI.toast("Event added", `${patch.title} · ${U.fmtDate(patch.date)}`, "ok");
+          }
+        }
       }
     });
   }
 
+  // F044 — pairs of movable events (not fixed classes/activities) whose
+  // time ranges overlap, each with a one-click fix.
+  function findConflicts(items) {
+    const events = items.filter((it) => it.kind === "event" && it.start && it.end);
+    const out = [];
+    for (let i = 0; i < events.length; i++) {
+      for (let j = i + 1; j < events.length; j++) {
+        const a = events[i], b = events[j];
+        if (U.toMin(a.start) < U.toMin(b.end) && U.toMin(b.start) < U.toMin(a.end)) out.push([a, b]);
+      }
+    }
+    return out;
+  }
+
   function dayDetail(iso) {
     const items = itemsOn(iso, true);
+    const conflicts = findConflicts(items);
     UI.modal({
       title: U.fmtDate(iso, "long"),
       sub: `${U.plural(items.length, "item")} scheduled`,
       footer: `<button type="button" class="btn left btn-primary" data-new>+ Add event</button>
                <button type="button" class="btn" data-close>Close</button>`,
-      body: items.length ? `<div class="list">${items.map((it) => `
+      body: `${conflicts.length ? `<div class="conflict-banner mb-12">
+          <div class="bold small mb-4">⚠ ${U.plural(conflicts.length, "scheduling conflict")}</div>
+          ${conflicts.map(([a, b]) => `<div class="row gap-8 wrap mb-4" style="align-items:center">
+            <span class="small">${U.esc(a.title)} overlaps ${U.esc(b.title)}</span>
+            <button class="btn btn-sm" data-resolve="${b.id}" data-after="${a.end}">Move "${U.esc(b.title)}" to ${U.esc(U.fmtTime(a.end))}</button>
+          </div>`).join("")}
+        </div>` : ""}
+        ${items.length ? `<div class="list">${items.map((it) => `
           <div class="list-item" ${it.kind === "event" ? `data-ev="${it.id}" style="cursor:pointer"` : ""}>
             <span class="hw-stripe" style="background:${U.esc(it.color)}"></span>
             <span class="mono dim" style="width:74px;flex-shrink:0;font-size:.74rem">${it.start ? U.fmtTime(it.start) : "—"}</span>
@@ -125,12 +169,22 @@ App.views.calendar = (function () {
             </span>
             <span class="badge">${U.esc(it.kind)}</span>
           </div>`).join("")}</div>`
-        : UI.emptyState("📭", "Nothing on this day", "Add an event to fill it in."),
+        : UI.emptyState("📭", "Nothing on this day", "Add an event to fill it in.")}`,
       onMount(root) {
         root.querySelector("[data-new]").addEventListener("click", () => { UI.closeModal(); eventForm(null, iso); });
         U.on(root, "click", "[data-ev]", (_e, el) => {
           const ev = S.byId("events", el.dataset.ev);
           if (ev) { UI.closeModal(); eventForm(ev); }
+        });
+        U.on(root, "click", "[data-resolve]", (_e, el) => {
+          const ev = S.byId("events", el.dataset.resolve);
+          if (!ev) return;
+          const dur = ev.end && ev.start ? U.toMin(ev.end) - U.toMin(ev.start) : 30;
+          const newStart = el.dataset.after;
+          S.update("events", ev.id, { start: newStart, end: U.fromMin(U.toMin(newStart) + dur) });
+          UI.toast("Moved", `${ev.title} now starts at ${U.fmtTime(newStart)}`, "ok");
+          UI.closeModal();
+          dayDetail(iso);
         });
       }
     });

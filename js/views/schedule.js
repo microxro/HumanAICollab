@@ -113,6 +113,17 @@ App.views.schedule = (function () {
         </div>`;
       }).join("") : `<p class="dim small" style="padding:4px 2px">Nothing scheduled.</p>`}
       ${variant ? `<p class="tiny dim mt-4">${U.esc(S.settings.bellVariants[variant].label)} — periods shift ${S.settings.bellVariants[variant].shiftMin > 0 ? "later" : "earlier"} by ${Math.abs(S.settings.bellVariants[variant].shiftMin)} min.</p>` : ""}
+      ${(() => {
+        // F051 — flag it if the day's last commitment ends too close to the last bus.
+        const bus = S.busClock();
+        if (!bus.lastBus || !items.length) return "";
+        const lastEnd = items.reduce((max, it) => it.end && U.toMin(it.end) > max ? U.toMin(it.end) : max, 0);
+        if (!lastEnd) return "";
+        const margin = U.toMin(bus.lastBus) - lastEnd - (bus.fromMin || 0);
+        return margin < 15
+          ? `<p class="tiny mt-4" style="color:var(--warn)">🚌 Last bus at ${U.esc(U.fmtTime(bus.lastBus))} — ${margin < 0 ? "you'll miss it" : `only ${margin} min to spare`}.</p>`
+          : "";
+      })()}
     </div>`;
   }
 

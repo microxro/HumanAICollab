@@ -113,6 +113,30 @@ App.utils = (function () {
     return `${h12}:${String(m).padStart(2, "0")} ${ap}`;
   }
 
+  // F052 — convert an "HH:MM" wall-clock time posted in `fromTz` to the
+  // equivalent wall-clock time in the browser's own local zone, using only
+  // the built-in Intl API (no timezone library). Same-day conversions only.
+  function convertWallTime(hhmm, fromTz) {
+    if (!hhmm || !fromTz) return hhmm;
+    try {
+      const [hh, mm] = hhmm.split(":").map(Number);
+      const dayIso = today();
+      const refUtc = new Date(`${dayIso}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00Z`);
+      const fmt = new Intl.DateTimeFormat("en-US", { timeZone: fromTz, hour: "2-digit", minute: "2-digit", hour12: false });
+      const [shh, smm] = fmt.format(refUtc).split(":").map(Number);
+      let offsetMin = (shh * 60 + smm) - (hh * 60 + mm);
+      if (offsetMin > 720) offsetMin -= 1440;
+      if (offsetMin < -720) offsetMin += 1440;
+      const classUtcMin = (hh * 60 + mm) - offsetMin;
+      const classUtc = new Date(`${dayIso}T00:00:00Z`);
+      classUtc.setUTCMinutes(classUtc.getUTCMinutes() + classUtcMin);
+      const localFmt = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+      return localFmt.format(classUtc);
+    } catch (e) {
+      return hhmm;
+    }
+  }
+
   // 135 -> "2h 15m"
   function fmtDur(mins) {
     const m = Math.round(mins);
@@ -280,7 +304,7 @@ App.utils = (function () {
   return {
     DOW_SHORT, DOW_LONG, MONTHS, MONTHS_SHORT, LETTER_TABLE,
     uid, parseDate, dateKey, today, addDays, startOfWeek, diffDays, dowName,
-    fmtDate, relDate, toMin, fromMin, nowMin, fmtTime, fmtDur, clock,
+    fmtDate, relDate, toMin, fromMin, nowMin, fmtTime, fmtDur, clock, convertWallTime,
     initials, esc, plural, titleCase,
     clamp, round, sum, avg, groupBy, sortBy,
     $, $$, on, contrastText, hexAlpha, debounce, download,

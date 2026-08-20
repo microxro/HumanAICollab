@@ -5,6 +5,9 @@
 App.views.classes = (function () {
   const U = App.utils, S = App.store, UI = App.ui, C = App.charts;
 
+  const TIMEZONES = ["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+    "America/Anchorage", "Pacific/Honolulu"];
+
   /* ------------------------------------------------------------- forms -- */
 
   function classForm(cl) {
@@ -45,6 +48,13 @@ App.views.classes = (function () {
           <label>Meets on</label>
           ${UI.dayPicker("days", c.days || ["Mon", "Tue", "Wed", "Thu", "Fri"])}
         </div>
+        <div class="field">
+          <label>Time zone <span class="hint">remote/dual-enrollment only</span></label>
+          <select class="select" name="timezone">
+            <option value="">— This is my own class —</option>
+            ${TIMEZONES.map((tz) => `<option value="${tz}" ${c.timezone === tz ? "selected" : ""}>${tz.replace("_", " ")}</option>`).join("")}
+          </select>
+        </div>
         <div class="field full">
           <label>Color</label>
           ${UI.colorPicker("color", c.color || S.PALETTE[0])}
@@ -57,7 +67,8 @@ App.views.classes = (function () {
           name: d.name.trim(), code: d.code.trim(), room: d.room.trim(),
           teacherId: d.teacherId || null, periodId: d.periodId,
           credits: Number(d.credits) || 0, color: d.color,
-          days: d.days ? d.days.split(",").filter(Boolean) : []
+          days: d.days ? d.days.split(",").filter(Boolean) : [],
+          timezone: d.timezone || null
         };
         if (cl) {
           S.update("classes", cl.id, patch);
@@ -406,7 +417,8 @@ App.views.classes = (function () {
           <div>
             <div class="tiny dim">Meets</div>
             <div class="bold small">${c.days.join(", ") || "—"}</div>
-            <div class="tiny dim">${p ? U.fmtTime(p.start) + " – " + U.fmtTime(p.end) : ""}</div>
+            <div class="tiny dim">${p ? U.fmtTime(p.start) + " – " + U.fmtTime(p.end) : ""}${c.timezone ? ` (${c.timezone.split("/")[1].replace("_", " ")})` : ""}</div>
+            ${c.timezone && p ? `<div class="tiny dim">= ${U.esc(U.fmtTime(U.convertWallTime(p.start, c.timezone)))} your time</div>` : ""}
           </div>
         </div>
 

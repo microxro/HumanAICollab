@@ -48,7 +48,7 @@
     if (!s.accent) s.accent = "indigo";                                 // U09
     if (!s.cvdPreview) s.cvdPreview = "none";                            // U46
     if (s.onboarded === undefined) s.onboarded = true;                   // U49 (seed data ships pre-onboarded)
-    if (!s.dashboardLayout) s.dashboardLayout = ["hero", "warnings", "stats", "schedule", "due", "trend", "grades", "study"]; // F083
+    if (!s.dashboardLayout) s.dashboardLayout = ["hero", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]; // F083
     if (!s.locale) s.locale = "en";                                     // F099
     if (!s.wellbeing) s.wellbeing = { hideGPA: false, breakEveryMin: 50, breakLenMin: 8 };
     if (!s.retention) s.retention = { studyDays: 365, usageDays: 180, autoArchiveDays: 30 };
@@ -360,6 +360,17 @@
 
   S.apExamsUpcoming = function () {
     return U.sortBy(S.db.apExams.filter((e) => !e.actualScore), (e) => e.examDate);
+  };
+
+  // F049 — the handful of dates worth pinning where you can see them without
+  // opening a view: AP exams, and events flagged Exam/Deadline/Competition.
+  S.upcomingCountdowns = function () {
+    const today = U.today();
+    const fromExams = S.db.apExams.filter((e) => !e.actualScore && e.examDate >= today)
+      .map((e) => ({ label: e.name, date: e.examDate, kind: "AP Exam" }));
+    const fromEvents = S.db.events.filter((e) => e.date >= today && /^(Exam|Deadline|Competition)$/.test(e.type))
+      .map((e) => ({ label: e.title, date: e.date, kind: e.type }));
+    return U.sortBy(fromExams.concat(fromEvents), (c) => c.date).slice(0, 5);
   };
 
   /* ---------------------------------------------------- F012 graduation */

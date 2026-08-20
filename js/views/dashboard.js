@@ -201,6 +201,7 @@ App.views.dashboard = (function () {
       case "hero": return heroHTML();
       case "warnings": return warningsHTML();
       case "stats": return statsHTML();
+      case "countdowns": return countdownsHTML();
       case "schedule": return `<div class="card">
           <div class="card-head">
             <div><h3>Today's schedule</h3><div class="sub">${U.esc(U.fmtDate(U.today(), "long"))}</div></div>
@@ -237,7 +238,21 @@ App.views.dashboard = (function () {
     }
   }
 
-  const TOP = ["hero", "warnings", "stats"];
+  // F049 — a compact strip of pinned countdowns, visible without opening a view.
+  function countdownsHTML() {
+    const list = S.upcomingCountdowns();
+    if (!list.length) return "";
+    return `<div class="row gap-8 wrap">
+      ${list.map((c) => {
+        const days = U.diffDays(c.date, U.today());
+        return `<div class="badge ${days <= 3 ? "danger" : days <= 10 ? "warn" : ""}" title="${U.esc(c.kind)} · ${U.esc(U.fmtDate(c.date))}">
+          ${U.esc(c.label)} · ${days === 0 ? "today" : U.plural(days, "day") + " left"}
+        </div>`;
+      }).join("")}
+    </div>`;
+  }
+
+  const TOP = ["hero", "warnings", "stats", "countdowns"];
   const LEFT = ["schedule", "trend"];
   const RIGHT = ["due", "grades", "study"];
 
