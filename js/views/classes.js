@@ -392,6 +392,7 @@ App.views.classes = (function () {
       sub: [c.code, p ? p.name : "", "Rm " + c.room].filter(Boolean).join(" · "),
       size: "wide",
       footer: `<button class="btn left btn-danger" data-del>Delete class</button>
+               <button class="icon-btn" data-copy-link title="Copy link to this class" aria-label="Copy link">🔗</button>
                <button class="btn" data-files>Files</button>
                <button class="btn" data-rubrics>Rubrics</button>
                <button class="btn" data-cats>Categories</button>
@@ -463,6 +464,7 @@ App.views.classes = (function () {
       onMount(root) {
         root.querySelector("[data-edit]").addEventListener("click", () => { UI.closeModal(); classForm(c); });
         root.querySelector("[data-cats]").addEventListener("click", () => { UI.closeModal(); categoryEditor(c); });
+        root.querySelector("[data-copy-link]").addEventListener("click", () => App.router.copyDeepLink("classes", c.id));
         root.querySelector("[data-files]").addEventListener("click", () => { UI.closeModal(); fileManager(c); });
         root.querySelector("[data-rubrics]").addEventListener("click", () => { UI.closeModal(); rubricList(c); });
         root.querySelector("[data-del]").addEventListener("click", () => {

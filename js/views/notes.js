@@ -119,6 +119,7 @@ App.views.notes = (function () {
       sub: [c ? c.name : "General", "Updated " + U.fmtDate(n.updated)].join(" · "),
       size: "wide",
       footer: `<button type="button" class="btn left" data-pin>${n.pinned ? "Unpin" : "📌 Pin"}</button>
+               <button type="button" class="icon-btn" data-copy-link title="Copy link to this note" aria-label="Copy link">🔗</button>
                <button type="button" class="btn" data-blurt title="Write what you remember, then compare">🧠 Blurt</button>
                <button type="button" class="btn" data-explain title="Explain it in plain language">💬 Explain simply</button>
                <button type="button" class="btn" data-cards>🃏 Make flashcards</button>
@@ -129,6 +130,7 @@ App.views.notes = (function () {
         <div class="md">${App.md.render(n.body)}</div>`,
       onMount(root) {
         root.querySelector("[data-edit]").addEventListener("click", () => { UI.closeModal(); form(n); });
+        root.querySelector("[data-copy-link]").addEventListener("click", () => App.router.copyDeepLink("notes", n.id));
         root.querySelector("[data-cards]").addEventListener("click", () => { UI.closeModal(); toCards(n); });
         root.querySelector("[data-blurt]").addEventListener("click", () => { UI.closeModal(); blurtMode(n); });
         root.querySelector("[data-explain]").addEventListener("click", () => { UI.closeModal(); explainForm(n); });

@@ -52,8 +52,20 @@
 
   let current = null;
 
+  // U08 — deep links to one record. #view opens the screen; #view/recordId
+  // opens that screen and then the record's detail, so a shared link opens
+  // the right thing instead of dropping someone at the top of a list.
+  const RECORD_OPENERS = {
+    homework: (id) => App.views.homework.detail(id),
+    classes: (id) => App.views.classes.detail(id),
+    notes: (id) => App.views.notes.reader(id),
+    contacts: (id) => App.views.contacts.detail(id)
+  };
+
   const router = {
-    go(id) {
+    go(idOrPath, subId) {
+      let id = idOrPath, sub = subId;
+      if (id && id.includes("/")) { const parts = id.split("/"); id = parts[0]; sub = parts.slice(1).join("/"); }
       if (!App.views[id]) id = "dashboard";
       if (current && App.views[current] && App.views[current].unmount) {
         App.views[current].unmount();
@@ -62,13 +74,23 @@
       S.db.ui.view = id;
       S.trackNavVisit(id);   // U02 — feeds the "float to top" ranking
       S.save();
-      if (location.hash.slice(1) !== id) history.replaceState(null, "", "#" + id);
+      const hashPath = id + (sub ? "/" + sub : "");
+      if (location.hash.slice(1) !== hashPath) history.replaceState(null, "", "#" + hashPath);
       paint();
       document.getElementById("page").scrollTop = 0;   // a real navigation does reset scroll
       closeSidebar();
+      if (sub && RECORD_OPENERS[id]) setTimeout(() => RECORD_OPENERS[id](sub), 60);
     },
     refresh() { paint(); },
-    get current() { return current; }
+    get current() { return current; },
+    // U08 — build (and copy) a shareable link to one record.
+    deepLink(view, id) { return `${location.origin}${location.pathname}#${view}/${id}`; },
+    copyDeepLink(view, id) {
+      const url = router.deepLink(view, id);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => UI.toast("Link copied", url, "ok")).catch(() => UI.toast("Link", url));
+      } else UI.toast("Link", url);
+    }
   };
   App.router = router;
 
@@ -558,8 +580,9 @@
 
     document.addEventListener("keydown", onKeydown);
     window.addEventListener("hashchange", () => {
-      const id = location.hash.slice(1);
-      if (id && id !== current) router.go(id);
+      const path = location.hash.slice(1);
+      const id = path.split("/")[0];
+      if (path && (id !== current || path.includes("/"))) router.go(path);
     });
 
     // Any store change repaints the current view + nav badges.
@@ -584,8 +607,9 @@
     // Materialize recurring assignments once a day.
     setInterval(() => S.runTemplates(28), 6 * 60 * 60 * 1000);
 
-    const start = location.hash.slice(1) || S.db.ui.view || "dashboard";
-    router.go(App.views[start] ? start : "dashboard");
+    const startPath = location.hash.slice(1) || S.db.ui.view || "dashboard";
+    const startId = startPath.split("/")[0];
+    router.go(App.views[startId] ? startPath : "dashboard");
 
     // F064 — a group invite link (?join=CODE) drops you straight into the
     // join flow instead of making you type the code by hand.

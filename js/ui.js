@@ -67,6 +67,15 @@ App.ui = (function () {
 
   let openModal = null;
   let lastFocused = null;   // U42 — where to return focus once every modal in the chain is closed
+  // U04 — true while the *current* history entry carries our marker. A
+  // programmatic close uses replaceState (synchronous, fires no popstate) to
+  // relabel that entry rather than history.back() (async): back() would fire
+  // our own popstate handler *after* JS has already moved on — e.g. a
+  // `closeModal(); openNextThing()` pattern used throughout this codebase —
+  // by which point openModal refers to the *new* modal, so the stale
+  // popstate would close the wrong one. replaceState sidesteps the race
+  // entirely, and keeps the back-button history from growing over a session.
+  let modalMarked = false;
 
   // Tears down the current modal's DOM/listeners only — no focus restore.
   // Used internally when one modal replaces another mid-chain (edit -> confirm),
@@ -84,7 +93,20 @@ App.ui = (function () {
     removeModalNode();
     if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
     lastFocused = null;
+    if (modalMarked) { modalMarked = false; history.replaceState(null, "", location.href); }
   }
+
+  // A real Back-button press (not our own closeModal) should close whatever
+  // modal is open instead of leaving the app. `openModal`/`modalMarked` are
+  // plain JS state carried over from before the navigation, so this reads
+  // correctly regardless of what the new history entry itself contains.
+  window.addEventListener("popstate", () => {
+    if (!openModal || !modalMarked) return;
+    modalMarked = false;
+    removeModalNode();
+    if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
+    lastFocused = null;
+  });
 
   function escClose(e) {
     if (e.key === "Escape") closeModal();
@@ -111,10 +133,14 @@ App.ui = (function () {
    * Return false from onSubmit to keep the modal open.
    */
   function modal(opts) {
-    // Only capture the trigger on a fresh open — a modal replacing another
-    // modal (edit -> confirm, etc.) should still return focus to whatever
-    // was focused before the *first* one in the chain, not the one just closing.
-    if (!openModal) lastFocused = document.activeElement;
+    // Only capture the trigger / push history on a fresh open — a modal
+    // replacing another modal (edit -> confirm, etc.) is still one "session"
+    // for U42 focus-return and U04 back-button purposes.
+    if (!openModal) {
+      lastFocused = document.activeElement;
+      history.pushState({ scholarModal: true }, "", location.href);
+      modalMarked = true;
+    }
     removeModalNode();
 
     const root = document.createElement("div");

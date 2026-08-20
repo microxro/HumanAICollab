@@ -84,6 +84,7 @@ App.views.contacts = (function () {
       title: t.name,
       sub: [t.subject, t.room ? "Rm " + t.room : ""].filter(Boolean).join(" · "),
       footer: `<button type="button" class="btn left" data-edit>Edit</button>
+               <button type="button" class="icon-btn" data-copy-link title="Copy link to this contact" aria-label="Copy link">🔗</button>
                ${t.email ? `<a class="btn btn-primary" href="${mailto(t, classes[0])}">✉ Email</a>` : ""}
                <button type="button" class="btn" data-close>Close</button>`,
       body: `
@@ -118,6 +119,7 @@ App.views.contacts = (function () {
           <div class="row gap-6 wrap">${acts.map((a) => `<span class="badge">${U.esc(a.name)}</span>`).join("")}</div>` : ""}`,
       onMount(root) {
         root.querySelector("[data-edit]").addEventListener("click", () => { UI.closeModal(); form(t); });
+        root.querySelector("[data-copy-link]").addEventListener("click", () => App.router.copyDeepLink("contacts", t.id));
       }
     });
   }

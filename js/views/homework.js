@@ -253,6 +253,7 @@ App.views.homework = (function () {
       size: "wide",
       footer: `<button type="button" class="btn left" data-edit>Edit</button>
                <button type="button" class="btn" data-dup title="Duplicate this assignment">⎘ Duplicate</button>
+               <button type="button" class="icon-btn" data-copy-link title="Copy link to this assignment" aria-label="Copy link">🔗</button>
                ${a.status !== "done" ? `<button type="button" class="btn" data-snooze title="Hide from open lists until a later date">${a.snoozeUntil ? "😴 Snoozed" : "😴 Snooze"}</button>` : ""}
                <button type="button" class="btn" data-close>Close</button>
                <button type="button" class="btn btn-primary" data-done ${blockedBy.length ? "disabled data-tip=\"Blocked by an unfinished dependency\"" : ""}>
@@ -328,6 +329,7 @@ App.views.homework = (function () {
         </div>`,
       onMount(root) {
         root.querySelector("[data-edit]").addEventListener("click", () => { UI.closeModal(); form(a); });
+        root.querySelector("[data-copy-link]").addEventListener("click", () => App.router.copyDeepLink("homework", a.id));
         root.querySelector("[data-dup]").addEventListener("click", () => {
           const copy = Object.assign({}, a, { id: undefined, status: "todo", earned: null, graded: false, submitted: false, subtasks: (a.subtasks || []).map((s) => ({ ...s, id: U.uid("st"), done: false })) });
           delete copy.id;
