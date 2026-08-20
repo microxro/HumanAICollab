@@ -44,6 +44,38 @@ App.views.parent = (function () {
     });
   }
 
+  /* ------------------------------------------------- F070 focus windows -- */
+
+  function proposeFocusForm(studentId) {
+    const now = new Date();
+    const start = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const endD = new Date(now.getTime() + 60 * 60000);
+    const end = `${String(endD.getHours()).padStart(2, "0")}:${String(endD.getMinutes()).padStart(2, "0")}`;
+
+    UI.modal({
+      title: "Propose a focus window",
+      sub: "A shared quiet period they can see, agree to, or end early — not a lock on their device.",
+      okLabel: "Propose",
+      body: `<div class="form-grid">
+        <div class="field"><label>From</label><input class="input" type="time" name="start" value="${start}" required /></div>
+        <div class="field"><label>Until</label><input class="input" type="time" name="end" value="${end}" required /></div>
+        <div class="field full"><label>Note <span class="hint">(optional)</span></label>
+          <input class="input" name="note" placeholder="Chem test tomorrow — good time to lock in?" /></div>
+      </div>`,
+      onSubmit(d) {
+        const today = new Date();
+        const [sh, sm] = d.start.split(":").map(Number);
+        const [eh, em] = d.end.split(":").map(Number);
+        const startAt = new Date(today.getFullYear(), today.getMonth(), today.getDate(), sh, sm).getTime();
+        let endAt = new Date(today.getFullYear(), today.getMonth(), today.getDate(), eh, em).getTime();
+        if (endAt <= startAt) endAt += 24 * 60 * 60000;   // crosses midnight
+        App.sync.proposeFocusWindow(studentId, startAt, endAt, (d.note || "").trim())
+          .then(() => UI.toast("Proposed", "They'll see it next time they open the app.", "ok"))
+          .catch((e) => UI.toast("Couldn't propose", e.message, "danger"));
+      }
+    });
+  }
+
   /* --------------------------------------------------------------- view */
 
   function freshness(ts) {
@@ -85,6 +117,7 @@ App.views.parent = (function () {
         <div class="row gap-6">
           <button class="btn btn-sm" data-checkin="${k.id}" title="Ask them to confirm they're okay">🔔 Check in</button>
           <button class="btn btn-sm" data-note="${k.id}" title="Leave a note they'll see in-app">✎ Note</button>
+          <button class="btn btn-sm" data-propose-focus="${k.id}" title="Propose a shared quiet period">🤫 Focus window</button>
           <button class="btn btn-sm" data-unlink="${k.id}">Unlink</button>
         </div>
       </div>
@@ -221,6 +254,7 @@ App.views.parent = (function () {
         .then(() => UI.toast("Check-in requested", "They'll see it next time they open the app.", "ok"))
         .catch((e) => UI.toast("Couldn't request", e.message, "danger"));
     });
+    U.on(root, "click", "[data-propose-focus]", (_e, el) => proposeFocusForm(el.dataset.proposeFocus));
     U.on(root, "click", "[data-note]", (_e, el) => {
       const id = el.dataset.note;
       UI.prompt({

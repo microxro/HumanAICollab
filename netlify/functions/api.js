@@ -375,6 +375,59 @@ async function respondCheckin(req, user) {
   return ok({ responded: true });
 }
 
+/* --------------------------------------------------- F070 focus windows -- */
+// A shared quiet period both sides agree to — a parent proposes it, the
+// student can see it, agree to it, or decline, and can end it early once
+// it's running. Nothing here enforces anything device-side; it's a shared
+// agreement, not a lock.
+
+async function proposeFocusWindow(req, user) {
+  const b = await body(req);
+  const studentId = String(b.studentId || "");
+  const linked = (user.links || []).some((l) => l.id === studentId && l.role === "child");
+  if (!linked) return fail(403, "You aren't linked to that student.");
+  const startAt = Number(b.startAt) || Date.now();
+  const endAt = Number(b.endAt) || 0;
+  if (!endAt || endAt <= startAt) return fail(400, "End time has to be after the start time.");
+
+  const list = await readJSON("focusWindows", studentId, []);
+  list.unshift({
+    id: randomId(8), fromId: user.id, fromName: user.name,
+    startAt, endAt, note: String(b.note || "").trim().slice(0, 200),
+    status: "pending", createdAt: Date.now(), agreedAt: null, endedAt: null
+  });
+  await writeJSON("focusWindows", studentId, list.slice(0, 30));
+  return ok({ proposed: true });
+}
+
+async function listFocusWindows(user) {
+  const list = await readJSON("focusWindows", user.id, []);
+  return ok({ focusWindows: list });
+}
+
+async function respondFocusWindow(req, user) {
+  const b = await body(req);
+  const action = b.action === "decline" ? "declined" : "agreed";
+  const list = await readJSON("focusWindows", user.id, []);
+  const item = list.find((f) => f.id === b.id && f.status === "pending");
+  if (!item) return fail(404, "That proposal is gone or already answered.");
+  item.status = action;
+  if (action === "agreed") item.agreedAt = Date.now();
+  await writeJSON("focusWindows", user.id, list);
+  return ok({ status: action });
+}
+
+async function endFocusWindow(req, user) {
+  const b = await body(req);
+  const list = await readJSON("focusWindows", user.id, []);
+  const item = list.find((f) => f.id === b.id && f.status === "agreed");
+  if (!item) return fail(404, "That focus window isn't running.");
+  item.status = "ended";
+  item.endedAt = Date.now();
+  await writeJSON("focusWindows", user.id, list);
+  return ok({ ended: true });
+}
+
 async function sendGuardianNote(req, user) {
   const b = await body(req);
   const studentId = String(b.studentId || "");
@@ -647,6 +700,13 @@ export default async (req) => {
       if (parts[1] === "request" && method === "POST") return await requestCheckin(req, user);
       if (parts[1] === "respond" && method === "POST") return await respondCheckin(req, user);
       if (!parts[1] && method === "GET") return await listCheckins(user);
+    }
+
+    if (parts[0] === "focus-windows") {
+      if (parts[1] === "propose" && method === "POST") return await proposeFocusWindow(req, user);
+      if (parts[1] === "respond" && method === "POST") return await respondFocusWindow(req, user);
+      if (parts[1] === "end" && method === "POST") return await endFocusWindow(req, user);
+      if (!parts[1] && method === "GET") return await listFocusWindows(user);
     }
 
     if (parts[0] === "guardian-notes") {

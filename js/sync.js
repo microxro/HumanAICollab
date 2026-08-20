@@ -338,6 +338,17 @@ App.sync = (function () {
   async function sendGuardianNote(studentId, text) { return call("/guardian-notes", { method: "POST", body: { studentId, text } }); }
   async function listGuardianNotes() { return (await call("/guardian-notes")).notes || []; }
 
+  /* ------------------------------------------------------ F070 focus windows */
+  // A shared quiet period both sides agree to — a parent proposes it, the
+  // student sees, agrees to, or declines it, and can end it early.
+
+  async function proposeFocusWindow(studentId, startAt, endAt, note) {
+    return call("/focus-windows/propose", { method: "POST", body: { studentId, startAt, endAt, note } });
+  }
+  async function listFocusWindows() { return (await call("/focus-windows")).focusWindows || []; }
+  async function respondFocusWindow(id, action) { return call("/focus-windows/respond", { method: "POST", body: { id, action } }); }
+  async function endFocusWindow(id) { return call("/focus-windows/end", { method: "POST", body: { id } }); }
+
   /* ------------------------------------------------------------ groups -- */
 
   async function listGroups() { return (await call("/groups")).groups || []; }
@@ -372,6 +383,7 @@ App.sync = (function () {
     pushLocation, readLocation,
     requestFriend, respondFriend, listFriends, removeFriend,
     requestCheckin, listCheckins, respondCheckin, sendGuardianNote, listGuardianNotes,
+    proposeFocusWindow, listFocusWindows, respondFocusWindow, endFocusWindow,
     listGroups, createGroup, joinGroup, getGroup,
     shareDeck, getSharedDeck, postFeed, confirmFeed, leaveGroup
   };

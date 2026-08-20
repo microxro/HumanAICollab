@@ -358,6 +358,43 @@ App.views.sharing = (function () {
       .catch(() => {});
   }
 
+  /* ------------------------------------------------- F070 focus windows -- */
+
+  let focusWindows = null;
+
+  function loadFocusWindows() {
+    if (!App.sync.isSignedIn()) return;
+    App.sync.listFocusWindows().then((f) => { focusWindows = f; App.router.refresh(); }).catch(() => {});
+  }
+
+  function focusWindowCard() {
+    if (!App.sync.isSignedIn()) return "";
+    const list = focusWindows || [];
+    const pending = list.filter((f) => f.status === "pending");
+    const active = list.find((f) => f.status === "agreed" && f.endAt > Date.now());
+    if (!pending.length && !active) return "";
+
+    const fmt = (ms) => {
+      const d = new Date(ms);
+      return U.fmtTime(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+    };
+
+    return `<div class="card">
+      <div class="card-head"><h3>Focus windows ${UI.helpHint("A shared quiet period your guardian proposes and you agree to (or not) — you can always see it and end it early. It's an agreement, not a lock on your device.")}</h3></div>
+      <div class="card-body col gap-12">
+        ${active ? `<div class="row gap-8" style="align-items:center;background:var(--ok-bg);padding:10px 12px;border-radius:var(--radius-sm)">
+          <span class="grow small">Focus window active until ${U.esc(fmt(active.endAt))}${active.note ? " — " + U.esc(active.note) : ""}</span>
+          <button class="btn btn-sm" data-focus-end="${active.id}">End early</button>
+        </div>` : ""}
+        ${pending.map((f) => `<div class="row gap-8" style="align-items:center;background:var(--warn-bg);padding:10px 12px;border-radius:var(--radius-sm)">
+          <span class="grow small">${U.esc(f.fromName)} proposed a focus window ${U.esc(fmt(f.startAt))}–${U.esc(fmt(f.endAt))}${f.note ? " — " + U.esc(f.note) : ""}</span>
+          <button class="btn btn-sm" data-focus-decline="${f.id}">Decline</button>
+          <button class="btn btn-sm btn-primary" data-focus-agree="${f.id}">Agree</button>
+        </div>`).join("")}
+      </div>
+    </div>`;
+  }
+
   function guardianInboxCard() {
     if (!App.sync.isSignedIn()) return "";
     const pending = (checkins || []).filter((c) => !c.respondedAt);
@@ -487,6 +524,7 @@ App.views.sharing = (function () {
         <div class="col gap-16">
           ${parentPreview()}
           ${guardianInboxCard()}
+          ${focusWindowCard()}
           ${realFriendsCard()}
           ${peerSection()}
         </div>
@@ -497,9 +535,23 @@ App.views.sharing = (function () {
   function mount(root) {
     if (App.sync.isSignedIn() && realFriends == null) loadRealFriends();
     if (App.sync.isSignedIn() && checkins == null) loadGuardianInbox();
+    if (App.sync.isSignedIn() && focusWindows == null) loadFocusWindows();
 
     U.on(root, "click", "[data-checkin-respond]", (_e, el) => {
       App.sync.respondCheckin(el.dataset.checkinRespond).then(() => { UI.toast("Sent", "Your guardian will see you're okay.", "ok"); loadGuardianInbox(); });
+    });
+
+    U.on(root, "click", "[data-focus-agree]", (_e, el) => {
+      App.sync.respondFocusWindow(el.dataset.focusAgree, "agree")
+        .then(() => { UI.toast("Agreed", "The focus window is on.", "ok"); loadFocusWindows(); });
+    });
+    U.on(root, "click", "[data-focus-decline]", (_e, el) => {
+      App.sync.respondFocusWindow(el.dataset.focusDecline, "decline")
+        .then(() => { UI.toast("Declined", "", ""); loadFocusWindows(); });
+    });
+    U.on(root, "click", "[data-focus-end]", (_e, el) => {
+      App.sync.endFocusWindow(el.dataset.focusEnd)
+        .then(() => { UI.toast("Ended", "Focus window ended early.", "ok"); loadFocusWindows(); });
     });
 
     U.on(root, "click", "[data-add-real-friend]", realFriendForm);
@@ -602,7 +654,7 @@ App.views.sharing = (function () {
     unsub = App.geo.on(repaint);
   }
 
-  function unmount() { if (unsub) { unsub(); unsub = null; } realFriends = null; checkins = null; guardianNotes = null; }
+  function unmount() { if (unsub) { unsub(); unsub = null; } realFriends = null; checkins = null; guardianNotes = null; focusWindows = null; }
 
   return { render, mount, unmount, title: "Sharing" };
 })();
