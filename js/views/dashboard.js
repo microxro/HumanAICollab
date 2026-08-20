@@ -193,59 +193,65 @@ App.views.dashboard = (function () {
     })), { max: 100, fmt: (v) => `${v}% · ${U.pctToLetter(v)}` });
   }
 
-  function render() {
+  // F083 — each widget's markup, keyed by the id used in settings.dashboardLayout.
+  function widget(id) {
     const weekStudy = S.studyByDay(28);
     const trend = S.gradeTrend();
+    switch (id) {
+      case "hero": return heroHTML();
+      case "warnings": return warningsHTML();
+      case "stats": return statsHTML();
+      case "schedule": return `<div class="card">
+          <div class="card-head">
+            <div><h3>Today's schedule</h3><div class="sub">${U.esc(U.fmtDate(U.today(), "long"))}</div></div>
+            <button class="btn btn-sm" data-go="calendar">Open calendar</button>
+          </div>
+          ${todayHTML()}
+        </div>`;
+      case "trend": return `<div class="card">
+          <div class="card-head">
+            <div><h3>Grade trend</h3><div class="sub">Cumulative average across all classes</div></div>
+            <button class="btn btn-sm" data-go="grades">Grade book</button>
+          </div>
+          <div class="card-body">${C.line(trend, { h: 200 })}</div>
+        </div>`;
+      case "due": return `<div class="card">
+          <div class="card-head">
+            <div><h3>Due soon</h3><div class="sub">Next 7 days</div></div>
+            <button class="btn btn-sm btn-primary" data-new-hw>+ Add</button>
+          </div>
+          ${dueHTML()}
+        </div>`;
+      case "grades": return `<div class="card">
+          <div class="card-head"><h3>Class averages</h3></div>
+          <div class="card-body">${gradesHTML()}</div>
+        </div>`;
+      case "study": return `<div class="card">
+          <div class="card-head">
+            <div><h3>Study activity</h3><div class="sub">Last 4 weeks</div></div>
+            <button class="btn btn-sm" data-go="focus">Focus timer</button>
+          </div>
+          <div class="card-body">${C.heatmap(weekStudy)}</div>
+        </div>`;
+      default: return "";
+    }
+  }
+
+  const TOP = ["hero", "warnings", "stats"];
+  const LEFT = ["schedule", "trend"];
+  const RIGHT = ["due", "grades", "study"];
+
+  function render() {
+    const order = S.settings.dashboardLayout && S.settings.dashboardLayout.length
+      ? S.settings.dashboardLayout : TOP.concat(LEFT, RIGHT);
+    const byOrder = (ids) => ids.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
 
     return `<div class="page-inner col gap-20">
-      ${heroHTML()}
-      ${warningsHTML()}
-      ${statsHTML()}
+      ${byOrder(TOP).map(widget).join("")}
 
       <div class="grid g-main">
-        <div class="col gap-16">
-          <div class="card">
-            <div class="card-head">
-              <div>
-                <h3>Today's schedule</h3>
-                <div class="sub">${U.esc(U.fmtDate(U.today(), "long"))}</div>
-              </div>
-              <button class="btn btn-sm" data-go="calendar">Open calendar</button>
-            </div>
-            ${todayHTML()}
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <div><h3>Grade trend</h3><div class="sub">Cumulative average across all classes</div></div>
-              <button class="btn btn-sm" data-go="grades">Grade book</button>
-            </div>
-            <div class="card-body">${C.line(trend, { h: 200 })}</div>
-          </div>
-        </div>
-
-        <div class="col gap-16">
-          <div class="card">
-            <div class="card-head">
-              <div><h3>Due soon</h3><div class="sub">Next 7 days</div></div>
-              <button class="btn btn-sm btn-primary" data-new-hw>+ Add</button>
-            </div>
-            ${dueHTML()}
-          </div>
-
-          <div class="card">
-            <div class="card-head"><h3>Class averages</h3></div>
-            <div class="card-body">${gradesHTML()}</div>
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <div><h3>Study activity</h3><div class="sub">Last 4 weeks</div></div>
-              <button class="btn btn-sm" data-go="focus">Focus timer</button>
-            </div>
-            <div class="card-body">${C.heatmap(weekStudy)}</div>
-          </div>
-        </div>
+        <div class="col gap-16">${byOrder(LEFT).map(widget).join("")}</div>
+        <div class="col gap-16">${byOrder(RIGHT).map(widget).join("")}</div>
       </div>
     </div>`;
   }

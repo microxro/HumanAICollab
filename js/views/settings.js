@@ -486,16 +486,57 @@ App.views.settings = (function () {
           each occurrence automatically.</p></div>`}
       </div>
 
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>Dashboard layout</h3><div class="sub">Reorder the widgets on your home screen</div></div>
+        </div>
+        <div class="card-body">
+          <div id="layoutRows" class="col gap-6">
+            ${(S.settings.dashboardLayout || []).map((id, i, arr) => `
+              <div class="between" data-layout-item="${id}" style="padding:8px 10px;background:var(--surface-2);border-radius:var(--radius-sm)">
+                <span class="small bold">${U.esc(DASHBOARD_WIDGET_LABELS[id] || id)}</span>
+                <span class="row gap-4">
+                  <button type="button" class="icon-btn btn-sm" data-move-up="${id}" ${i === 0 ? "disabled" : ""} aria-label="Move up">↑</button>
+                  <button type="button" class="icon-btn btn-sm" data-move-down="${id}" ${i === arr.length - 1 ? "disabled" : ""} aria-label="Move down">↓</button>
+                </span>
+              </div>`).join("")}
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>Data retention</h3><div class="sub">Choose how long logs are kept, then purge the rest</div></div>
+        </div>
+        <div class="card-body">
+          <div class="form-grid mb-12">
+            <div class="field"><label>Study sessions kept</label>
+              <input class="input" type="number" min="30" id="retStudy" value="${S.settings.retention.studyDays}" /> <span class="hint">days</span></div>
+            <div class="field"><label>Usage log kept</label>
+              <input class="input" type="number" min="7" id="retUsage" value="${S.settings.retention.usageDays}" /> <span class="hint">days</span></div>
+            <div class="field"><label>Auto-archive completed work after</label>
+              <input class="input" type="number" min="1" id="retArchive" value="${S.settings.retention.autoArchiveDays}" /> <span class="hint">days</span></div>
+          </div>
+          <button class="btn btn-primary" data-apply-retention>Save &amp; purge now</button>
+        </div>
+      </div>
+
       <div class="card" style="border-left:3px solid var(--danger)">
         <div class="card-head"><h3>Danger zone</h3></div>
         <div class="card-body">
           <div class="row gap-8 wrap">
-            <button class="btn" data-reseed">↺ Restore demo data</button>
+            <button class="btn" data-reseed>↺ Restore demo data</button>
             <button class="btn btn-danger" data-wipe>🗑 Clear everything</button>
           </div>
         </div>
       </div>`;
   }
+
+  const DASHBOARD_WIDGET_LABELS = {
+    hero: "Live status banner", warnings: "Heads-up warnings", stats: "Stat cards",
+    schedule: "Today's schedule", due: "Due soon", trend: "Grade trend",
+    grades: "Class averages", study: "Study activity"
+  };
 
   /* ------------------------------------------------------------ shortcuts */
 
@@ -1054,6 +1095,28 @@ App.views.settings = (function () {
         okLabel: "Clear it all", danger: true,
         onConfirm() { S.wipe(); UI.toast("Data cleared", "Starting fresh.", "warn"); App.router.go("dashboard"); }
       });
+    });
+
+    // F083 — reorder dashboard widgets
+    U.on(root, "click", "[data-move-up]", (_e, el) => {
+      const order = (S.settings.dashboardLayout || []).slice();
+      const i = order.indexOf(el.dataset.moveUp);
+      if (i > 0) { [order[i - 1], order[i]] = [order[i], order[i - 1]]; S.setDashboardLayout(order); App.router.refresh(); }
+    });
+    U.on(root, "click", "[data-move-down]", (_e, el) => {
+      const order = (S.settings.dashboardLayout || []).slice();
+      const i = order.indexOf(el.dataset.moveDown);
+      if (i >= 0 && i < order.length - 1) { [order[i + 1], order[i]] = [order[i], order[i + 1]]; S.setDashboardLayout(order); App.router.refresh(); }
+    });
+
+    // F090 — retention controls
+    U.on(root, "click", "[data-apply-retention]", () => {
+      const studyDays = Number(root.querySelector("#retStudy").value) || 365;
+      const usageDays = Number(root.querySelector("#retUsage").value) || 180;
+      const autoArchiveDays = Number(root.querySelector("#retArchive").value) || 30;
+      S.commit((db) => { db.settings.retention = { studyDays, usageDays, autoArchiveDays }; });
+      const purged = S.applyRetention();
+      UI.toast("Retention saved", purged ? `${purged} old record(s) purged` : "Nothing to purge yet", "ok");
     });
   }
 

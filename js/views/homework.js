@@ -616,6 +616,14 @@ App.views.homework = (function () {
             <option value="effort"   ${filter.sort === "effort" ? "selected" : ""}>Sort: effort</option>
           </select>
           <span class="grow"></span>
+          <div class="row gap-6">
+            ${S.filtersFor("homework").length ? `<select class="select input-sm" id="fSaved" style="max-width:150px">
+              <option value="">Saved lists…</option>
+              ${S.filtersFor("homework").map((f) => `<option value="${f.id}">${U.esc(f.name)}</option>`).join("")}
+            </select>` : ""}
+            <button class="btn btn-sm" data-save-filter title="Save this filter combination">☆ Save list</button>
+            <button class="btn btn-sm" data-export-csv title="Export visible rows as CSV">⇩ CSV</button>
+          </div>
           <span class="small dim">${U.plural(rows.length, "result")}</span>
         </div>
       </div></div>
@@ -733,6 +741,31 @@ App.views.homework = (function () {
       if (el) el.addEventListener("change", (e) => { filter[key] = e.target.value; App.router.refresh(); });
     };
     bind("#fCls", "cls"); bind("#fStatus", "status"); bind("#fSort", "sort");
+
+    U.on(root, "click", "[data-save-filter]", () => {
+      UI.prompt({
+        title: "Save this filter", label: "Name this list",
+        placeholder: "e.g. High priority chemistry",
+        onSubmit(name) {
+          S.saveFilter("homework", name, { ...filter });
+          UI.toast("List saved", name, "ok");
+          App.router.refresh();
+        }
+      });
+    });
+    const savedSel = root.querySelector("#fSaved");
+    if (savedSel) savedSel.addEventListener("change", (e) => {
+      const f = S.byId("savedFilters", e.target.value);
+      if (f) { filter = { ...f.filter }; App.router.refresh(); }
+    });
+    U.on(root, "click", "[data-export-csv]", () => {
+      S.exportTableCSV(visible(), [
+        { label: "Title", key: "title" },
+        { label: "Class", get: (a) => S.className(a.classId) },
+        { label: "Due", key: "due" }, { label: "Status", key: "status" },
+        { label: "Priority", key: "priority" }, { label: "Points", key: "points" }
+      ], "assignments.csv");
+    });
 
     // Drag & drop between board columns
     let dragId = null;

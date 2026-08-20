@@ -158,7 +158,10 @@ App.views.analytics = (function () {
 
       <div class="grid g-2 mb-16">
         <div class="card">
-          <div class="card-head"><h3>Effort vs. outcome</h3><span class="sub">By class</span></div>
+          <div class="card-head">
+            <div><h3>Effort vs. outcome</h3><span class="sub">By class</span></div>
+            <button class="btn btn-sm" data-export-effort>⇩ CSV</button>
+          </div>
           <div class="card-body">
             <div class="table-wrap"><table class="table">
               <thead><tr>
@@ -196,6 +199,34 @@ App.views.analytics = (function () {
         </div>
       </div>
 
+      <div class="grid g-2 mb-16">
+        <div class="card">
+          <div class="card-head"><h3>Best study time</h3><span class="sub">From your own rated sessions</span></div>
+          <div class="card-body">
+            ${(() => {
+              const hour = S.bestStudyHour();
+              const avgQ = S.avgSessionQuality();
+              if (hour == null) return `<p class="dim small">Rate a few study sessions (flashcards, focus timer) to see this.</p>`;
+              return `<div class="row gap-24 wrap">
+                <div><div class="tiny dim">Sharpest around</div><div class="bold" style="font-size:1.3rem">${U.esc(U.fmtTime(U.fromMin(hour * 60)))}</div></div>
+                ${avgQ != null ? `<div><div class="tiny dim">Avg. session quality</div><div class="bold" style="font-size:1.3rem">${U.round(avgQ, 1)} / 5</div></div>` : ""}
+              </div>`;
+            })()}
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Term over term</h3><span class="sub">Your own past terms, not other students</span></div>
+          <div class="card-body">
+            ${(() => {
+              const rows = S.termComparison();
+              return rows.length ? C.hbars(rows.map((r) => ({ label: r.term + (r.current ? " (current)" : ""), value: U.round(r.gpa, 2) })), { max: 5, fmt: (v) => v })
+                : `<p class="dim small">Add a past term with a final GPA in Settings to compare.</p>`;
+            })()}
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-head"><h3>Consistency</h3><span class="sub">Study activity, last 4 weeks</span></div>
         <div class="card-body">
@@ -218,6 +249,18 @@ App.views.analytics = (function () {
 
   function mount(root) {
     U.on(root, "click", "[data-range]", (_e, el) => { range = Number(el.dataset.range); App.router.refresh(); });
+    U.on(root, "click", "[data-export-effort]", () => {
+      const byClass = S.db.classes.map((c) => ({
+        name: c.name,
+        studyMin: U.sum(S.db.studySessions.filter((s) => s.classId === c.id), (s) => s.minutes),
+        openCount: S.assignmentsFor(c.id).filter((a) => a.status !== "done").length,
+        grade: S.classGrade(c.id)
+      }));
+      S.exportTableCSV(byClass, [
+        { label: "Class", key: "name" }, { label: "Studied (min)", key: "studyMin" },
+        { label: "Open", key: "openCount" }, { label: "Grade %", key: "grade" }
+      ], "effort-vs-outcome.csv");
+    });
   }
 
   return { render, mount, title: "Analytics" };
