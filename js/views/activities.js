@@ -276,7 +276,7 @@ App.views.activities = (function () {
 
   function mount(root) {
     U.on(root, "click", "[data-add]", () => form(null));
-    U.on(root, "click", "[data-ai-add]", () => App.aiAdd.open());
+    U.on(root, "click", "[data-ai-add]", () => App.aiAdd.open({ scope: "activities" }));
     U.on(root, "click", "[data-act]", (_e, el) => detail(el.dataset.act));
     U.on(root, "click", "[data-log]", (e, el) => { e.stopPropagation(); logHours(el.dataset.log); });
   }

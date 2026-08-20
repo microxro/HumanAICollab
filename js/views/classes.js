@@ -175,11 +175,17 @@ App.views.classes = (function () {
       size: "wide",
       okLabel: "Save schedule",
       body: `<div id="pRows">${rows()}</div>
-        <button type="button" class="btn btn-sm" id="addP">+ Add period</button>`,
+        <div class="row gap-8">
+          <button type="button" class="btn btn-sm" id="addP">+ Add period</button>
+          <button type="button" class="btn btn-sm" id="addPAi">✦ Add with AI</button>
+        </div>`,
       onMount(root) {
         root.querySelector("#pRows").addEventListener("click", (e) => {
           const b = e.target.closest("[data-del-p]");
           if (b) b.closest("[data-period]").remove();
+        });
+        root.querySelector("#addPAi").addEventListener("click", () => {
+          App.aiAdd.open({ scope: "periods" });
         });
         root.querySelector("#addP").addEventListener("click", () => {
           const box = root.querySelector("#pRows");

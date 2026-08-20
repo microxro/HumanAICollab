@@ -67,7 +67,28 @@ App.aiAdd = (function () {
     </div>`;
   }
 
+  // Every parse can turn up both personal commitments and bell-schedule rows
+  // — a school portal screenshot often shows both. `scope` decides which one
+  // this particular modal is allowed to act on, matching where it was
+  // opened from: Activities only ever writes activities, the Bell schedule
+  // editor only ever writes periods. The other kind still gets mentioned
+  // (so nothing silently vanishes), just not rendered as addable here.
+  const SCOPE_COPY = {
+    activities: {
+      sub: "Describe an activity or upload a photo of your schedule — you'll review everything before it's saved.",
+      placeholder: "e.g. I have swimming from 6-6:45pm every weekday starting September 5 through October 25",
+      photoHint: "A screenshot of your class schedule — not the school's bell-times page.",
+      entriesHeading: "Activities"
+    },
+    periods: {
+      sub: "Describe your school's bell times or upload a photo of them — you'll review everything before it's saved.",
+      placeholder: "e.g. Period 1: 8:00-8:50am, Period 2: 8:55-9:45am, Lunch: 11:00-11:35am…",
+      photoHint: "A photo or screenshot of the bell/period times from your school's website — not your personal schedule."
+    }
+  };
+
   function bodyHTML(state) {
+    const copy = SCOPE_COPY[state.scope];
     const tabs = `<div class="segmented mb-12">
       <button type="button" data-tab="text" class="${state.tab === "text" ? "active" : ""}">Describe it</button>
       <button type="button" data-tab="photo" class="${state.tab === "photo" ? "active" : ""}">Upload a photo</button>
@@ -75,14 +96,14 @@ App.aiAdd = (function () {
 
     const inputArea = state.tab === "text"
       ? `<div class="field full">
-          <textarea class="input" name="desc" rows="3" placeholder="e.g. I have swimming from 6-6:45pm every weekday starting September 5 through October 25">${U.esc(state.text || "")}</textarea>
+          <textarea class="input" name="desc" rows="3" placeholder="${U.esc(copy.placeholder)}">${U.esc(state.text || "")}</textarea>
         </div>
         <button type="button" class="btn btn-primary" data-parse-text ${state.busy ? "disabled" : ""}>
           ${state.busy ? "Reading it now…" : "Figure it out"}
         </button>`
       : `<div class="field full">
           <input class="input" type="file" accept="image/*" name="photo" data-photo-input />
-          <div class="tiny dim mt-4">A screenshot of your class schedule, or a photo of the bell times from your school's website.</div>
+          <div class="tiny dim mt-4">${U.esc(copy.photoHint)}</div>
         </div>
         <button type="button" class="btn btn-primary" data-parse-photo ${state.busy ? "disabled" : ""}>
           ${state.busy ? "Reading it now…" : "Figure it out"}
@@ -93,14 +114,22 @@ App.aiAdd = (function () {
       resultHTML = `<div class="mt-16" style="color:var(--danger)">${U.esc(state.error)}</div>`;
     } else if (state.result) {
       const r = state.result;
+      const showEntries = state.scope === "activities" && r.entries.length;
+      const showPeriods = state.scope === "periods" && r.periods.length;
+      const otherFound = state.scope === "activities" ? r.periods.length : r.entries.length;
+      const otherLabel = state.scope === "activities"
+        ? `${U.plural(r.periods.length, "bell-schedule period")} — open the Bell schedule editor (Classes page) to add ${r.periods.length === 1 ? "it" : "them"}.`
+        : `${U.plural(r.entries.length, "activity", "activities")} — open Activities to add ${r.entries.length === 1 ? "it" : "them"}.`;
+
       resultHTML = `<div class="mt-16">
         ${r.summary ? `<p class="small">${U.esc(r.summary)}</p>` : ""}
         ${r.clarify ? `<p class="small" style="color:var(--warn)">${U.esc(r.clarify)}</p>` : ""}
-        ${r.entries.length ? `<h4 class="mt-12 mb-8">Classes &amp; activities</h4>${r.entries.map(entryCard).join("")}` : ""}
-        ${r.periods.length ? `<h4 class="mt-12 mb-8">Bell schedule</h4>
+        ${otherFound ? `<p class="small dim">This also mentioned ${otherLabel}</p>` : ""}
+        ${showEntries ? `<h4 class="mt-12 mb-8">${U.esc(copy.entriesHeading)}</h4>${r.entries.map(entryCard).join("")}` : ""}
+        ${showPeriods ? `<h4 class="mt-12 mb-8">Bell schedule</h4>
           <p class="tiny dim mb-8">These are added to your existing bell schedule, not used to replace it.</p>
           ${r.periods.map(periodRow).join("")}` : ""}
-        ${!r.entries.length && !r.periods.length ? `<p class="small dim">Nothing recognizable came out of that — try rephrasing or a clearer photo.</p>` : ""}
+        ${!showEntries && !showPeriods && !otherFound ? `<p class="small dim">Nothing recognizable came out of that — try rephrasing or a clearer photo.</p>` : ""}
       </div>`;
     }
 
@@ -108,11 +137,12 @@ App.aiAdd = (function () {
   }
 
   function open(opts) {
-    const state = { tab: (opts && opts.tab) || "text", text: "", busy: false, result: null, error: null, photoFile: null };
+    const scope = (opts && opts.scope === "periods") ? "periods" : "activities";
+    const state = { scope, tab: (opts && opts.tab) || "text", text: "", busy: false, result: null, error: null, photoFile: null };
 
     const root = UI.modal({
-      title: "Add with AI",
-      sub: "Describe it or upload a photo — you'll review everything before it's saved.",
+      title: scope === "periods" ? "Add bell schedule with AI" : "Add with AI",
+      sub: SCOPE_COPY[scope].sub,
       size: "wide",
       footer: `<button type="button" class="btn btn-primary" data-close>Done</button>`,
       body: bodyHTML(state),
