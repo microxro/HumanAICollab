@@ -151,7 +151,13 @@ App.views.schedule = (function () {
       </div>
 
       <div class="card mb-16 print-sheet">
-        <div class="card-head"><h3>Weekly timetable</h3><span class="sub">Click a block to open the class</span></div>
+        <div class="card-head">
+          <h3>Weekly timetable</h3>
+          <span class="sub">Click a block to open the class
+            ${S.settings.schedule.mode === "rotating"
+              ? UI.helpHint("This is a rotating (A/B) schedule — the columns are cycle days, not weekdays. The same Monday might be a Day A one week and a Day B the next, so check which cycle day it is rather than the date.")
+              : ""}</span>
+        </div>
         <div class="card-body">${timetable()}</div>
       </div>
 

@@ -440,10 +440,63 @@ App.ui = (function () {
     return el;
   }
 
+  /* --------------------------------------------------------- U50 — help -- */
+  // A small "?" next to jargon (weighted category, Leitner box, cycle day…)
+  // that explains it right where it first gets confusing, instead of a
+  // help page nobody goes looking for.
+
+  function helpHint(text) {
+    return `<button type="button" class="help-hint" data-help="${U.esc(text)}" aria-label="What's this?">?</button>`;
+  }
+
+  let openHelp = null, openHelpBtn = null;
+  function closeHelpNode() {
+    if (!openHelp) return;
+    openHelp.remove();
+    openHelp = null; openHelpBtn = null;
+    document.removeEventListener("click", onHelpOutside, true);
+    document.removeEventListener("keydown", onHelpKey);
+    document.removeEventListener("scroll", closeHelpNode, true);
+  }
+  function onHelpOutside(e) {
+    if (openHelp && !openHelp.contains(e.target) && !e.target.closest("[data-help]")) closeHelpNode();
+  }
+  function onHelpKey(e) { if (e.key === "Escape") closeHelpNode(); }
+
+  function showHelp(btn) {
+    if (openHelpBtn === btn) { closeHelpNode(); return; }
+    closeHelpNode();
+    const el = document.createElement("div");
+    el.className = "help-pop";
+    el.setAttribute("role", "note");
+    el.textContent = btn.dataset.help;
+    document.body.appendChild(el);
+
+    const r = btn.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const w = Math.min(260, vw - 16);
+    el.style.width = w + "px";
+    el.style.left = Math.max(8, Math.min(r.left, vw - w - 8)) + "px";
+    el.style.top = (r.bottom + 6) + "px";
+
+    openHelp = el; openHelpBtn = btn;
+    setTimeout(() => {
+      document.addEventListener("click", onHelpOutside, true);
+      document.addEventListener("keydown", onHelpKey);
+      document.addEventListener("scroll", closeHelpNode, true);
+    }, 0);
+  }
+
+  // One global delegate — ui.js loads once, so this never re-attaches.
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-help]");
+    if (b) { e.stopPropagation(); showHelp(b); }
+  });
+
   return {
     toast, deleteWithUndo, pushUndo, popUndo, modal, closeModal, confirm, confirmTyped, prompt,
     avatar, emptyState, classOptions, teacherOptions,
     colorPicker, bindSwatches, dayPicker, bindDays,
-    gradePill, priorityBadge, dueBadge, menu
+    gradePill, priorityBadge, dueBadge, menu, helpHint
   };
 })();

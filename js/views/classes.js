@@ -101,7 +101,9 @@ App.views.classes = (function () {
       title: "Grading categories",
       sub: cl.name,
       okLabel: "Save weights",
-      body: `<div id="catRows">${rows()}</div>
+      body: `<p class="small muted mb-8">Each assignment counts toward one weighted category
+        ${UI.helpHint("A weighted category means its average counts for a fixed share of the class grade, no matter how many assignments are in it. A 40%-weight category moves the grade four times as much as a 10%-weight one.")}</p>
+        <div id="catRows">${rows()}</div>
         <button type="button" class="btn btn-sm" id="addCat">+ Add category</button>
         <div class="divider"></div>
         <div class="between">

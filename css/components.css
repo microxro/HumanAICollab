@@ -647,3 +647,33 @@
 }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--text); }
+
+/* ---------------------------------------------------------- U50 — help -- */
+
+.help-hint {
+  display: inline-grid;
+  place-items: center;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: .64rem;
+  font-weight: 700;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.help-hint:hover, .help-hint:focus-visible { background: var(--brand-100); color: var(--brand-700); }
+
+.help-pop {
+  position: fixed;
+  z-index: 70;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: 10px 12px;
+  font-size: .8rem;
+  line-height: 1.45;
+  color: var(--text-2);
+  animation: pop .12s var(--ease);
+}

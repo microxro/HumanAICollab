@@ -167,6 +167,7 @@ App.views.flashcards = (function () {
         <span class="box-pips">
           ${[1, 2, 3, 4, 5].map((b) => `<i class="box-pip ${(card.box || 1) >= b ? "on" : ""}"></i>`).join("")}
         </span>
+        ${UI.helpHint("This is a Leitner box — a way to space out review. Get a card right and it jumps to a higher box, reviewed less often. Get it wrong and it drops back to box 1, reviewed again tomorrow.")}
       </div>
     </div>`;
   }
