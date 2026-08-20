@@ -48,6 +48,16 @@
 
   const FLAT = NAV.flatMap((g) => g.items);
 
+  // U05 — the five screens reachable with a thumb on mobile, no drawer needed.
+  const MOBILE_TABS = [
+    { id: "dashboard", label: "Home", icon: "◫" },
+    { id: "homework",  label: "Homework", icon: "✎",
+      badge: () => S.openAssignments().length, alert: () => S.overdue().length > 0 },
+    { id: "calendar",  label: "Calendar", icon: "▤" },
+    { id: "grades",    label: "Grades", icon: "◈" },
+    { id: "more",      label: "More", icon: "☰", more: true }
+  ];
+
   /* ------------------------------------------------------------ router -- */
 
   let current = null;
@@ -136,6 +146,7 @@
     renderNav();
     paintSyncBadge();
     paintTodayStrip();
+    paintMobileTabbar();
     document.title = `${view.title} · Scholar`;
 
     // A re-render triggered by a data change shouldn't jump the user to the top.
@@ -539,6 +550,27 @@
     }
   }
 
+  /* ------------------------------------------------- U05 mobile tabbar -- */
+  // A CSS-hidden no-op on desktop; on narrow screens it's the primary way
+  // to move between the five most-used screens without opening the drawer.
+
+  function paintMobileTabbar() {
+    const host = document.getElementById("mobileTabbar");
+    if (!host) return;
+    host.innerHTML = MOBILE_TABS.map((t) => {
+      if (t.more) {
+        return `<button type="button" class="tab-item" data-tabbar-more aria-label="More">
+          <span class="ico">${t.icon}</span><span class="lbl">${t.label}</span>
+        </button>`;
+      }
+      const n = t.badge ? t.badge() : 0;
+      return `<button type="button" class="tab-item ${t.id === current ? "active" : ""}" data-view="${t.id}">
+        <span class="ico">${t.icon}</span><span class="lbl">${t.label}</span>
+        ${n ? `<span class="tab-dot ${t.alert && t.alert() ? "alert" : ""}"></span>` : ""}
+      </button>`;
+    }).join("");
+  }
+
   /* --------------------------------------------------------- sync badge -- */
 
   function paintSyncBadge() {
@@ -586,8 +618,11 @@
     document.getElementById("notifBtn").addEventListener("click", openNotifPanel);
     document.getElementById("searchBtn").addEventListener("click", openPalette);
     document.getElementById("addBtn").addEventListener("click", () => App.views.homework.form(null));
+    document.getElementById("fabAdd").addEventListener("click", () => App.views.homework.form(null)); // U06
     document.getElementById("hamburger").addEventListener("click", openSidebar);
     document.getElementById("scrim").addEventListener("click", closeSidebar);
+    U.on(document.getElementById("mobileTabbar"), "click", "[data-view]", (_e, el) => router.go(el.dataset.view)); // U05
+    U.on(document.getElementById("mobileTabbar"), "click", "[data-tabbar-more]", openSidebar);
     document.getElementById("profileChip").addEventListener("click", () => router.go("settings"));
     document.getElementById("syncBtn").addEventListener("click", () => {
       if (App.sync.isSignedIn()) App.sync.push(false).then(() => UI.toast("Synced", "", "ok"));
