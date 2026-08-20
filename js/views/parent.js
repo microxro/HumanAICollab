@@ -154,6 +154,16 @@ App.views.parent = (function () {
               : st.confidence === "gps-campus" ? "GPS geofence"
               : "Timetable only"}</div></div>
           </div>
+
+          ${k.events && k.events.length ? `
+            <div>
+              <div class="tiny dim mb-4">Arrivals &amp; departures ${UI.helpHint("Fires on an actual on-campus/off-campus crossing, not a running feed of GPS positions — this only ever shows the moment they entered or left, nothing in between.")}</div>
+              <div class="row gap-8 wrap">
+                ${k.events.slice(0, 5).map((ev) => `<span class="badge ${ev.type === "arrival" ? "ok" : ""}">
+                  ${ev.type === "arrival" ? "→ Arrived" : "← Left"} ${U.esc(U.fmtTime(`${String(new Date(ev.at).getHours()).padStart(2, "0")}:${String(new Date(ev.at).getMinutes()).padStart(2, "0")}`))}
+                </span>`).join("")}
+              </div>
+            </div>` : ""}
         ` : `<p class="empty-note small muted">${U.esc(k.name)} has location sharing turned off.
              You'll still see the summary below if they've enabled it.</p>`}
 

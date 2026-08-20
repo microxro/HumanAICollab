@@ -250,11 +250,13 @@ async function listChildren(user) {
   const out = [];
   for (const k of kids) {
     const loc = await readJSON("locations", k.id, null);
+    const events = await readJSON("locationEvents", k.id, []);   // F069
     out.push({
       id: k.id, name: k.name, since: k.since,
       status: loc ? loc.status : null,
       summary: loc ? loc.summary : null,
-      updatedAt: loc ? loc.at : null
+      updatedAt: loc ? loc.at : null,
+      events: events.slice(0, 5)
     });
   }
   return ok({ children: out });
@@ -483,6 +485,22 @@ async function listGuardianNotes(user) {
 
 async function pushLocation(req, user) {
   const b = await body(req);
+  const newPresence = b.status && b.status.presence;
+
+  // F069 — fire an event on an actual on-campus <-> off-campus crossing,
+  // not on every periodic status push (this fires far less often than
+  // pushLocation itself gets called while the app is open).
+  if (newPresence === "on-campus" || newPresence === "off-campus") {
+    const prev = await readJSON("locations", user.id, null);
+    const prevPresence = prev && prev.status && prev.status.presence;
+    if (prevPresence && prevPresence !== newPresence &&
+        (prevPresence === "on-campus" || newPresence === "on-campus")) {
+      const events = await readJSON("locationEvents", user.id, []);
+      events.unshift({ type: newPresence === "on-campus" ? "arrival" : "departure", at: Date.now() });
+      await writeJSON("locationEvents", user.id, events.slice(0, 20));
+    }
+  }
+
   await writeJSON("locations", user.id, {
     status: b.status || null,
     summary: b.summary || null,
