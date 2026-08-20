@@ -34,6 +34,7 @@
     };
     Object.entries(coll).forEach(([k, v]) => { if (!Array.isArray(db[k]) && typeof db[k] !== "object") db[k] = v; });
     if (!db.navVisits) db.navVisits = {};    // { navId: count } — powers U02 auto-float-to-top
+    if (!db.recentViews) db.recentViews = []; // U03 — most-recent-first nav ids
     if (!db.moodLog) db.moodLog = {};        // { "YYYY-MM-DD": {mood, energy} }
     if (!db.sleepLog) db.sleepLog = {};      // { "YYYY-MM-DD": {bed, wake, hours} }
     if (!db.sessionRatings) db.sessionRatings = []; // [{id, sessionId, quality, at}]
@@ -730,7 +731,14 @@
   // each time (piggybacks on the next commit) to keep clicking cheap.
   S.trackNavVisit = function (id) {
     S.db.navVisits[id] = (S.db.navVisits[id] || 0) + 1;
+    // U03 — most-recent-first, deduped, capped. Separate from navVisits
+    // (frequency) since "recent" and "most-used" answer different questions.
+    if (!S.db.recentViews) S.db.recentViews = [];
+    S.db.recentViews = [id, ...S.db.recentViews.filter((x) => x !== id)].slice(0, 6);
     S.save();
+  };
+  S.recentViews = function (excludeId) {
+    return (S.db.recentViews || []).filter((id) => id !== excludeId);
   };
 
   S.togglePinnedNav = function (id) {

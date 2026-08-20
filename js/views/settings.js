@@ -1125,10 +1125,10 @@ App.views.settings = (function () {
       });
     });
     U.on(root, "click", "[data-wipe]", () => {
-      UI.confirm({
+      UI.confirmTyped({
         title: "Clear everything?",
         message: "All assignments, notes, grades, and logs will be deleted. Your classes and bell schedule are kept. This can't be undone.",
-        okLabel: "Clear it all", danger: true,
+        okLabel: "Clear it all", phrase: "DELETE",
         onConfirm() { S.wipe(); UI.toast("Data cleared", "Starting fresh.", "warn"); App.router.go("dashboard"); }
       });
     });

@@ -169,6 +169,38 @@ App.ui = (function () {
     });
   }
 
+  /**
+   * U29 — for genuinely destructive actions (clearing all data, deleting an
+   * account), a plain Cancel/Confirm is too easy to click through on
+   * autopilot. Requires typing an exact phrase before the button enables.
+   */
+  function confirmTyped(opts) {
+    const phrase = opts.phrase || "DELETE";
+    return modal({
+      title: opts.title || "Are you sure?",
+      size: "narrow",
+      body: `<p class="muted mb-12">${U.esc(opts.message || "")}</p>
+        <div class="field">
+          <label>Type <strong>${U.esc(phrase)}</strong> to confirm</label>
+          <input class="input" id="typedConfirm" autocomplete="off" autofocus />
+        </div>`,
+      footer: `<button type="button" class="btn" data-close>Cancel</button>
+               <button type="button" class="btn btn-danger" data-ok disabled>
+                 ${U.esc(opts.okLabel || "Confirm")}
+               </button>`,
+      onMount(root) {
+        const input = root.querySelector("#typedConfirm");
+        const btn = root.querySelector("[data-ok]");
+        input.addEventListener("input", () => { btn.disabled = input.value !== phrase; });
+        btn.addEventListener("click", () => {
+          if (input.value !== phrase) return;
+          closeModal();
+          if (opts.onConfirm) opts.onConfirm();
+        });
+      }
+    });
+  }
+
   function prompt(opts) {
     return modal({
       title: opts.title || "Enter a value",
@@ -279,7 +311,7 @@ App.ui = (function () {
   }
 
   return {
-    toast, deleteWithUndo, modal, closeModal, confirm, prompt,
+    toast, deleteWithUndo, modal, closeModal, confirm, confirmTyped, prompt,
     avatar, emptyState, classOptions, teacherOptions,
     colorPicker, bindSwatches, dayPicker, bindDays,
     gradePill, priorityBadge, dueBadge

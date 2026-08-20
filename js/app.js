@@ -244,6 +244,13 @@
   function commands() {
     const out = [];
 
+    // U03 — recently visited screens, so hopping between two of them doesn't
+    // mean scanning the whole "Go to" list every time.
+    S.recentViews(current).forEach((id) => {
+      const it = FLAT.find((x) => x.id === id);
+      if (it) out.push({ group: "Recent", label: App.i18n.t(it.id, it.label), icon: it.icon, run: () => router.go(it.id) });
+    });
+
     FLAT.forEach((it) => out.push({
       group: "Go to", label: App.i18n.t(it.id, it.label), icon: it.icon,
       run: () => router.go(it.id)
