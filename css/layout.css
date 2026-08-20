@@ -216,6 +216,23 @@
   color: var(--text-3);
 }
 
+.today-strip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  height: 30px;
+  max-width: 260px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: .78rem;
+  font-weight: 600;
+}
+.today-strip:empty,
+.today-strip[hidden] { display: none; }
+.today-strip .dim { font-weight: 500; }
+
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
 .icon-btn {
@@ -325,6 +342,7 @@
   .hamburger { display: grid; }
   .searchbar { min-width: 0; }
   .searchbar .label, .searchbar kbd { display: none; }
+  .today-strip { display: none !important; }
 }
 
 /* ==========================================================================

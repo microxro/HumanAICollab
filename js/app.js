@@ -135,6 +135,7 @@
 
     renderNav();
     paintSyncBadge();
+    paintTodayStrip();
     document.title = `${view.title} · Scholar`;
 
     // A re-render triggered by a data change shouldn't jump the user to the top.
@@ -515,6 +516,29 @@
     }).catch((e) => console.info("[scholar] service worker not registered:", e.message));
   }
 
+  /* ------------------------------------------------- U37 today strip ---- */
+  // Next class and time remaining, visible from every screen — not just
+  // the dashboard hero, which you might not be looking at right now.
+
+  function paintTodayStrip() {
+    const el = document.getElementById("todayStrip");
+    if (!el) return;
+    const live = S.liveStatus();
+    if (live.current) {
+      el.innerHTML = `<i class="live-dot" style="width:6px;height:6px"></i>
+        <span class="truncate">${U.esc(live.current.title)}</span>
+        <span class="dim">· ${U.esc(U.fmtDur(live.remaining))} left</span>`;
+      el.hidden = false;
+    } else if (live.next) {
+      el.innerHTML = `<span class="truncate">${U.esc(live.next.title)}</span>
+        <span class="dim">in ${U.esc(U.fmtDur(live.untilNext))}</span>`;
+      el.hidden = false;
+    } else {
+      el.innerHTML = "";
+      el.hidden = true;
+    }
+  }
+
   /* --------------------------------------------------------- sync badge -- */
 
   function paintSyncBadge() {
@@ -603,6 +627,9 @@
         paint();
       }
     }, 60000);
+    // The today strip lives in the topbar on every screen, not only the
+    // three views above, so it gets its own lighter-weight tick.
+    setInterval(() => { if (!document.hidden) paintTodayStrip(); }, 60000);
 
     // Materialize recurring assignments once a day.
     setInterval(() => S.runTemplates(28), 6 * 60 * 60 * 1000);
