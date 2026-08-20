@@ -313,6 +313,13 @@ App.views.settings = (function () {
               <option value="larger" ${st.fontSize === "larger" ? "selected" : ""}>Larger</option>
             </select>
           </div>
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div><div class="bold small">Empty state icons</div><div class="tiny dim">How illustrations look on empty lists and screens</div></div>
+            <select class="select input-sm" id="emptyStyleSel" style="width:150px">
+              <option value="drawn" ${st.emptyStateStyle !== "emoji" ? "selected" : ""}>Drawn icons</option>
+              <option value="emoji" ${st.emptyStateStyle === "emoji" ? "selected" : ""}>Classic emoji</option>
+            </select>
+          </div>
           ${toggleRow("Dyslexia-friendly type", "Wider letter spacing and a clearer face", st.dyslexicFont, `data-pref="dyslexicFont"`)}
           ${toggleRow("True-black dark mode", "Pure black surfaces — saves battery on OLED screens (dark mode only)", st.trueBlack, `data-pref="trueBlack"`)}
           ${toggleRow("High contrast", "Stronger text, borders, and focus rings — for low vision or a bright outdoor screen", st.highContrast, `data-pref="highContrast"`)}
@@ -1034,6 +1041,11 @@ App.views.settings = (function () {
     if (cvdSel) cvdSel.addEventListener("change", (e) => {
       S.commit((db) => { db.settings.cvdPreview = e.target.value; });
       App.applyShellPrefs();
+    });
+    const emptyStyleSel = root.querySelector("#emptyStyleSel");
+    if (emptyStyleSel) emptyStyleSel.addEventListener("change", (e) => {
+      S.commit((db) => { db.settings.emptyStateStyle = e.target.value; });
+      App.router.refresh();
     });
 
     U.on(root, "change", "[data-notif]", (_e, el) => {

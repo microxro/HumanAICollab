@@ -734,7 +734,7 @@ App.views.homework = (function () {
 
   function listHTML(rows) {
     if (!rows.length) {
-      return UI.emptyState("✨", "Nothing here",
+      return UI.emptyState("homework", "Nothing here",
         filter.q || filter.cls ? "Try clearing your filters." : "You're all caught up.",
         `<button class="btn btn-primary" data-add>+ Add assignment</button>`);
     }

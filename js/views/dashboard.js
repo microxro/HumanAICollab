@@ -132,7 +132,7 @@ App.views.dashboard = (function () {
     const now = U.nowMin();
 
     if (!items.length) {
-      return UI.emptyState("🌤️", "Nothing scheduled today",
+      return UI.emptyState("todaySchedule", "Nothing scheduled today",
         "Enjoy the break — or add something to your calendar.");
     }
 
@@ -158,7 +158,7 @@ App.views.dashboard = (function () {
   function dueHTML() {
     const items = S.dueSoon(7).slice(0, 7);
     if (!items.length) {
-      return UI.emptyState("🎉", "All caught up", "Nothing due in the next week.");
+      return UI.emptyState("caughtUp", "All caught up", "Nothing due in the next week.");
     }
     return `<div class="list">${items.map((a) => {
       const c = S.cls(a.classId);
@@ -186,7 +186,7 @@ App.views.dashboard = (function () {
       .filter((r) => r.pct != null)
       .sort((a, b) => b.pct - a.pct);
 
-    if (!rows.length) return UI.emptyState("📊", "No grades yet", "Grade some assignments to see this.");
+    if (!rows.length) return UI.emptyState("noGrades", "No grades yet", "Grade some assignments to see this.");
 
     return C.hbars(rows.map(({ c, pct }) => ({
       label: c.name, value: U.round(pct, 1), color: c.color, max: 100

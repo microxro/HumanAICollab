@@ -169,7 +169,7 @@ App.views.calendar = (function () {
             </span>
             <span class="badge">${U.esc(it.kind)}</span>
           </div>`).join("")}</div>`
-        : UI.emptyState("📭", "Nothing on this day", "Add an event to fill it in.")}`,
+        : UI.emptyState("eventsToday", "Nothing on this day", "Add an event to fill it in.")}`,
       onMount(root) {
         root.querySelector("[data-new]").addEventListener("click", () => { UI.closeModal(); eventForm(null, iso); });
         U.on(root, "click", "[data-ev]", (_e, el) => {
@@ -423,7 +423,7 @@ App.views.calendar = (function () {
       </div>`);
     }
     return out.length ? out.join("") :
-      UI.emptyState("🗓️", "Nothing in the next three weeks", "Add an event to get started.");
+      UI.emptyState("eventsUpcoming", "Nothing in the next three weeks", "Add an event to get started.");
   }
 
   /* ------------------------------------------------------------ render -- */

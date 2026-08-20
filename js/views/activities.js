@@ -258,7 +258,7 @@ App.views.activities = (function () {
           </div>
         </div>
       </div>`
-      : UI.emptyState("⚽", "No activities yet",
+      : UI.emptyState("activities", "No activities yet",
           "Track sports, clubs, and volunteering — including practice times and hours for college applications.",
           `<button class="btn btn-primary" data-add>+ Add your first activity</button>`)}
     </div>`;

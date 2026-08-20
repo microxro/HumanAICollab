@@ -189,7 +189,7 @@ App.views.reading = (function () {
             <div class="card-body">${C.bars(series, { h: 170, fmt: (v) => v + " pages" })}</div>
           </div>
         </div>`
-      : UI.emptyState("📖", "Nothing on the shelf",
+      : UI.emptyState("reading", "Nothing on the shelf",
           "Track books and chapter assignments — Scholar works out how many pages a day you need to finish on time.",
           `<button class="btn btn-primary" data-add>+ Add your first book</button>`)}
     </div>`;

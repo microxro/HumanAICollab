@@ -356,7 +356,7 @@ ${S.profile.grade || ""}${S.profile.school ? " · " + S.profile.school : ""}`);
             </div>
           </div>
         </div>`
-      : UI.emptyState("🎓", "No applications yet",
+      : UI.emptyState("graduation", "No applications yet",
           "Track schools, scholarships, essay drafts, and recommendation letters — with deadlines that show up on your calendar.",
           `<button class="btn btn-primary" data-add>+ Add your first school</button>`)}
     </div>`;

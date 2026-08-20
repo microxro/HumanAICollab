@@ -599,7 +599,7 @@ Ribosome: makes proteins
           </div>
         </div>`;
       }).join("")}</div>`
-      : UI.emptyState("📓", q || clsFilter || tagFilter ? "No notes match" : "No notes yet",
+      : UI.emptyState("notes", q || clsFilter || tagFilter ? "No notes match" : "No notes yet",
           q || clsFilter || tagFilter ? "Try clearing your filters." : "Keep formulas, vocab, and study guides here — searchable and organized by class.",
           `<button class="btn btn-primary" data-new>+ Write your first note</button>`)}
     </div>`;

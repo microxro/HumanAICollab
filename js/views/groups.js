@@ -156,7 +156,7 @@ App.views.groups = (function () {
     return `<div class="page-inner">
       <div class="page-head"><div><h1>Study groups</h1>
         <div class="sub">Share decks and crowdsource what the homework actually was</div></div></div>
-      ${UI.emptyState("👥", "Sign in to use study groups",
+      ${UI.emptyState("groupsSignIn", "Sign in to use study groups",
         "Groups are the one feature that needs an account, because they sync between people. Everything else in Scholar works offline.",
         `<button class="btn btn-primary" data-go="settings">Go to settings to sign in</button>`)}
     </div>`;
@@ -218,7 +218,7 @@ App.views.groups = (function () {
               </div>` : ""}
             </div>`;
           }).join("")}</div>`
-          : UI.emptyState("📝", "Nothing posted yet", "Be the first to share what's due.")}
+          : UI.emptyState("feed", "Nothing posted yet", "Be the first to share what's due.")}
         </div>
 
         <div class="col gap-16">
@@ -285,7 +285,7 @@ App.views.groups = (function () {
               </div>
             </div>
           </div>`).join("")}</div>`
-        : UI.emptyState("👥", "No groups yet",
+        : UI.emptyState("groupsEmpty", "No groups yet",
             "Create one for a class and share the code, or join a friend's with theirs.",
             `<button class="btn btn-primary" data-create>+ Create a group</button>`)}
     </div>`;

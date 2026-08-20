@@ -212,7 +212,7 @@ App.views.parent = (function () {
       return `<div class="page-inner">
         <div class="page-head"><div><h1>Parent portal</h1>
           <div class="sub">See where your student is and how school is going</div></div></div>
-        ${UI.emptyState("👨‍👩‍👧", "Sign in to your parent account",
+        ${UI.emptyState("parentSignIn", "Sign in to your parent account",
           "Create an account with the Parent role, then link to your student with the code they generate.",
           `<button class="btn btn-primary" data-go="settings">Go to settings</button>`)}
       </div>`;
@@ -238,7 +238,7 @@ App.views.parent = (function () {
 
       ${loading && !kids ? `<div class="card">${U.skeletonRows(2)}</div>`
         : (kids && kids.length) ? kids.map(childCard).join("")
-        : UI.emptyState("🔗", "No students linked yet",
+        : UI.emptyState("studentsLinked", "No students linked yet",
             "Ask your student to open Sharing in their app and generate a link code, then enter it here.",
             `<button class="btn btn-primary" data-link>+ Enter a link code</button>`)}
 

@@ -260,7 +260,7 @@ App.views.focus = (function () {
             <span class="badge">${U.fmtDur(s.minutes)}</span>
             <button class="icon-btn btn-sm" data-del-ss="${s.id}" aria-label="Delete session">✕</button>
           </div>`;
-        }).join("")}</div>` : UI.emptyState("⏳", "No study sessions yet", "Start a focus block to log your first one.")}
+        }).join("")}</div>` : UI.emptyState("studySessions", "No study sessions yet", "Start a focus block to log your first one.")}
       </div>
     </div>`;
   }

@@ -676,7 +676,7 @@ App.views.grades = (function () {
         ${recent.length ? `<div class="table-wrap"><table class="table">
           <thead><tr>${recentTableHead(rtCfg)}</tr></thead>
           <tbody>${recent.map((a) => recentTableRow(a, rtCfg)).join("")}</tbody></table></div>`
-          : UI.emptyState("📝", "No scores yet", "Add a score to an assignment to start tracking your grade.")}
+          : UI.emptyState("scores", "No scores yet", "Add a score to an assignment to start tracking your grade.")}
       </div>
 
       ${(() => {

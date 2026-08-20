@@ -225,7 +225,7 @@ App.views.contacts = (function () {
           </div>
         </div>`;
       }).join("")}</div>`
-      : UI.emptyState("👥", q ? "No matches" : "No contacts yet",
+      : UI.emptyState("contacts", q ? "No matches" : "No contacts yet",
           q ? "Try a different search." : "Add your teachers so their office hours and emails are always one tap away.",
           `<button class="btn btn-primary" data-add>+ Add a contact</button>`)}
     </div>`;

@@ -555,7 +555,7 @@ App.views.classes = (function () {
           </div>
         </div>`;
       }).join("")}</div>`
-      : UI.emptyState("📚", "No classes yet",
+      : UI.emptyState("classes", "No classes yet",
           "Add your first class to start tracking homework, grades, and your schedule.",
           `<button class="btn btn-primary" data-add>+ Add your first class</button>`)}
     </div>`;

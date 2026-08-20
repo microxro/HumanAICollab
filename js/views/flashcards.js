@@ -787,7 +787,7 @@ App.views.flashcards = (function () {
           </div>
         </div>`;
       }).join("")}</div>`
-      : UI.emptyState("🃏", "No decks yet",
+      : UI.emptyState("flashcards", "No decks yet",
           "Flashcards use a Leitner box system — cards you get right come back less often, and ones you miss come back tomorrow.",
           `<button class="btn btn-primary" data-new-deck>+ Create your first deck</button>`)}
     </div>`;

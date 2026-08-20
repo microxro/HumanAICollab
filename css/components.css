@@ -529,6 +529,8 @@
   color: var(--text-3);
 }
 .empty .e-ico { font-size: 2.1rem; opacity: .55; margin-bottom: 10px; }
+.empty .e-ico-drawn { opacity: 1; }
+.empty .e-ico-drawn svg { width: 48px; height: 48px; color: var(--brand-600); }
 .empty .e-title { font-weight: 650; color: var(--text-2); font-size: .93rem; }
 .empty .e-sub { font-size: .81rem; margin-top: 4px; max-width: 330px; }
 .empty .btn { margin-top: 14px; }

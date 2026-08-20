@@ -304,9 +304,133 @@ App.ui = (function () {
     return `<span class="avatar${size ? " " + size : ""}" style="background:${U.esc(color || "#64748b")}">${U.esc(U.initials(name))}</span>`;
   }
 
-  function emptyState(icon, title, sub, action) {
+  /* -------------------------------------------------- U16 empty states -- */
+  // Two renderings of the same 20-ish "nothing here" screens: the emoji
+  // that's always been there, or a small set of hand-drawn line icons that
+  // share the app's chart aesthetic (thin marks, rounded ends). Settings
+  // picks which one emptyState() actually renders; the icon set itself is
+  // shared so multiple call sites can point at the same drawing without
+  // duplicating markup — e.g. both calendar empty states use the same
+  // calendar glyph even though their emoji differ.
+
+  const ICON_SVG = {
+    homework: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="12" y="8" width="40" height="48" rx="4"/><rect x="24" y="4" width="16" height="8" rx="2"/>
+      <rect x="19" y="21" width="6" height="6" rx="1.5"/><line x1="30" y1="24" x2="45" y2="24"/>
+      <rect x="19" y="31" width="6" height="6" rx="1.5"/><line x1="30" y1="34" x2="45" y2="34"/>
+      <rect x="19" y="41" width="6" height="6" rx="1.5"/><line x1="30" y1="44" x2="41" y2="44"/>
+    </svg>`,
+    grades: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="10,8 10,54 56,54"/>
+      <line x1="20" y1="54" x2="20" y2="45" stroke-dasharray="1 5"/>
+      <line x1="32" y1="54" x2="32" y2="37" stroke-dasharray="1 5"/>
+      <line x1="44" y1="54" x2="44" y2="41" stroke-dasharray="1 5"/>
+    </svg>`,
+    notes: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="15" y="6" width="34" height="52" rx="3"/>
+      <circle cx="15" cy="16" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="26" r="1.4" fill="currentColor" stroke="none"/>
+      <circle cx="15" cy="36" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="46" r="1.4" fill="currentColor" stroke="none"/>
+      <line x1="23" y1="20" x2="41" y2="20"/><line x1="23" y1="28" x2="41" y2="28"/><line x1="23" y1="36" x2="34" y2="36"/>
+      <line x1="44" y1="46" x2="54" y2="36"/><circle cx="54" cy="36" r="2" fill="currentColor" stroke="none"/>
+    </svg>`,
+    calendar: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="8" y="12" width="48" height="44" rx="4"/><line x1="8" y1="24" x2="56" y2="24"/>
+      <line x1="20" y1="6" x2="20" y2="16"/><line x1="44" y1="6" x2="44" y2="16"/>
+      <circle cx="20" cy="33" r="1.4" fill="currentColor" stroke="none"/><circle cx="32" cy="33" r="1.4" fill="currentColor" stroke="none"/>
+      <circle cx="44" cy="33" r="1.4" fill="currentColor" stroke="none"/><circle cx="20" cy="43" r="1.4" fill="currentColor" stroke="none"/>
+      <circle cx="32" cy="43" r="1.4" fill="currentColor" stroke="none"/><circle cx="44" cy="43" r="1.4" fill="currentColor" stroke="none"/>
+    </svg>`,
+    flashcards: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="9" y="16" width="34" height="24" rx="4" transform="rotate(-8 26 28)"/>
+      <rect x="17" y="22" width="34" height="24" rx="4" fill="var(--surface-2)"/>
+      <line x1="25" y1="32" x2="43" y2="32"/><line x1="25" y1="38" x2="37" y2="38"/>
+    </svg>`,
+    people: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="41" cy="19" r="7"/><polyline points="31,48 34,36 50,36 53,48"/>
+      <circle cx="23" cy="22" r="8" fill="var(--surface-2)"/><polyline points="11,50 15,36 35,36 39,50" fill="var(--surface-2)"/>
+    </svg>`,
+    caughtup: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="32" cy="32" r="24"/><polyline points="20,33 28,41 46,21"/>
+    </svg>`,
+    goals: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="32" cy="32" r="22"/><circle cx="32" cy="32" r="13"/><circle cx="32" cy="32" r="4" fill="currentColor" stroke="none"/>
+    </svg>`,
+    habits: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="32" y1="56" x2="32" y2="34"/><line x1="14" y1="56" x2="50" y2="56"/>
+      <polygon points="32,38 18,28 32,24"/><polygon points="32,38 46,28 32,24"/>
+    </svg>`,
+    classes: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="8" y="42" width="48" height="9" rx="2"/><rect x="13" y="31" width="38" height="9" rx="2"/><rect x="18" y="20" width="28" height="9" rx="2"/>
+    </svg>`,
+    graduation: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="32,10 58,23 32,36 6,23"/><polyline points="18,27 18,41 32,48 46,41 46,27"/>
+      <line x1="52" y1="24" x2="52" y2="40"/><circle cx="52" cy="42" r="2" fill="currentColor" stroke="none"/>
+    </svg>`,
+    activities: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round">
+      <polygon points="32,10 37.3,24.7 52.9,25.2 40.6,34.8 44.9,49.8 32,41 19.1,49.8 23.4,34.8 11.1,25.2 26.7,24.7"/>
+    </svg>`,
+    hourglass: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="16,10 48,10 32,32 48,54 16,54 32,32 16,10"/>
+    </svg>`,
+    feed: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="8" y="12" width="48" height="30" rx="6"/><polyline points="20,42 20,52 30,42"/>
+      <line x1="18" y1="22" x2="46" y2="22"/><line x1="18" y1="30" x2="38" y2="30"/>
+    </svg>`,
+    link: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="8" y="24" width="26" height="16" rx="8" transform="rotate(-25 21 32)"/>
+      <rect x="30" y="24" width="26" height="16" rx="8" transform="rotate(-25 43 32)"/>
+    </svg>`,
+    reading: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="8,14 8,46 30,52 30,20 8,14"/><polyline points="56,14 56,46 34,52 34,20 56,14"/>
+      <line x1="32" y1="18" x2="32" y2="52"/>
+    </svg>`
+  };
+
+  // kind -> { emoji, svg }. `svg` is a key into ICON_SVG, not the markup
+  // itself, so several kinds can point at the same drawing (e.g. both
+  // calendar empty states, or the various "no people yet" screens) without
+  // the emoji they preserve in the other mode having to match too.
+  const EMPTY_STATE_ICONS = {
+    homework: { emoji: "✨", svg: "homework" },
+    noGrades: { emoji: "📊", svg: "grades" },
+    scores: { emoji: "📝", svg: "grades" },
+    notes: { emoji: "📓", svg: "notes" },
+    eventsToday: { emoji: "📭", svg: "calendar" },
+    eventsUpcoming: { emoji: "🗓️", svg: "calendar" },
+    todaySchedule: { emoji: "🌤️", svg: "calendar" },
+    flashcards: { emoji: "🃏", svg: "flashcards" },
+    contacts: { emoji: "👥", svg: "people" },
+    classmates: { emoji: "👋", svg: "people" },
+    groupsSignIn: { emoji: "👥", svg: "people" },
+    groupsEmpty: { emoji: "👥", svg: "people" },
+    parentSignIn: { emoji: "👨‍👩‍👧", svg: "people" },
+    caughtUp: { emoji: "🎉", svg: "caughtup" },
+    goals: { emoji: "🎯", svg: "goals" },
+    habits: { emoji: "🌱", svg: "habits" },
+    classes: { emoji: "📚", svg: "classes" },
+    graduation: { emoji: "🎓", svg: "graduation" },
+    activities: { emoji: "⚽", svg: "activities" },
+    studySessions: { emoji: "⏳", svg: "hourglass" },
+    feed: { emoji: "📝", svg: "feed" },
+    studentsLinked: { emoji: "🔗", svg: "link" },
+    reading: { emoji: "📖", svg: "reading" }
+  };
+
+  /**
+   * emptyState(kind, title, sub, action) — `kind` is a key into
+   * EMPTY_STATE_ICONS. A bare string is still accepted for a one-off icon
+   * that isn't worth naming (rendered as emoji only, ignoring the drawn
+   * setting), so this stays backward-compatible with any call site that
+   * just wants a literal character.
+   */
+  function emptyState(kind, title, sub, action) {
+    const def = EMPTY_STATE_ICONS[kind];
+    const drawn = App.store.db.settings.emptyStateStyle === "drawn";
+    const iconHtml = def
+      ? (drawn ? ICON_SVG[def.svg] : def.emoji)
+      : U.esc(kind);
     return `<div class="empty">
-      <div class="e-ico">${icon}</div>
+      <div class="e-ico${def && drawn ? " e-ico-drawn" : ""}">${iconHtml}</div>
       <div class="e-title">${U.esc(title)}</div>
       ${sub ? `<div class="e-sub">${U.esc(sub)}</div>` : ""}
       ${action || ""}

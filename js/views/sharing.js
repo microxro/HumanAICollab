@@ -281,7 +281,7 @@ App.views.sharing = (function () {
           <button class="icon-btn btn-sm" data-rm-peer="${p.id}" aria-label="Remove">✕</button>
         </div>`;
       }).join("")}</div>`
-      : UI.emptyState("👋", "No classmates yet", "Add friends to compare schedules.")}
+      : UI.emptyState("classmates", "No classmates yet", "Add friends to compare schedules.")}
       <div class="card-foot">
         <div class="row gap-8">
           <button class="btn btn-sm" data-add-peer>+ Add a classmate</button>

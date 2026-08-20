@@ -380,7 +380,7 @@ App.views.goals = (function () {
               </div>
             </div>`;
           }).join("")}</div>`
-          : UI.emptyState("🎯", "No goals yet", "Set a target for GPA, service hours, or study time.",
+          : UI.emptyState("goals", "No goals yet", "Set a target for GPA, service hours, or study time.",
               `<button class="btn btn-primary" data-new-goal>+ Add a goal</button>`)}
         </div>
 
@@ -402,7 +402,7 @@ App.views.goals = (function () {
               <div class="habit-week">${habitWeek(h)}</div>
             </div>`;
           }).join("")}</div>`
-          : UI.emptyState("🌱", "No habits yet", "Small daily habits compound.",
+          : UI.emptyState("habits", "No habits yet", "Small daily habits compound.",
               `<button class="btn btn-primary" data-new-habit>+ Add a habit</button>`)}
         </div>
       </div>
