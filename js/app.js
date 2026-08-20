@@ -122,14 +122,15 @@
   function navRow(it) {
     const n = it.badge ? it.badge() : 0;
     const pinned = S.isPinnedNav(it.id);
+    const label = App.i18n.t(it.id, it.label);   // F099 — localized nav labels
     return `<div class="nav-row">
       <button class="nav-item ${it.id === current ? "active" : ""}" data-view="${it.id}">
         <span class="ico">${it.icon}</span>
-        <span class="grow truncate">${it.label}</span>
+        <span class="grow truncate">${U.esc(label)}</span>
         ${n ? `<span class="count ${it.alert && it.alert() ? "alert" : ""}">${n}</span>` : ""}
       </button>
       <button class="pin-toggle ${pinned ? "on" : ""}" data-pin-nav="${it.id}"
-              aria-label="${pinned ? "Unpin" : "Pin"} ${it.label}" data-tip="${pinned ? "Unpin" : "Pin to top"}">★</button>
+              aria-label="${pinned ? "Unpin" : "Pin"} ${U.esc(label)}" data-tip="${pinned ? "Unpin" : "Pin to top"}">★</button>
     </div>`;
   }
 
@@ -240,7 +241,7 @@
     const out = [];
 
     FLAT.forEach((it) => out.push({
-      group: "Go to", label: it.label, icon: it.icon,
+      group: "Go to", label: App.i18n.t(it.id, it.label), icon: it.icon,
       run: () => router.go(it.id)
     }));
 
