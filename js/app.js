@@ -277,11 +277,22 @@
     }));
     S.db.notes.forEach((n) => out.push({
       group: "Notes", label: n.title, icon: "✐", sub: S.className(n.classId),
-      run: () => { router.go("notes"); }
+      body: n.body,   // F081 — search full note text, not just the title
+      run: () => { router.go("notes"); setTimeout(() => App.views.notes.reader && App.views.notes.reader(n.id), 60); }
     }));
     S.db.teachers.forEach((t) => out.push({
       group: "Contacts", label: t.name, icon: "☎", sub: t.subject || "",
+      body: t.email || "",
       run: () => { router.go("contacts"); }
+    }));
+    // F081 — events and flashcard decks, previously invisible to the palette.
+    S.db.events.slice(0, 60).forEach((e) => out.push({
+      group: "Events", label: e.title, icon: "▤", sub: `${U.esc(e.location || "")} · ${U.relDate(e.date)}`,
+      run: () => router.go("calendar")
+    }));
+    S.db.decks.forEach((d) => out.push({
+      group: "Flashcards", label: d.name, icon: "🃏", sub: `${U.plural(d.cards.length, "card")}`,
+      run: () => router.go("flashcards")
     }));
 
     return out;
@@ -310,6 +321,7 @@
       if (l.startsWith(q)) return 3;
       if (l.includes(q)) return 2;
       if ((cmd.sub || "").toLowerCase().includes(q)) return 1;
+      if ((cmd.body || "").toLowerCase().includes(q)) return 1;   // F081 — full-text, not just titles
       return 0;
     }
 

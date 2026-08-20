@@ -624,5 +624,5 @@ Ribosome: makes proteins
     if (c) c.addEventListener("change", (e) => { clsFilter = e.target.value; App.router.refresh(); });
   }
 
-  return { render, mount, title: "Notes" };
+  return { render, mount, reader, title: "Notes" };
 })();

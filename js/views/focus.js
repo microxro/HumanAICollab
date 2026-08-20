@@ -80,14 +80,16 @@ App.views.focus = (function () {
       timer.round += 1;
       timer.phase = next;
       timer.remaining = phaseSeconds(next);
+      // F075 — a break nudge is still shown (you need to know time's up),
+      // but the audible ping is skipped during quiet hours.
       UI.toast("Focus block complete! 🎉",
         `${cfg().focus} minutes logged${timer.classId ? " to " + S.className(timer.classId) : ""}. Time for a ${next === "long" ? "long" : "short"} break.`, "ok");
-      ping();
+      if (!App.notify.inQuietHours()) ping();
     } else {
       timer.phase = "focus";
       timer.remaining = phaseSeconds("focus");
       UI.toast("Break over", "Ready for another focus block?");
-      ping();
+      if (!App.notify.inQuietHours()) ping();
     }
     App.router.refresh();
   }
