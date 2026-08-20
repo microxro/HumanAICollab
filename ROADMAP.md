@@ -92,6 +92,23 @@ U39 (drag assignments onto any calendar view from anywhere, and a
 Gantt-style project timeline — both sized **L**, each closer to its own
 feature than an afternoon's addition).
 
+**Beyond the backlog — 3 AI features**, none of the 150 items above: natural-
+language schedule add, photo/schedule-image extraction, and a private data
+assistant. "I have swimming 6-6:45pm every weekday, Sept 5 to Oct 25" or a
+photo of a class schedule or a school's bell-times page turns into editable
+drafts on the Activities page ("Add with AI", next to the existing manual
+form — both stay available) — nothing saves until each draft is reviewed
+and confirmed. A new pinned **Assistant** view answers questions grounded
+only in that student's own data ("what classes do I have today", "do I have
+time to hang out with friends today"); free-time gaps are computed from the
+real schedule before the question ever reaches the model, rather than left
+for it to get arithmetic wrong. All three run through Google's Gemini API
+(`GEMINI_API_KEY`, a free key from AI Studio) via one small serverless
+wrapper — no login, nothing written to Blobs, nothing kept beyond the
+on-device chat log. Activities also picked up an optional real start/end
+date (a season that's bounded in time, not just labeled "Fall"), which the
+AI path uses and the manual form now exposes too.
+
 ---
 
 ## Functionality

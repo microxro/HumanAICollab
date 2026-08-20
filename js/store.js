@@ -595,9 +595,15 @@ App.store = (function () {
       .sort((a, b) => U.toMin(a.period.start) - U.toMin(b.period.start));
   }
 
-  function activitiesOn(dowShort) {
+  // `iso`, when given, also bounds by the activity's optional startDate/
+  // endDate — an AI- or manually-added seasonal activity ("swimming, Sep 5
+  // to Oct 25") only shows up on dates inside that window. Omitting `iso`
+  // (weekly-template callers that don't think in real dates) keeps the old
+  // always-show-if-the-day-matches behavior.
+  function activitiesOn(dowShort, iso) {
     return db.activities
       .filter((a) => a.days.includes(dowShort))
+      .filter((a) => !iso || ((!a.startDate || a.startDate <= iso) && (!a.endDate || a.endDate >= iso)))
       .sort((a, b) => U.toMin(a.start) - U.toMin(b.start));
   }
 
@@ -613,7 +619,7 @@ App.store = (function () {
     });
 
     if (isSchoolDay(iso) || db.settings.schedule.mode === "weekly") {
-      activitiesOn(U.dowName(iso)).forEach((a) => {
+      activitiesOn(U.dowName(iso), iso).forEach((a) => {
         out.push({
           kind: "activity", id: a.id, title: a.name, color: a.color,
           start: a.start, end: a.end, location: a.location, sub: a.type

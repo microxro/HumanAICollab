@@ -30,6 +30,7 @@
       journal: [], vocabLists: [], conceptMaps: [], apExams: [],
       graduationReqs: [], apiTokens: [], webhooks: [], focusWindows: [],
       guardianNotes: [], checkIns: [], emergencyContacts: [], notifications: [],
+      assistantChat: [],  // [{role: "user"|"assistant", text, at}] — the private assistant's thread
       feedComments: {}   // { feedItemId: [{id, byName, text, at}] }
     };
     Object.entries(coll).forEach(([k, v]) => { if (!Array.isArray(db[k]) && typeof db[k] !== "object") db[k] = v; });

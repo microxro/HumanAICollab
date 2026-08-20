@@ -48,11 +48,23 @@ Netlify Blobs needs no setup — it's provisioned automatically. The API refuses
 
 The weekly digest (`netlify/functions/weekly-digest.js`) runs on Netlify's scheduler — no extra setup, but you can change the cron expression at the bottom of that file if Monday 13:00 UTC isn't the right time for your users.
 
+**Optional — AI features** ("Add with AI" on the Activities page, and the private Assistant chat). Without a key set, both show a plain "AI assistant isn't set up yet" message instead of erroring — manual entry works exactly the same either way, and nothing about this is required to use the rest of the app.
+
+| Variable | Value |
+|---|---|
+| `GEMINI_API_KEY` | Free from [Google AI Studio](https://aistudio.google.com/apikey) — sign in with any Google account, no card required. Stays inside Google's free quota for personal/family use. |
+| `GEMINI_MODEL` | Optional. Defaults to `gemini-2.0-flash`. Override if Google renames or retires that model. |
+
+These features (`netlify/functions/assistant.js`, `netlify/functions/_lib/gemini.js`) are stateless and anonymous — no login required, nothing is written to Blobs, and each request only ever contains what that one call needs: the text or photo being parsed, or (for the Assistant) a digest of *your own* schedule/grades/assignments built fresh on your device for that one question. Nothing about any other student is ever in scope, and nothing lingers between questions beyond the on-device chat log (Settings has no separate control for it yet — "Clear conversation" on the Assistant page clears it).
+
+The photo path (a schedule screenshot or a photo of the school's bell-times page) is resized to at most 1600px client-side before it's sent, to keep it well under Gemini's free-tier limits. Every AI result — from text or from a photo — lands in an editable review list before anything is saved; nothing is written to your data without you clicking "Add".
+
 ---
 
 ## What's in it
 
 ### Overview
+- **Assistant** *(needs `GEMINI_API_KEY`)* — a private chat grounded only in your own data ("what classes do I have today", "do I have time to hang out with friends today"). Free-time gaps are precomputed from your real schedule rather than left for the model to guess at.
 - **Dashboard** — live "what class am I in right now" with a countdown and progress bar, proactive overload warnings, today's schedule, due-soon queue, GPA / study / attendance tiles, grade trend, study heatmap.
 - **Calendar** — month, **week time-grid**, and agenda views. Classes, activities, events, due dates, and planned study blocks in one place. Drag a study block to another day. Export to `.ics`.
 - **Schedule** — weekly timetable, or a **rotating A/B (or A/B/C/D) cycle** with holiday overrides and per-day exceptions.
@@ -70,7 +82,7 @@ The weekly digest (`netlify/functions/weekly-digest.js`) runs on Netlify's sched
 - **Reading** — books and chapter assignments with pages-per-day pacing and behind/ahead detection.
 
 ### Life
-- **Activities** — practices, clubs, and volunteering with hour logging.
+- **Activities** — practices, clubs, and volunteering with hour logging. Optionally date-bounded (a season that starts and ends on real dates, not just "Fall"). **"Add with AI"** *(needs `GEMINI_API_KEY`)* turns a plain-English description ("swimming 6-6:45pm weekdays, Sept 5 to Oct 25") or a photo of a schedule or bell-times page into editable drafts — nothing saves until you review and confirm each one.
 - **Goals & habits** — goals that auto-track from live data (GPA, service hours, study minutes), habit streaks, attendance.
 - **Applications** — college and scholarship tracker with deadlines, essay status, recommendation-letter tracking, and a **pre-written recommendation request email**.
 - **Contacts** — teacher directory with office hours and one-tap pre-filled email.
@@ -135,8 +147,12 @@ js/
 
 netlify/functions/
   api.js                Whole backend, one function, path-routed
+  assistant.js           AI: schedule parsing (text/photo), private assistant Q&A
+  weekly-digest.js        Scheduled function — F066 parent email digest
   _lib/auth.js          PBKDF2 hashing, HMAC session tokens
   _lib/blobs.js         Netlify Blobs helpers
+  _lib/email.js          Resend wrapper
+  _lib/gemini.js          Gemini API wrapper (text + vision)
 ```
 
 Each view exposes `render()` → HTML string and `mount(root)` → wire events. The store publishes changes; the router repaints into a **fresh container** each time (a persistent node would accumulate one set of delegated listeners per render, and stale handlers from other views would swallow clicks).

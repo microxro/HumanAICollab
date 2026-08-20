@@ -52,6 +52,14 @@ App.views.activities = (function () {
           <label>Meets on</label>
           ${UI.dayPicker("days", a.days || ["Tue", "Thu"])}
         </div>
+        <div class="field">
+          <label>Starts on <span class="tiny dim">(optional)</span></label>
+          <input class="input" type="date" name="startDate" value="${a.startDate || ""}" />
+        </div>
+        <div class="field">
+          <label>Ends on <span class="tiny dim">(optional)</span></label>
+          <input class="input" type="date" name="endDate" value="${a.endDate || ""}" />
+        </div>
         <div class="field full">
           <label>Color</label>
           ${UI.colorPicker("color", a.color || S.PALETTE[2])}
@@ -64,7 +72,8 @@ App.views.activities = (function () {
           name: d.name.trim(), type: d.type, role: d.role.trim(),
           advisorId: d.advisorId || null, location: d.location.trim(),
           start: d.start, end: d.end, season: d.season.trim(), color: d.color,
-          days: d.days ? d.days.split(",").filter(Boolean) : []
+          days: d.days ? d.days.split(",").filter(Boolean) : [],
+          startDate: d.startDate || "", endDate: d.endDate || ""
         };
         if (ac) { S.update("activities", ac.id, patch); UI.toast("Activity updated", patch.name); }
         else { S.insert("activities", Object.assign({ hours: [] }, patch)); UI.toast("Activity added", patch.name, "ok"); }
@@ -182,6 +191,7 @@ App.views.activities = (function () {
             ${U.round(weeklyLoad, 1)}h scheduled per week</div>
         </div>
         <div class="page-actions">
+          <button class="btn" data-ai-add title="Describe it, or upload a photo of your schedule">✦ Add with AI</button>
           <button class="btn btn-primary" data-add>+ Add activity</button>
         </div>
       </div>
@@ -266,6 +276,7 @@ App.views.activities = (function () {
 
   function mount(root) {
     U.on(root, "click", "[data-add]", () => form(null));
+    U.on(root, "click", "[data-ai-add]", () => App.aiAdd.open());
     U.on(root, "click", "[data-act]", (_e, el) => detail(el.dataset.act));
     U.on(root, "click", "[data-log]", (e, el) => { e.stopPropagation(); logHours(el.dataset.log); });
   }

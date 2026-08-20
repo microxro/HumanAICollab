@@ -7,10 +7,11 @@
 
   const NAV = [
     { group: "Overview", items: [
-      { id: "dashboard", label: "Dashboard", icon: "◫" },
-      { id: "calendar",  label: "Calendar",  icon: "▤" },
-      { id: "schedule",  label: "Schedule",  icon: "◱" },
-      { id: "planner",   label: "Planner",   icon: "◳",
+      { id: "dashboard",  label: "Dashboard",  icon: "◫" },
+      { id: "assistant",  label: "Assistant",  icon: "✦" },
+      { id: "calendar",   label: "Calendar",   icon: "▤" },
+      { id: "schedule",   label: "Schedule",   icon: "◱" },
+      { id: "planner",    label: "Planner",    icon: "◳",
         badge: () => App.planner.warnings(14).filter((w) => w.level === "high").length,
         alert: () => true }
     ]},

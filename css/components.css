@@ -535,6 +535,30 @@
 .empty .e-sub { font-size: .81rem; margin-top: 4px; max-width: 330px; }
 .empty .btn { margin-top: 14px; }
 
+/* --------------------------------------------------------- assistant -- */
+
+.chat-thread {
+  display: flex; flex-direction: column; gap: 12px;
+  max-height: 52vh; overflow-y: auto;
+  padding: 4px 2px 16px;
+  margin-bottom: 14px;
+}
+.chat-row { display: flex; }
+.chat-row-user { justify-content: flex-end; }
+.chat-row-assistant { justify-content: flex-start; }
+.chat-bubble {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: .89rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.chat-bubble-user { background: var(--brand-600); color: #fff; border-bottom-right-radius: 4px; }
+.chat-bubble-assistant { background: var(--surface-2); color: var(--text); border-bottom-left-radius: 4px; }
+.chat-bubble-assistant :is(p, ul, ol) { margin: 0 0 6px; }
+.chat-bubble-assistant :last-child { margin-bottom: 0; }
+
 /* -------------------------------------------------------------- tabs -- */
 
 .tabs {

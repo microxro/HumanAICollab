@@ -383,6 +383,10 @@ App.ui = (function () {
     reading: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="8,14 8,46 30,52 30,20 8,14"/><polyline points="56,14 56,46 34,52 34,20 56,14"/>
       <line x1="32" y1="18" x2="32" y2="52"/>
+    </svg>`,
+    assistant: `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="32,8 38,26 56,32 38,38 32,56 26,38 8,32 26,26"/>
+      <circle cx="52" cy="12" r="2" fill="currentColor" stroke="none"/>
     </svg>`
   };
 
@@ -413,7 +417,8 @@ App.ui = (function () {
     studySessions: { emoji: "⏳", svg: "hourglass" },
     feed: { emoji: "📝", svg: "feed" },
     studentsLinked: { emoji: "🔗", svg: "link" },
-    reading: { emoji: "📖", svg: "reading" }
+    reading: { emoji: "📖", svg: "reading" },
+    assistant: { emoji: "🤖", svg: "assistant" }
   };
 
   /**
