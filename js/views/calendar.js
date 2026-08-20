@@ -524,10 +524,14 @@ App.views.calendar = (function () {
   }
 
   function exportDialog() {
+    const signedIn = App.sync.isSignedIn();
     UI.modal({
       title: "Export to your calendar",
       sub: "Downloads a .ics file you can import into Apple, Google, or Outlook Calendar",
-      okLabel: "Download .ics",
+      footer: `<button type="button" class="btn" data-close>Cancel</button>
+        <button type="button" class="btn" data-subscribe ${signedIn ? "" : "disabled"}
+                ${signedIn ? "" : `data-tip="Sign in for a live subscribe link"`}>🔗 Get subscribe link</button>
+        <button type="submit" class="btn btn-primary">Download .ics</button>`,
       body: `<div class="col gap-8">
         ${[["classes", "Classes", "Weekly recurring, through the end of term"],
            ["activities", "Practices &amp; clubs", "Weekly recurring"],
@@ -540,13 +544,52 @@ App.views.calendar = (function () {
           </label>`).join("")}
       </div>
       <p class="hint mt-12">Times are exported in your local timezone
-        (${U.esc(Intl.DateTimeFormat().resolvedOptions().timeZone || "local")}).</p>`,
+        (${U.esc(Intl.DateTimeFormat().resolvedOptions().timeZone || "local")}).
+        ${signedIn ? "A subscribe link stays in sync — it refreshes with whatever's on your device the next time you're online." : ""}</p>`,
+      onMount(root) {
+        const sub = root.querySelector("[data-subscribe]");
+        if (sub) sub.addEventListener("click", () => {
+          const opts = {
+            classes: root.querySelector('[name="classes"]').checked,
+            activities: root.querySelector('[name="activities"]').checked,
+            events: root.querySelector('[name="events"]').checked,
+            assignments: root.querySelector('[name="assignments"]').checked
+          };
+          App.sync.pushIcsFeed(App.ics.build(opts)).then((token) => {
+            UI.closeModal();
+            setTimeout(() => subscribeLinkModal(App.sync.icsFeedUrl(token)), 60);
+          }).catch((e) => UI.toast("Couldn't create link", e.message, "danger"));
+        });
+      },
       onSubmit(d) {
         App.ics.download({
           classes: d.classes, activities: d.activities,
           events: d.events, assignments: d.assignments
         });
         UI.toast("Calendar exported", "Open the .ics file to import it.", "ok");
+      }
+    });
+  }
+
+  // F046 — a live-syncing subscribe URL, the follow-up once the server has
+  // a copy of the .ics to serve.
+  function subscribeLinkModal(url) {
+    UI.modal({
+      title: "Subscribe link ready",
+      sub: "Add this as a calendar subscription — it stays in sync, not a one-time import.",
+      footer: `<button type="button" class="btn" data-close>Done</button>
+               <button type="button" class="btn btn-primary" data-copy>Copy link</button>`,
+      body: `<div class="field">
+          <input class="input mono" readonly value="${U.esc(url)}" onclick="this.select()" />
+        </div>
+        <p class="hint mt-8">Google Calendar: "Other calendars" → "From URL". Apple Calendar: File →
+          New Calendar Subscription. Outlook: Add calendar → Subscribe from web.</p>`,
+      onMount(root) {
+        root.querySelector("[data-copy]").addEventListener("click", () => {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(() => UI.toast("Copied", "", "ok")).catch(() => UI.toast("Link", url));
+          } else UI.toast("Link", url);
+        });
       }
     });
   }

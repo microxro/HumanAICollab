@@ -375,6 +375,33 @@ async function respondCheckin(req, user) {
   return ok({ responded: true });
 }
 
+/* --------------------------------------------------------- F046 ics feed -- */
+// The device that already builds the one-time .ics export (js/ics.js) also
+// pushes that same text here — the server just stores and serves the last
+// copy under an unguessable token, so there's exactly one place that knows
+// how to turn Scholar data into iCalendar, and it isn't this file.
+
+async function pushIcsFeed(req, user) {
+  const b = await body(req);
+  const ics = String(b.ics || "");
+  if (!ics.startsWith("BEGIN:VCALENDAR")) return fail(400, "That doesn't look like a calendar.");
+  if (ics.length > 500000) return fail(413, "That calendar is too large to host.");
+
+  let rec = await readJSON("icsTokens", user.id, null);
+  if (!rec || !rec.token) { rec = { token: randomId(24) }; await writeJSON("icsTokens", user.id, rec); }
+  await writeJSON("icsFeeds", rec.token, { ics, updatedAt: Date.now() });
+  return ok({ token: rec.token });
+}
+
+async function getIcsFeed(token) {
+  const feed = await readJSON("icsFeeds", token, null);
+  if (!feed) return new Response("Not found", { status: 404, headers: CORS });
+  return new Response(feed.ics, {
+    status: 200,
+    headers: { "Content-Type": "text/calendar; charset=utf-8", "Cache-Control": "no-cache", ...CORS }
+  });
+}
+
 /* --------------------------------------------------- F070 focus windows -- */
 // A shared quiet period both sides agree to — a parent proposes it, the
 // student can see it, agree to it, or decline, and can end it early once
@@ -657,6 +684,10 @@ export default async (req) => {
     if (parts[0] === "health") return ok({ ok: true, time: Date.now() });
     if (parts[0] === "auth" && parts[1] === "signup" && method === "POST") return await signup(req);
     if (parts[0] === "auth" && parts[1] === "login" && method === "POST") return await login(req);
+    // F046 — a calendar app polling a subscribe URL can't send a bearer
+    // token, so this one route is public, gated by an unguessable token
+    // instead (minted by the authenticated POST route below).
+    if (parts[0] === "ics-feed" && parts[1] && method === "GET") return await getIcsFeed(parts[1]);
 
     // --- everything below needs a valid token
     const user = await requireUser(req);
@@ -701,6 +732,8 @@ export default async (req) => {
       if (parts[1] === "respond" && method === "POST") return await respondCheckin(req, user);
       if (!parts[1] && method === "GET") return await listCheckins(user);
     }
+
+    if (parts[0] === "ics-feed" && !parts[1] && method === "POST") return await pushIcsFeed(req, user);
 
     if (parts[0] === "focus-windows") {
       if (parts[1] === "propose" && method === "POST") return await proposeFocusWindow(req, user);

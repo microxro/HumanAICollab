@@ -338,6 +338,13 @@ App.sync = (function () {
   async function sendGuardianNote(studentId, text) { return call("/guardian-notes", { method: "POST", body: { studentId, text } }); }
   async function listGuardianNotes() { return (await call("/guardian-notes")).notes || []; }
 
+  /* --------------------------------------------------------- F046 ics feed */
+  // The device builds the .ics text (same code as the one-time export) and
+  // pushes it here; the server just stores and serves the last copy.
+
+  async function pushIcsFeed(ics) { return (await call("/ics-feed", { method: "POST", body: { ics } })).token; }
+  function icsFeedUrl(token) { return `${location.origin}${base()}/ics-feed/${encodeURIComponent(token)}`; }
+
   /* ------------------------------------------------------ F070 focus windows */
   // A shared quiet period both sides agree to — a parent proposes it, the
   // student sees, agrees to, or declines it, and can end it early.
@@ -384,6 +391,7 @@ App.sync = (function () {
     requestFriend, respondFriend, listFriends, removeFriend,
     requestCheckin, listCheckins, respondCheckin, sendGuardianNote, listGuardianNotes,
     proposeFocusWindow, listFocusWindows, respondFocusWindow, endFocusWindow,
+    pushIcsFeed, icsFeedUrl,
     listGroups, createGroup, joinGroup, getGroup,
     shareDeck, getSharedDeck, postFeed, confirmFeed, leaveGroup
   };
