@@ -59,6 +59,13 @@ App.views.classes = (function () {
           <label>Color</label>
           ${UI.colorPicker("color", c.color || S.PALETTE[0])}
         </div>
+        <div class="field full">
+          <label>Subject icon <span class="hint">a second way to tell classes apart besides color</span></label>
+          <select class="select" name="icon">
+            <option value="">Guess from the class name (${U.esc(U.subjectIconChar(U.guessSubjectIcon(c.name || "")))})</option>
+            ${U.SUBJECT_ICONS.map((s) => `<option value="${s.key}" ${c.icon === s.key ? "selected" : ""}>${s.icon}  ${U.esc(s.label)}</option>`).join("")}
+          </select>
+        </div>
       </div>`,
       onMount(root) { UI.bindSwatches(root); UI.bindDays(root); },
       onSubmit(d) {
@@ -68,7 +75,8 @@ App.views.classes = (function () {
           teacherId: d.teacherId || null, periodId: d.periodId,
           credits: Number(d.credits) || 0, color: d.color,
           days: d.days ? d.days.split(",").filter(Boolean) : [],
-          timezone: d.timezone || null
+          timezone: d.timezone || null,
+          icon: d.icon || null   // U15 — null means "guess from name" (see U.guessSubjectIcon)
         };
         if (cl) {
           S.update("classes", cl.id, patch);
@@ -517,13 +525,18 @@ App.views.classes = (function () {
         const open = work.filter((a) => a.status !== "done").length;
         // U38 — how much of a class's work is done, visible without opening it.
         const doneRatio = work.length ? (work.filter((a) => a.status === "done").length / work.length) * 100 : 0;
+        const iconChar = U.subjectIconChar(c.icon || U.guessSubjectIcon(c.name));
         return `<div class="card card-link" data-class="${c.id}">
           <div style="height:4px;background:${U.esc(c.color)};border-radius:var(--radius) var(--radius) 0 0"></div>
           <div class="card-body">
             <div class="between mb-8">
-              <div style="min-width:0">
-                <h3 class="truncate">${U.esc(c.name)}</h3>
-                <div class="tiny dim">${U.esc(c.code || "")}${c.code && p ? " · " : ""}${U.esc(p ? p.name : "")}</div>
+              <div class="row gap-8" style="min-width:0">
+                <span class="subject-icon" style="color:${U.esc(c.color)}" aria-hidden="true"
+                      title="${U.esc(U.SUBJECT_ICONS.find((s) => s.key === (c.icon || U.guessSubjectIcon(c.name)))?.label || "")}">${iconChar}</span>
+                <div style="min-width:0">
+                  <h3 class="truncate">${U.esc(c.name)}</h3>
+                  <div class="tiny dim">${U.esc(c.code || "")}${c.code && p ? " · " : ""}${U.esc(p ? p.name : "")}</div>
+                </div>
               </div>
               <div class="row gap-6" style="align-items:center;flex-shrink:0">
                 ${work.length ? C.ring(doneRatio, { size: 34, stroke: 4, color: c.color, label: "" }) : ""}

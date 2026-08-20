@@ -49,9 +49,10 @@ App.views.schedule = (function () {
         const isToday = rotating ? d === todayCycle : d === todayDow;
         const isNow = isToday && now >= U.toMin(p.start) && now < U.toMin(p.end);
         const fg = U.contrastText(c.color);
+        const iconChar = U.subjectIconChar(c.icon || U.guessSubjectIcon(c.name));
         html += `<div class="tt-cell ${isNow ? "now" : ""}" data-class="${c.id}"
                       style="background:${U.esc(c.color)};color:${fg}">
-            ${U.esc(c.name)}<small>Rm ${U.esc(c.room || "—")}</small>
+            <span aria-hidden="true">${iconChar}</span> ${U.esc(c.name)}<small>Rm ${U.esc(c.room || "—")}</small>
           </div>`;
       });
     });

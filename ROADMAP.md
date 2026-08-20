@@ -56,7 +56,7 @@ environment), F100 (a public API + webhooks is its own project: token
 issuance, a documented read surface, delivery retries — sized **L** for a
 reason).
 
-**Interface — 45 of 50 shipped**, all with zero visual redesign — every new
+**Interface — 46 of 50 shipped**, all with zero visual redesign — every new
 token or component layers onto the existing design system rather than
 replacing it. The first pass shipped U01–U03, U07, U09–U11, U13, U26, U29,
 U32, U38, U42, U45, U46, U48. A later pass added the rest: U04–U06, U08
@@ -75,12 +75,16 @@ every modal and several live regions, a reduced-motion gap closed on
 `scroll-behavior`, intensity-as-size on the heatmap so it doesn't rest on
 color alone); U49, U50 (a first-run wizard chaining the real class/bell
 schedule/assignment forms, and a small contextual-help popover wired up at
-the app's three invented-vocabulary terms).
+the app's three invented-vocabulary terms), and U15 (subject icons — a
+curated set of plain Unicode glyphs, the same convention the sidebar nav
+already uses, guessed from a class's name via whole-word keyword matching
+with a manual override in the class form; shown on class cards and in the
+schedule timetable, next to the color that used to be the only signal).
 
-**Not attempted — 5 items**: U14, U15, U16 (class cover images, subject
-icons, drawn empty states — asset-heavy work that cuts against the
-zero-visual-redesign scope this whole effort held to), and U30, U39 (drag
-assignments onto any calendar view from anywhere, and a Gantt-style project
+**Not attempted — 4 items**: U14, U16 (class cover images, drawn empty
+states — real asset work, deliberately left for a design decision rather
+than guessed at), and U30, U39 (drag assignments onto any calendar view
+from anywhere, and a Gantt-style project
 timeline — both sized **L**, each closer to its own feature than an
 afternoon's addition).
 

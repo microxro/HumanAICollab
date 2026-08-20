@@ -132,6 +132,19 @@
 
 .dot-badge { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
+/* U15 — subject icon: a second, non-color channel next to a class's name */
+.subject-icon {
+  display: grid;
+  place-items: center;
+  width: 26px; height: 26px;
+  flex-shrink: 0;
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* ----------------------------------------------------------- avatars -- */
 
 .avatar {

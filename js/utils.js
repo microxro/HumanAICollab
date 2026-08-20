@@ -301,6 +301,61 @@ App.utils = (function () {
     return "f";
   }
 
+  // U15 — subject icons: a second, non-color channel for identifying a
+  // class at a glance, same spirit as the nav's own glyph icons (plain
+  // Unicode characters, not an image/SVG library, so nothing new to load
+  // and nothing that can render as an emoji on some platform and not
+  // others — every glyph below comes from the Geometric Shapes/Greek/Math
+  // blocks, which have no emoji presentation form).
+  const SUBJECT_ICONS = [
+    { key: "math", label: "Math", icon: "π" },
+    { key: "science", label: "Science", icon: "Ω" },
+    { key: "english", label: "English / Language Arts", icon: "¶" },
+    { key: "history", label: "History / Social Studies", icon: "◒" },
+    { key: "language", label: "World Language", icon: "§" },
+    { key: "art", label: "Art", icon: "◕" },
+    { key: "music", label: "Music", icon: "♪" },
+    { key: "pe", label: "PE / Health", icon: "◔" },
+    { key: "cs", label: "Computer Science", icon: "◖" },
+    { key: "business", label: "Business / Economics", icon: "▰" },
+    { key: "other", label: "Other / Elective", icon: "▪" }
+  ];
+  const SUBJECT_ICON_MAP = Object.fromEntries(SUBJECT_ICONS.map((s) => [s.key, s.icon]));
+
+  // Order matters: more specific/compound categories are checked before
+  // broader ones that would otherwise false-positive on a shared word —
+  // e.g. "computer" must be checked before the bare "science" in
+  // "AP Computer Science" ever gets a chance to match.
+  const SUBJECT_KEYWORDS = {
+    cs: ["computer", "programming", "coding", "cs", "technology", "robotics"],
+    business: ["business", "economics", "finance", "accounting", "marketing"],
+    math: ["math", "algebra", "geometry", "calculus", "trig", "statistics"],
+    science: ["science", "biology", "chemistry", "physics", "anatomy", "environmental", "astronomy"],
+    english: ["english", "language arts", "literature", "writing", "reading", "composition"],
+    history: ["history", "government", "civics", "geography", "social studies"],
+    language: ["spanish", "french", "german", "mandarin", "chinese", "japanese", "latin", "italian", "language"],
+    art: ["art", "design", "drawing", "painting", "ceramics", "photography", "theater", "theatre", "drama"],
+    music: ["music", "band", "choir", "orchestra", "chorus"],
+    pe: ["gym", "physical education", "pe", "health", "athletics", "fitness"]
+  };
+
+  function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+  /** Guess a subject key from a free-text class name — used as the default
+   *  before a manual override in the class form takes over. Whole-word
+   *  matching, not substring — otherwise a short keyword like "pe" or "cs"
+   *  false-positives on any word that merely ends the same way ("economics"
+   *  contains "cs", "shape" contains "pe"). */
+  function guessSubjectIcon(name) {
+    const n = String(name || "").toLowerCase();
+    for (const [key, words] of Object.entries(SUBJECT_KEYWORDS)) {
+      if (words.some((w) => new RegExp("\\b" + escapeRegExp(w) + "\\b").test(n))) return key;
+    }
+    return "other";
+  }
+
+  function subjectIconChar(key) { return SUBJECT_ICON_MAP[key] || SUBJECT_ICON_MAP.other; }
+
   // U17 — skeleton placeholders: the shape of what's loading, not the word.
   function skeletonRows(n) {
     return Array.from({ length: n || 3 }).map(() => `
@@ -329,6 +384,7 @@ App.utils = (function () {
     initials, esc, plural, titleCase,
     clamp, round, sum, avg, groupBy, sortBy,
     $, $$, on, contrastText, hexAlpha, debounce, download,
-    pctToLetter, pctToGpa, gradeClass, skeletonRows, skeletonCards
+    pctToLetter, pctToGpa, gradeClass, skeletonRows, skeletonCards,
+    SUBJECT_ICONS, guessSubjectIcon, subjectIconChar
   };
 })();
