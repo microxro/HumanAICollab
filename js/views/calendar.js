@@ -192,6 +192,19 @@ App.views.calendar = (function () {
 
   /* ------------------------------------------------------------ months -- */
 
+  // U40 — how much is due that day, shaded so a crunch week is visible
+  // before you open a single one of them.
+  function dayLoadMinutes(iso) {
+    return U.sum(S.db.assignments.filter((a) => a.due === iso && a.status !== "done"), (a) => a.estMinutes || 0);
+  }
+  function loadLevel(mins) {
+    if (mins <= 0) return 0;
+    if (mins <= 30) return 1;
+    if (mins <= 90) return 2;
+    if (mins <= 180) return 3;
+    return 4;
+  }
+
   function monthGrid() {
     const y = cursor.getFullYear(), m = cursor.getMonth();
     const first = new Date(y, m, 1);
@@ -208,9 +221,13 @@ App.views.calendar = (function () {
       const other = d.getMonth() !== m;
       const items = itemsOn(iso, false);
       const shown = items.slice(0, 3);
+      const load = dayLoadMinutes(iso);
+      const lv = loadLevel(load);
 
-      cells += `<div class="cal-day ${other ? "dim" : ""} ${iso === today ? "today" : ""}" data-day="${iso}">
+      cells += `<div class="cal-day ${other ? "dim" : ""} ${iso === today ? "today" : ""}" data-day="${iso}"
+                     data-load="${lv}" ${lv ? `title="${U.esc(U.fmtDur(load))} of work due"` : ""}>
         <span class="cal-num">${d.getDate()}</span>
+        ${lv >= 3 ? `<span class="cal-load-chip">${U.esc(U.fmtDur(load))}</span>` : ""}
         ${shown.map((it) => `<span class="cal-pill" style="background:${U.esc(it.color)};color:${U.contrastText(it.color)}"
               title="${U.esc(it.title)}">${U.esc(it.title)}</span>`).join("")}
         ${items.length > 3 ? `<span class="cal-pill more">+${items.length - 3} more</span>` : ""}

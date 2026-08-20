@@ -144,6 +144,24 @@
 }
 .cal-num { font-size: .755rem; font-weight: 650; align-self: flex-start; }
 
+/* U40 — workload heat: shade each day by how much is due, so a crunch
+   week is visible before opening a single item. Levels 3-4 also carry
+   an explicit "Xh due" chip, so the heaviest days never rest on color
+   alone (U47). */
+.cal-day[data-load="1"] { background: var(--load-1-bg); }
+.cal-day[data-load="2"] { background: var(--load-2-bg); }
+.cal-day[data-load="3"] { background: var(--warn-bg); }
+.cal-day[data-load="4"] { background: var(--danger-bg); }
+.cal-load-chip {
+  align-self: flex-start;
+  font-size: .62rem;
+  font-weight: 700;
+  color: var(--danger);
+  background: var(--surface);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
 .cal-pill {
   font-size: .66rem;
   font-weight: 600;
