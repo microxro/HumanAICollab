@@ -787,7 +787,7 @@ App.views.homework = (function () {
             <div class="tc-meta">
               <span class="tiny dim truncate">${U.esc(c ? c.name : "General")}</span>
               ${UI.dueBadge(a.due)}
-              ${a.priority === "high" ? `<i class="prio high" title="High priority"></i>` : ""}
+              ${a.priority === "high" ? `<span class="tc-high" title="High priority"><i class="prio high"></i> High</span>` : ""}
             </div>
           </div>`;
         }).join("") || `<p class="tiny dim center" style="padding:12px 0">Drop here</p>`}
@@ -819,7 +819,7 @@ App.views.homework = (function () {
         </div>
       </div>
 
-      ${selectMode && selected.size ? `<div class="card mb-16"><div class="card-body tight row gap-8 wrap" style="align-items:center">
+      ${selectMode && selected.size ? `<div class="card mb-16"><div class="card-body tight row gap-8 wrap" style="align-items:center" role="status" aria-live="polite">
         <span class="small bold">${U.plural(selected.size, "item")} selected</span>
         <span class="grow"></span>
         <button class="btn btn-sm" data-bulk="done">Mark done</button>

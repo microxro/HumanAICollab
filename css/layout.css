@@ -291,7 +291,11 @@
   overflow-y: auto;
   padding: 24px;
   min-height: 0;
-  scroll-behavior: smooth;
+}
+/* U44 — scroll-behavior isn't covered by the animation/transition-duration
+   override below, so it needs its own reduced-motion guard. */
+@media (prefers-reduced-motion: no-preference) {
+  .page { scroll-behavior: smooth; }
 }
 
 .page-inner { max-width: 1280px; margin: 0 auto; }

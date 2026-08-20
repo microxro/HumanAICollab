@@ -623,6 +623,7 @@
 
   /* --------------------------------------------------------- sync badge -- */
 
+  let lastSyncTip = null;
   function paintSyncBadge() {
     const btn = document.getElementById("syncBtn");
     if (!btn) return;
@@ -638,6 +639,13 @@
     btn.classList.toggle("spin", s.status === "syncing");
     btn.style.color = s.status === "error" || s.status === "conflict" ? "var(--warn)"
       : s.status === "idle" ? "var(--ok)" : "";
+    // U41 — a sighted user sees the icon/color change; announce the same
+    // state change to a screen reader via an off-screen live region.
+    if (tip !== lastSyncTip) {
+      lastSyncTip = tip;
+      const live = document.getElementById("syncStatusText");
+      if (live) live.textContent = tip;
+    }
   }
 
   function boot() {

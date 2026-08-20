@@ -238,6 +238,7 @@
 .task-card.dragging { opacity: .45; }
 .task-card .tc-title { font-weight: 620; font-size: .835rem; line-height: 1.35; }
 .task-card .tc-meta { display: flex; align-items: center; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+.tc-high { display: inline-flex; align-items: center; gap: 4px; font-size: .68rem; font-weight: 700; color: var(--danger); }
 
 /* assignment list row */
 .hw-row {
@@ -336,10 +337,13 @@
   border-radius: 3px;
   background: var(--surface-3);
 }
-.heat-cell[data-lv="1"] { background: var(--brand-200); }
-.heat-cell[data-lv="2"] { background: var(--brand-400); }
-.heat-cell[data-lv="3"] { background: var(--brand-500); }
-.heat-cell[data-lv="4"] { background: var(--brand-700); }
+/* U47 — never color alone: intensity also reads as size, not just hue/shade,
+   so the ramp still communicates to someone who can't distinguish the blues. */
+.heat-cell[data-lv="0"] { transform: scale(.55); }
+.heat-cell[data-lv="1"] { background: var(--brand-200); transform: scale(.68); }
+.heat-cell[data-lv="2"] { background: var(--brand-400); transform: scale(.8); }
+.heat-cell[data-lv="3"] { background: var(--brand-500); transform: scale(.9); }
+.heat-cell[data-lv="4"] { background: var(--brand-700); transform: scale(1); }
 [data-theme="dark"] .heat-cell[data-lv="1"] { background: #263166; }
 [data-theme="dark"] .heat-cell[data-lv="2"] { background: #3a49a8; }
 

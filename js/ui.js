@@ -172,10 +172,12 @@ App.ui = (function () {
         ${U.esc(opts.okLabel || "Save")}
       </button>`;
 
+    // U41 — every modal is a real dialog to assistive tech, not just visually.
+    const titleId = U.uid("modalTitle");
     const inner = `
       <div class="modal-head">
         <div>
-          <h3>${U.esc(opts.title || "")}</h3>
+          <h3 id="${titleId}">${U.esc(opts.title || "")}</h3>
           ${opts.sub ? `<div class="sub small dim">${U.esc(opts.sub)}</div>` : ""}
         </div>
         <button type="button" class="icon-btn" data-close aria-label="Close">✕</button>
@@ -183,9 +185,10 @@ App.ui = (function () {
       <div class="modal-body">${opts.body || ""}</div>
       <div class="modal-foot">${footer}</div>`;
 
+    const dialogAttrs = `role="dialog" aria-modal="true" aria-labelledby="${titleId}"`;
     root.innerHTML = opts.onSubmit
-      ? `<form class="modal${size}" novalidate>${inner}</form>`
-      : `<div class="modal${size}">${inner}</div>`;
+      ? `<form class="modal${size}" novalidate ${dialogAttrs}>${inner}</form>`
+      : `<div class="modal${size}" ${dialogAttrs}>${inner}</div>`;
 
     document.body.appendChild(root);
     openModal = root;
