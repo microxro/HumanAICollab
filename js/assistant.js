@@ -103,14 +103,18 @@ App.assistant = (function () {
   }
 
   /**
-   * Everything the assistant is allowed to know for one question — built
-   * fresh from local data every time, never persisted server-side. Free-time
-   * blocks are precomputed here (not left for the model to derive) so
-   * "do I have time to..." answers are arithmetic, not a guess.
+   * Everything the assistant is allowed to know for one question — the
+   * student's full scheduling/academic picture, built fresh from local data
+   * every time and never persisted server-side. Free-time blocks are
+   * precomputed here (not left for the model to derive) so "do I have time
+   * to..." answers are arithmetic, not a guess. Respects the existing
+   * "hide GPA" wellbeing preference — grade fields come back null rather
+   * than silently ignoring a privacy setting the student already turned on
+   * elsewhere in the app.
    */
   function buildContext() {
     const days = [];
-    for (let i = 0; i < 7; i++) days.push(U.dateKey(U.addDays(new Date(), i)));
+    for (let i = 0; i < 14; i++) days.push(U.dateKey(U.addDays(new Date(), i)));
 
     const schedule = {};
     const freeTime = {};
@@ -121,27 +125,67 @@ App.assistant = (function () {
       freeTime[iso] = freeBlocksFor(items);
     });
 
-    const windowEnd = U.dateKey(U.addDays(new Date(), 14));
-    const assignments = S.db.assignments
-      .filter((a) => a.status !== "done" && a.status !== "archived" && a.due <= windowEnd)
-      .map((a) => ({
-        title: a.title, class: S.className(a.classId), due: a.due,
-        status: a.status, priority: a.priority, overdue: S.overdue().some((o) => o.id === a.id)
-      }));
+    const hideGPA = !!(S.db.settings.wellbeing && S.db.settings.wellbeing.hideGPA);
+    const term = S.currentTerm();
 
     const classes = S.termClasses().map((c) => ({
-      name: c.name, room: c.room,
+      name: c.name, code: c.code || "", room: c.room, credits: c.credits,
       teacher: S.teacher(c.teacherId) ? S.teacher(c.teacherId).name : "",
-      grade: S.classGrade(c.id)
+      period: S.period(c.periodId) ? S.period(c.periodId).name : "",
+      days: c.days,
+      grade: hideGPA ? null : S.classGrade(c.id)
     }));
 
-    const term = S.currentTerm();
+    const assignments = S.db.assignments
+      .filter((a) => a.status !== "archived")
+      .map((a) => ({
+        title: a.title, class: S.className(a.classId), due: a.due,
+        status: a.status, priority: a.priority, type: a.type,
+        overdue: S.overdue().some((o) => o.id === a.id)
+      }));
+
+    const activities = S.db.activities.map((a) => ({
+      name: a.name, type: a.type, days: a.days, start: a.start, end: a.end,
+      location: a.location || "", season: a.season || "",
+      startDate: a.startDate || null, endDate: a.endDate || null
+    }));
+
+    const bellSchedule = S.db.periods.map((p) => ({ name: p.name, start: p.start, end: p.end }));
+
+    const goals = S.db.goals.map((g) => {
+      const p = S.goalProgress(g);
+      return {
+        title: g.title, target: g.target, unit: g.unit, deadline: g.deadline, done: g.done,
+        current: (hideGPA && g.metric === "gpa") ? null : p.current,
+        percentComplete: Math.round(p.pct)
+      };
+    });
+
+    const habits = S.db.habits.map((h) => ({ name: h.name, currentStreakDays: S.habitStreak(h) }));
+
+    const reading = S.db.reading.filter((r) => !r.done).map((r) => {
+      const p = S.readingPace(r);
+      return { title: r.title, class: S.className(r.classId), pagesLeft: p.pagesLeft, daysLeft: p.daysLeft, pagesPerDayNeeded: p.perDay };
+    });
+
+    const teachers = S.db.teachers.map((t) => ({ name: t.name, subject: t.subject, room: t.room, officeHours: t.office || "" }));
 
     return {
       today: U.today(), dayOfWeek: U.dowName(U.today(), true),
+      student: S.db.profile ? { name: S.db.profile.name, grade: S.db.profile.grade, school: S.db.profile.school } : null,
+      term: term ? { name: term.name, start: term.start, end: term.end } : null,
+      gpaHidden: hideGPA,
+      gpaWeighted: hideGPA || !term ? null : S.gpa(true, term.id),
+      gpaUnweighted: hideGPA || !term ? null : S.gpa(false, term.id),
+      cumulativeGpa: hideGPA ? null : S.cumulativeGpa(),
+      classes,
+      bellSchedule,
       schedule, freeTimeBlocks: freeTime,
-      assignmentsDueSoon: assignments,
-      classes, gpa: term ? S.gpa(false, term.id) : null
+      assignments,
+      activities,
+      goals, habits, reading,
+      attendance: S.attendanceRate(),
+      teachers
     };
   }
 

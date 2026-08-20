@@ -22,7 +22,7 @@ function endpoint() {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
 
-async function callGemini({ system, parts, responseSchema }) {
+async function callGemini({ system, parts, responseSchema, maxOutputTokens }) {
   if (!configured()) {
     throw Object.assign(new Error("not-configured"), { code: "not-configured" });
   }
@@ -32,6 +32,7 @@ async function callGemini({ system, parts, responseSchema }) {
     generationConfig.responseMimeType = "application/json";
     generationConfig.responseSchema = responseSchema;
   }
+  if (maxOutputTokens) generationConfig.maxOutputTokens = maxOutputTokens;
 
   const res = await fetch(endpoint(), {
     method: "POST",
@@ -62,8 +63,8 @@ async function callGemini({ system, parts, responseSchema }) {
 }
 
 /** Free-form text answer (the private assistant). */
-async function generateText({ system, prompt }) {
-  const text = await callGemini({ system, parts: [{ text: prompt }] });
+async function generateText({ system, prompt, maxOutputTokens }) {
+  const text = await callGemini({ system, parts: [{ text: prompt }], maxOutputTokens });
   return text;
 }
 
