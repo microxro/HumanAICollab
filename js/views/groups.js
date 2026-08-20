@@ -12,6 +12,7 @@ App.views.groups = (function () {
   let openGroup = null;   // full detail of the selected group
   let loading = false;
   let error = null;
+  let expandedFeedId = null;   // F058 — which post's comment thread is open
 
   /* --------------------------------------------------------------- data */
 
@@ -183,18 +184,40 @@ App.views.groups = (function () {
           <div class="card-head">
             <div><h3>Assignment feed</h3><div class="sub">What the class says is due</div></div>
           </div>
-          ${g.feed.length ? `<div class="list">${U.sortBy(g.feed, (f) => f.at, true).map((f) => `
-            <div class="list-item">
-              <span class="grow" style="min-width:0">
-                <div class="title">${U.esc(f.title)}</div>
-                <div class="meta">${U.esc(f.className || "")}${f.due ? " · due " + U.esc(U.fmtDate(f.due)) : ""}
-                  · posted by ${U.esc(f.byName)}</div>
-                ${f.notes ? `<div class="tiny muted mt-4">${U.esc(f.notes)}</div>` : ""}
-              </span>
-              <span class="badge ${f.confirms.length > 1 ? "ok" : ""}">✓ ${f.confirms.length}</span>
-              <button class="btn btn-sm" data-confirm="${f.id}">Confirm</button>
-              <button class="btn btn-sm btn-primary" data-take='${U.esc(JSON.stringify({ title: f.title, className: f.className, due: f.due, notes: f.notes }))}'>Add</button>
-            </div>`).join("")}</div>`
+          ${g.feed.length ? `<div class="list">${U.sortBy(g.feed, (f) => f.at, true).map((f) => {
+            const comments = f.comments || [];
+            const ratings = f.ratings || [];
+            const avg = ratings.length ? Math.round(ratings.reduce((a, b) => a + b, 0) / ratings.length) : null;
+            const expanded = expandedFeedId === f.id;
+            return `<div class="feed-item">
+              <div class="list-item">
+                <span class="grow" style="min-width:0">
+                  <div class="title">${U.esc(f.title)}</div>
+                  <div class="meta">${U.esc(f.className || "")}${f.due ? " · due " + U.esc(U.fmtDate(f.due)) : ""}
+                    · posted by ${U.esc(f.byName)}</div>
+                  ${f.notes ? `<div class="tiny muted mt-4">${U.esc(f.notes)}</div>` : ""}
+                </span>
+                <span class="badge ${f.confirms.length > 1 ? "ok" : ""}">✓ ${f.confirms.length}</span>
+                ${avg != null
+                  ? `<span class="badge" title="${U.plural(ratings.length, "rating")}">⏱ ~${U.fmtDur(avg)}</span>`
+                  : `<button class="btn btn-sm" data-rate="${f.id}" title="Anonymously say how long this actually took">⏱ Rate time</button>`}
+                <button class="btn btn-sm" data-toggle-comments="${f.id}">💬 ${comments.length || ""}</button>
+                <button class="btn btn-sm" data-confirm="${f.id}">Confirm</button>
+                <button class="btn btn-sm btn-primary" data-take='${U.esc(JSON.stringify({ title: f.title, className: f.className, due: f.due, notes: f.notes }))}'>Add</button>
+              </div>
+              ${expanded ? `<div class="feed-comments">
+                ${comments.map((c) => `<div class="feed-comment">
+                  <span class="tiny bold">${U.esc(c.byName)}</span>
+                  <span class="tiny dim">${U.esc(U.relDate(U.dateKey(new Date(c.at))))}</span>
+                  <div class="small">${U.esc(c.text)}</div>
+                </div>`).join("") || `<p class="tiny dim">No comments yet — say something.</p>`}
+                <div class="row gap-6 mt-8">
+                  <input class="input input-sm grow" data-comment-input="${f.id}" placeholder="Add a comment…" maxlength="500" />
+                  <button class="btn btn-sm" data-send-comment="${f.id}">Send</button>
+                </div>
+              </div>` : ""}
+            </div>`;
+          }).join("")}</div>`
           : UI.emptyState("📝", "Nothing posted yet", "Be the first to share what's due.")}
         </div>
 
@@ -290,6 +313,42 @@ App.views.groups = (function () {
       App.sync.confirmFeed(openGroup.id, el.dataset.confirm)
         .then(() => openDetail(openGroup.id))
         .catch((e) => UI.toast("Failed", e.message, "danger"));
+    });
+    // F058 — comment thread on a feed post.
+    U.on(root, "click", "[data-toggle-comments]", (_e, el) => {
+      expandedFeedId = expandedFeedId === el.dataset.toggleComments ? null : el.dataset.toggleComments;
+      App.router.refresh();
+    });
+    U.on(root, "click", "[data-send-comment]", (_e, el) => {
+      const id = el.dataset.sendComment;
+      const input = root.querySelector(`[data-comment-input="${id}"]`);
+      const text = input ? input.value.trim() : "";
+      if (!text) return;
+      App.sync.commentFeed(openGroup.id, id, text)
+        .then(() => openDetail(openGroup.id))
+        .catch((e) => UI.toast("Couldn't post comment", e.message, "danger"));
+    });
+    U.on(root, "keydown", "[data-comment-input]", (e, el) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      root.querySelector(`[data-send-comment="${el.dataset.commentInput}"]`).click();
+    });
+    // F060 — anonymous "how long did this actually take?"
+    U.on(root, "click", "[data-rate]", (_e, el) => {
+      const id = el.dataset.rate;
+      UI.prompt({
+        title: "How long did this actually take?",
+        label: "Your answer is anonymous — only the class average shows",
+        placeholder: "Minutes, e.g. 45",
+        okLabel: "Submit",
+        onSubmit(v) {
+          const mins = Number(v);
+          if (!mins || mins <= 0) { UI.toast("Enter a number of minutes", "", "warn"); return; }
+          App.sync.rateFeed(openGroup.id, id, mins)
+            .then(() => { UI.toast("Thanks", "That helps calibrate estimates for everyone.", "ok"); openDetail(openGroup.id); })
+            .catch((e) => UI.toast("Couldn't submit", e.message, "danger"));
+        }
+      });
     });
     U.on(root, "click", "[data-take]", (_e, el) => {
       try { addFeedItem(JSON.parse(el.dataset.take)); }

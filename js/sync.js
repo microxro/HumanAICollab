@@ -366,6 +366,14 @@ App.sync = (function () {
   async function getSharedDeck(id, deckId) { return (await call(`/groups/${encodeURIComponent(id)}/deck/${encodeURIComponent(deckId)}`)).deck; }
   async function postFeed(id, item) { return call(`/groups/${encodeURIComponent(id)}/feed`, { method: "POST", body: item }); }
   async function confirmFeed(id, itemId) { return call(`/groups/${encodeURIComponent(id)}/feed/${encodeURIComponent(itemId)}`, { method: "POST" }); }
+  // F058 — discuss a crowdsourced post inline.
+  async function commentFeed(id, itemId, text) {
+    return (await call(`/groups/${encodeURIComponent(id)}/feed/${encodeURIComponent(itemId)}/comment`, { method: "POST", body: { text } })).comment;
+  }
+  // F060 — anonymous "how long did this actually take?"
+  async function rateFeed(id, itemId, actualMinutes) {
+    return call(`/groups/${encodeURIComponent(id)}/feed/${encodeURIComponent(itemId)}/rate`, { method: "POST", body: { actualMinutes } });
+  }
   async function leaveGroup(id) { return call(`/groups/${encodeURIComponent(id)}/leave`, { method: "POST" }); }
 
   /* -------------------------------------------------------------- init -- */
@@ -393,6 +401,6 @@ App.sync = (function () {
     proposeFocusWindow, listFocusWindows, respondFocusWindow, endFocusWindow,
     pushIcsFeed, icsFeedUrl,
     listGroups, createGroup, joinGroup, getGroup,
-    shareDeck, getSharedDeck, postFeed, confirmFeed, leaveGroup
+    shareDeck, getSharedDeck, postFeed, confirmFeed, commentFeed, rateFeed, leaveGroup
   };
 })();

@@ -578,7 +578,8 @@ async function getGroup(user, id) {
         id: d.id, name: d.name, cardCount: (d.cards || []).length,
         byName: d.byName, at: d.at
       })),
-      feed: g.feed.slice(-80)
+      // _raters (F060) is who-voted bookkeeping only — never leaves the server.
+      feed: g.feed.slice(-80).map(({ _raters, ...f }) => f)
     }
   });
 }
@@ -642,6 +643,43 @@ async function confirmFeed(req, user, id, itemId) {
     await writeJSON("groups", g.id, g);
   }
   return ok({ confirms: item.confirms.length });
+}
+
+/* F058 — discuss a crowdsourced post inline instead of a separate chat. */
+async function commentFeed(req, user, id, itemId) {
+  const g = await memberGroup(user, id);
+  const item = g.feed.find((f) => f.id === itemId);
+  if (!item) return fail(404, "That post is gone.");
+  const b = await body(req);
+  const text = String(b.text || "").trim().slice(0, 500);
+  if (!text) return fail(400, "Write something first.");
+  if (!item.comments) item.comments = [];
+  const comment = { id: randomId(8), text, byId: user.id, byName: user.name, at: Date.now() };
+  item.comments.push(comment);
+  if (item.comments.length > 200) item.comments = item.comments.slice(-200);
+  await writeJSON("groups", g.id, g);
+  return ok({ comment });
+}
+
+/* F060 — anonymous: the client only ever gets the aggregate back, never
+   who submitted what. _raters tracks who already voted so one person can't
+   skew it, without linking any stored value to their identity. */
+async function rateFeed(req, user, id, itemId) {
+  const g = await memberGroup(user, id);
+  const item = g.feed.find((f) => f.id === itemId);
+  if (!item) return fail(404, "That post is gone.");
+  if (!item._raters) item._raters = [];
+  if (item._raters.includes(user.id)) return fail(409, "You already rated this one.");
+  const b = await body(req);
+  const mins = Number(b.actualMinutes);
+  if (!Number.isFinite(mins) || mins <= 0 || mins > 1440) return fail(400, "Enter a realistic number of minutes.");
+  if (!item.ratings) item.ratings = [];
+  item.ratings.push(Math.round(mins));
+  item._raters.push(user.id);
+  if (item.ratings.length > 200) { item.ratings = item.ratings.slice(-200); item._raters = item._raters.slice(-200); }
+  await writeJSON("groups", g.id, g);
+  const avg = Math.round(item.ratings.reduce((a, b2) => a + b2, 0) / item.ratings.length);
+  return ok({ count: item.ratings.length, avgMinutes: avg });
 }
 
 async function leaveGroup(user, id) {
@@ -755,7 +793,9 @@ export default async (req) => {
       if (parts[1] && parts[2] === "deck" && method === "POST") return await shareDeck(req, user, parts[1]);
       if (parts[1] && parts[2] === "deck" && parts[3] && method === "GET") return await getDeck(user, parts[1], parts[3]);
       if (parts[1] && parts[2] === "feed" && method === "POST") return await postFeed(req, user, parts[1]);
-      if (parts[1] && parts[2] === "feed" && parts[3] && method === "POST") return await confirmFeed(req, user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "feed" && parts[3] && parts[4] === "comment" && method === "POST") return await commentFeed(req, user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "feed" && parts[3] && parts[4] === "rate" && method === "POST") return await rateFeed(req, user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "feed" && parts[3] && !parts[4] && method === "POST") return await confirmFeed(req, user, parts[1], parts[3]);
       if (parts[1] && parts[2] === "leave" && method === "POST") return await leaveGroup(user, parts[1]);
     }
 

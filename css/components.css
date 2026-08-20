@@ -338,6 +338,14 @@
 .list-item .title { font-weight: 600; font-size: .855rem; }
 .list-item .meta { font-size: .745rem; color: var(--text-3); margin-top: 1px; }
 
+/* F058 — a feed post wraps its row + an optional comment thread beneath it */
+.feed-item:last-child .list-item { border-bottom: none; }
+.feed-item:not(:last-child) { border-bottom: 1px solid var(--border); }
+.feed-item .list-item { border-bottom: none; }
+.feed-comments { padding: 4px 14px 14px 14px; background: var(--surface-2); }
+.feed-comment { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.feed-comment:last-child { border-bottom: none; }
+
 /* --------------------------------------------------------- progress -- */
 
 .bar {
