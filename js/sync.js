@@ -48,7 +48,8 @@ App.sync = (function () {
       status: state.status,
       version: state.version,
       lastSync: state.lastSync,
-      error: state.error
+      error: state.error,
+      pending: !!state.timer || !!state.inflight   // F091 — a write is queued or in flight
     };
   }
 

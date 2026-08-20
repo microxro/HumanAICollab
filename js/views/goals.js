@@ -216,6 +216,48 @@ App.views.goals = (function () {
     });
   }
 
+  /* ---------------------------------------------------------- F084 review */
+
+  function weeklyReview() {
+    const weekAgo = U.dateKey(U.addDays(new Date(), -7));
+    const doneThisWeek = S.db.assignments.filter((a) => a.status === "done" && a.due >= weekAgo);
+    const slipped = S.overdue();
+    const changes = S.detectChanges();
+    const mood = S.moodTrend(7).filter((m) => m.mood != null);
+    const avgMood = mood.length ? U.avg(mood, (m) => m.mood) : null;
+    const studyMin = U.sum(S.db.studySessions.filter((s) => s.date >= weekAgo), (s) => s.minutes);
+
+    UI.modal({
+      title: "Weekly review",
+      sub: "A short Friday retrospective",
+      size: "wide",
+      okLabel: "Save reflection",
+      body: `
+        <div class="grid g-4 mb-16">
+          <div class="stat"><div class="stat-label">Completed</div><div class="stat-value">${doneThisWeek.length}</div></div>
+          <div class="stat"><div class="stat-label">Slipped</div><div class="stat-value" style="color:${slipped.length ? "var(--danger)" : "inherit"}">${slipped.length}</div></div>
+          <div class="stat"><div class="stat-label">Studied</div><div class="stat-value">${U.fmtDur(studyMin)}</div></div>
+          <div class="stat"><div class="stat-label">Avg mood</div><div class="stat-value">${avgMood != null ? U.round(avgMood, 1) : "—"}</div></div>
+        </div>
+        ${slipped.length ? `<h4 class="mb-8">What slipped</h4>
+          <div class="list mb-12" style="border:1px solid var(--border);border-radius:var(--radius)">
+            ${slipped.slice(0, 5).map((a) => `<div class="list-item"><span class="grow">${U.esc(a.title)}</span>${UI.dueBadge(a.due)}</div>`).join("")}
+          </div>` : `<p class="small" style="color:var(--ok)">Nothing slipped this week. 🎉</p>`}
+        ${changes.length ? `<h4 class="mb-8">Grade changes</h4>
+          <div class="row gap-6 wrap mb-12">${changes.map((c) => `<span class="badge ${c.delta < 0 ? "danger" : "ok"}">${U.esc(c.className)} ${c.delta > 0 ? "+" : ""}${c.delta}</span>`).join("")}</div>` : ""}
+        <div class="divider"></div>
+        <div class="field">
+          <label>What's next — one change for next week</label>
+          <textarea class="textarea" name="reflection" rows="4" placeholder="e.g. Start chemistry lab reports earlier, block out mornings for calc…"></textarea>
+        </div>`,
+      onSubmit(d) {
+        if (!d.reflection.trim()) return false;
+        S.addJournalEntry(`Weekly review: ${doneThisWeek.length} done, ${slipped.length} slipped. Next: ${d.reflection.trim()}`);
+        UI.toast("Review saved", "Added to your journal", "ok");
+      }
+    });
+  }
+
   function wellbeingHTML() {
     const risk = S.burnoutRisk();
     const relief = S.workloadRelief();
@@ -305,6 +347,7 @@ App.views.goals = (function () {
             ${U.plural(habits.length, "habit")} tracked</div>
         </div>
         <div class="page-actions">
+          <button class="btn" data-weekly-review>📋 Weekly review</button>
           <button class="btn" data-new-habit>+ Habit</button>
           <button class="btn btn-primary" data-new-goal>+ Goal</button>
         </div>
@@ -421,6 +464,7 @@ App.views.goals = (function () {
     U.on(root, "click", "[data-edit-habit]", (e, el) => { e.stopPropagation(); habitForm(S.byId("habits", el.dataset.editHabit)); });
     U.on(root, "click", "[data-new-att]", attendanceForm);
     U.on(root, "click", "[data-del-att]", (_e, el) => S.remove("attendance", el.dataset.delAtt));
+    U.on(root, "click", "[data-weekly-review]", weeklyReview);
     U.on(root, "click", "[data-mood-checkin]", moodCheckIn);
     U.on(root, "click", "[data-log-sleep]", sleepLogForm);
     U.on(root, "click", "[data-journal]", journalForm);

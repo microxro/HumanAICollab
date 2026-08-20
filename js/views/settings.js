@@ -130,6 +130,8 @@ App.views.settings = (function () {
             </div>
           </div>
           ${s.error ? `<p class="tiny" style="color:var(--warn)">${U.esc(s.error)}</p>` : ""}
+          ${s.pending ? `<div class="badge warn mb-12">⏳ Unsynced changes pending${s.status === "syncing" ? " — syncing now" : " — will push shortly"}</div>`
+            : `<div class="badge ok mb-12">✓ Everything synced</div>`}
           ${toggleRow("Automatic sync", "Push changes to the cloud a few seconds after you make them",
             S.db.account.autoSync, `data-autosync`)}
           <div class="row gap-8 mt-16">

@@ -412,10 +412,15 @@ App.views.classes = (function () {
 
         <h4 class="mb-8">Category breakdown</h4>
         ${cats.some((k) => k.pct != null)
-          ? C.hbars(cats.filter((k) => k.pct != null).map((k) => ({
-              label: `${k.name} (${k.weight}%)`, value: U.round(k.pct, 1), color: c.color,
-              note: `${k.earned}/${k.points} points · ${U.plural(k.count, "item")}`
-            })), { max: 100, fmt: (v) => v + "%" })
+          ? C.hbars(cats.filter((k) => k.pct != null).map((k) => {
+              // F085 — per-category forecast, since tests and homework rarely trend together.
+              const fc = S.categoryForecast(id, k.id);
+              const trend = fc ? ` · ${fc.slopePerWeek >= 0 ? "▲" : "▼"} ${U.round(Math.abs(fc.slopePerWeek), 1)} pts/wk` : "";
+              return {
+                label: `${k.name} (${k.weight}%)`, value: U.round(k.pct, 1), color: c.color,
+                note: `${k.earned}/${k.points} points · ${U.plural(k.count, "item")}${trend}`
+              };
+            }), { max: 100, fmt: (v) => v + "%" })
           : `<p class="dim small">Nothing graded in these categories yet.</p>`}
 
         <div class="divider"></div>
