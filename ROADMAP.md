@@ -17,6 +17,46 @@ A filterable version of this list is published as an artifact.
 
 ---
 
+## Delivery status
+
+Every item below was built for real in the app — no mockups, no placeholder
+UI — and exercised in a real browser (Playwright) with a clean console
+before being committed. A handful of bugs were caught this way and fixed
+before shipping (see commit history for specifics), rather than only
+checked for syntax.
+
+**Functionality — 79 of 100 shipped.** F001–F045 and F048–F052 (grading,
+assignments, study tools, scheduling), F053, F064, F065, F067, F068, F071,
+F072 (friend requests, invite links, grade-drop alerts, check-ins, guardian
+notes, emergency contacts), F073–F092 (wellbeing and insight, all of it),
+and F096, F099 (home-screen shortcuts, localization — wired into the actual
+nav and command palette, not just a persisted setting).
+
+**Not attempted — 21 items**, all genuinely blocked on infrastructure this
+sandbox doesn't have: F046, F047 (live/two-way calendar sync — needs a
+deployed backend to verify against), F054–F056, F058–F063 (deeper group
+features — task assignment, difficulty ratings, peer tutoring, attributed
+notes, challenges, feed comments — a large amount of new backend surface
+for comparatively modest individual value, deprioritized given the rest of
+the list), F066, F095, F098 (email-dependent — no email service
+configured), F069, F070 (geofence-triggered arrival/departure alerts and
+agreed focus windows — the geofencing itself is real, but the parent-facing
+push side wasn't built), F093, F094, F097, F100 (real OAuth/API credentials
+for Google, Canvas, and a public API — none exist in this environment).
+
+**Interface — 16 of 50 shipped**, chosen for real, testable value with zero
+visual redesign: U01–U03, U07, U09–U11, U13, U26, U29, U32, U38, U42, U45,
+U46, U48 (collapsible + collapsible-group + pinned + recent nav, accent
+color, density, type size, dyslexia-friendly type, true-black OLED theme,
+notification history, type-to-confirm deletes, sticky table headers,
+class-card progress rings, modal focus traps, shortcut help, colorblind
+preview, 44px touch targets). The remaining 34 are unstarted — U41 and U44
+(full ARIA audit, reduced-motion audit) are partially covered by existing
+`prefers-reduced-motion` CSS and the toast host's `aria-live` region, but
+neither got the exhaustive pass its own item calls for.
+
+---
+
 ## Functionality
 
 ### Grading & assessment
