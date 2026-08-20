@@ -1,0 +1,17 @@
+{
+  "name": "scholar-school-tracker",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Scholar — a complete school tracker. Static front end (no framework, no build) plus Netlify Functions for accounts, sync, parent portal, and study groups.",
+  "type": "module",
+  "scripts": {
+    "dev": "netlify dev",
+    "serve": "python3 -m http.server 8000"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

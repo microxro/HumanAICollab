@@ -7,7 +7,12 @@ App.ui = (function () {
 
   /* ------------------------------------------------------------ toasts -- */
 
-  function toast(title, msg, kind) {
+  /**
+   * toast(title, msg, kind, action)
+   * `action` = { label, onClick } renders a button (used for Undo). Toasts
+   * with an action stay up longer so there's time to hit it.
+   */
+  function toast(title, msg, kind, action) {
     let host = document.getElementById("toastHost");
     if (!host) {
       host = document.createElement("div");
@@ -20,12 +25,39 @@ App.ui = (function () {
     el.innerHTML = `<div class="grow">
         <div class="t-title">${U.esc(title)}</div>
         ${msg ? `<div class="t-msg">${U.esc(msg)}</div>` : ""}
-      </div>`;
+      </div>
+      ${action ? `<button class="btn btn-sm t-action">${U.esc(action.label)}</button>` : ""}`;
     host.appendChild(el);
-    setTimeout(() => {
+
+    let dead = false;
+    const kill = () => {
+      if (dead) return;
+      dead = true;
       el.classList.add("out");
       setTimeout(() => el.remove(), 200);
-    }, 3200);
+    };
+
+    if (action) {
+      el.querySelector(".t-action").addEventListener("click", () => {
+        kill();
+        action.onClick();
+      });
+    }
+    setTimeout(kill, action ? 7000 : 3200);
+    return kill;
+  }
+
+  /** Soft-delete with a one-tap Undo — the safety net for every destructive action. */
+  function deleteWithUndo(coll, id, label) {
+    const token = App.store.remove(coll, id);
+    if (!token) return;
+    toast("Deleted", label || "", "warn", {
+      label: "Undo",
+      onClick() {
+        App.store.restore(token);
+        toast("Restored", label || "", "ok");
+      }
+    });
   }
 
   /* ------------------------------------------------------------ modals -- */
@@ -116,10 +148,20 @@ App.ui = (function () {
                  ${U.esc(opts.okLabel || "Confirm")}
                </button>`,
       onMount(root) {
+        let confirmed = false;
         root.querySelector("[data-ok]").addEventListener("click", () => {
+          confirmed = true;
           closeModal();
           if (opts.onConfirm) opts.onConfirm();
         });
+        // Cancel/dismiss is a real answer for either-or choices (sync conflicts).
+        if (opts.onCancel) {
+          root.addEventListener("click", (e) => {
+            if (e.target === root || e.target.closest("[data-close]")) {
+              setTimeout(() => { if (!confirmed) opts.onCancel(); }, 0);
+            }
+          });
+        }
       }
     });
   }
@@ -234,7 +276,7 @@ App.ui = (function () {
   }
 
   return {
-    toast, modal, closeModal, confirm, prompt,
+    toast, deleteWithUndo, modal, closeModal, confirm, prompt,
     avatar, emptyState, classOptions, teacherOptions,
     colorPicker, bindSwatches, dayPicker, bindDays,
     gradePill, priorityBadge, dueBadge
