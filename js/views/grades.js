@@ -6,6 +6,59 @@ App.views.grades = (function () {
   const U = App.utils, S = App.store, UI = App.ui, C = App.charts;
 
   let selected = null;      // classId for the trend chart, null = all
+  let colPickerOpen = false;   // U31 — configurable columns on "Recently scored"
+
+  // U31 — which columns show and what the table's sorted by, persisted so
+  // it sticks across visits.
+  function recentTableConfig() {
+    const cfg = S.settings.gradesTable || {};
+    return {
+      cols: Object.assign({ cls: true, due: true, score: true, pct: true }, cfg.cols),
+      sortKey: cfg.sortKey || "due",
+      sortDir: cfg.sortDir || "desc"
+    };
+  }
+  function saveRecentTableConfig(cfg) {
+    S.commit((db) => { db.settings.gradesTable = cfg; });
+  }
+
+  const RECENT_COL_DEFS = [
+    { key: "title", label: "Assignment", always: true },
+    { key: "cls",   label: "Class" },
+    { key: "due",   label: "Date" },
+    { key: "score", label: "Score" },
+    { key: "pct",   label: "%" }
+  ];
+  const RECENT_SORTERS = {
+    title: (a) => a.title,
+    cls: (a) => S.className(a.classId),
+    due: (a) => a.due,
+    score: (a) => (a.points ? a.earned / a.points : 0),
+    pct: (a) => (a.points ? a.earned / a.points : 0)
+  };
+
+  function recentTableHead(cfg) {
+    return RECENT_COL_DEFS.filter((d) => d.always || cfg.cols[d.key]).map((d) => {
+      const active = cfg.sortKey === d.key;
+      return `<th class="${d.key !== "title" ? "right" : ""} sortable" data-sort-col="${d.key}">
+        ${U.esc(d.label)}${active ? (cfg.sortDir === "desc" ? " ▾" : " ▴") : ""}
+      </th>`;
+    }).join("") + `<th></th>`;
+  }
+
+  function recentTableRow(a, cfg) {
+    const c = S.cls(a.classId);
+    const p = a.points ? (a.earned / a.points) * 100 : null;
+    return `<tr>
+      <td><div class="bold">${U.esc(a.title)}</div><div class="tiny dim">${U.esc(a.type)}</div></td>
+      ${cfg.cols.cls ? `<td class="small muted"><span class="row gap-6">
+        <i class="dot-badge" style="background:${U.esc(c ? c.color : "#888")}"></i>${U.esc(c ? c.name : "—")}</span></td>` : ""}
+      ${cfg.cols.due ? `<td class="small muted nowrap">${U.esc(U.fmtDate(a.due))}</td>` : ""}
+      ${cfg.cols.score ? `<td class="right nums">${a.earned}/${a.points}</td>` : ""}
+      ${cfg.cols.pct ? `<td class="right">${UI.gradePill(p)}</td>` : ""}
+      <td class="right"><button class="btn btn-sm" data-score="${a.id}">Edit</button></td>
+    </tr>`;
+  }
 
   /* ------------------------------------------------------ target planner */
 
@@ -490,7 +543,9 @@ App.views.grades = (function () {
     const g = S.gpa();
     const gWeighted = S.gpa(true);
     const trend = S.gradeTrend(selected);
-    const recent = U.sortBy(S.db.assignments.filter((a) => a.graded && a.earned != null), (a) => a.due, true).slice(0, 10);
+    const rtCfg = recentTableConfig();
+    const recent = U.sortBy(S.db.assignments.filter((a) => a.graded && a.earned != null),
+      RECENT_SORTERS[rtCfg.sortKey] || RECENT_SORTERS.due, rtCfg.sortDir === "desc").slice(0, 10);
 
     const best = gradedRows.length ? U.sortBy(gradedRows, (r) => -r.pct)[0] : null;
     const worst = gradedRows.length ? U.sortBy(gradedRows, (r) => r.pct)[0] : null;
@@ -600,23 +655,21 @@ App.views.grades = (function () {
       <div class="card">
         <div class="card-head">
           <h3>Recently scored</h3>
-          <button class="btn btn-sm" data-go="homework">All assignments</button>
+          <div class="row gap-8">
+            <div class="col-picker-wrap">
+              <button class="btn btn-sm" data-cols-toggle>⚙ Columns</button>
+              <div class="col-picker" ${colPickerOpen ? "" : "hidden"}>
+                ${RECENT_COL_DEFS.filter((d) => !d.always).map((d) => `
+                  <label class="row gap-6 small"><input type="checkbox" data-col="${d.key}" ${rtCfg.cols[d.key] ? "checked" : ""}/> ${U.esc(d.label)}</label>
+                `).join("")}
+              </div>
+            </div>
+            <button class="btn btn-sm" data-go="homework">All assignments</button>
+          </div>
         </div>
         ${recent.length ? `<div class="table-wrap"><table class="table">
-          <thead><tr><th>Assignment</th><th>Class</th><th>Date</th><th class="right">Score</th><th class="right">%</th><th></th></tr></thead>
-          <tbody>${recent.map((a) => {
-            const c = S.cls(a.classId);
-            const p = a.points ? (a.earned / a.points) * 100 : null;
-            return `<tr>
-              <td><div class="bold">${U.esc(a.title)}</div><div class="tiny dim">${U.esc(a.type)}</div></td>
-              <td class="small muted"><span class="row gap-6">
-                <i class="dot-badge" style="background:${U.esc(c ? c.color : "#888")}"></i>${U.esc(c ? c.name : "—")}</span></td>
-              <td class="small muted nowrap">${U.esc(U.fmtDate(a.due))}</td>
-              <td class="right nums">${a.earned}/${a.points}</td>
-              <td class="right">${UI.gradePill(p)}</td>
-              <td class="right"><button class="btn btn-sm" data-score="${a.id}">Edit</button></td>
-            </tr>`;
-          }).join("")}</tbody></table></div>`
+          <thead><tr>${recentTableHead(rtCfg)}</tr></thead>
+          <tbody>${recent.map((a) => recentTableRow(a, rtCfg)).join("")}</tbody></table></div>`
           : UI.emptyState("📝", "No scores yet", "Add a score to an assignment to start tracking your grade.")}
       </div>
 
@@ -748,6 +801,28 @@ ${S.profile.name}`);
     U.on(root, "click", "[data-add-req]", () => reqForm());
     const sel = root.querySelector("#trendCls");
     if (sel) sel.addEventListener("change", (e) => { selected = e.target.value || null; App.router.refresh(); });
+
+    // U31 — configurable columns on the "Recently scored" table.
+    U.on(root, "click", "[data-cols-toggle]", (e) => {
+      e.stopPropagation();
+      colPickerOpen = !colPickerOpen;
+      App.router.refresh();
+    });
+    U.on(root, "change", "[data-col]", (_e, el) => {
+      const cfg = recentTableConfig();
+      cfg.cols[el.dataset.col] = el.checked;
+      saveRecentTableConfig(cfg);
+    });
+    U.on(root, "click", "[data-sort-col]", (_e, el) => {
+      const cfg = recentTableConfig();
+      const key = el.dataset.sortCol;
+      if (cfg.sortKey === key) cfg.sortDir = cfg.sortDir === "desc" ? "asc" : "desc";
+      else { cfg.sortKey = key; cfg.sortDir = "desc"; }
+      saveRecentTableConfig(cfg);
+    });
+    root.addEventListener("click", (e) => {
+      if (colPickerOpen && !e.target.closest(".col-picker-wrap")) { colPickerOpen = false; App.router.refresh(); }
+    });
   }
 
   return { render, mount, whatIf, targetPlanner, title: "Grades" };

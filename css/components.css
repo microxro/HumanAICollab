@@ -625,3 +625,25 @@
   padding: 8px;
   animation: pop .12s var(--ease);
 }
+
+/* ---------------------------------------------- U31 — configurable columns -- */
+
+.col-picker-wrap { position: relative; }
+.col-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 140px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  animation: pop .12s var(--ease);
+}
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
