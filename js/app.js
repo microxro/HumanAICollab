@@ -1,0 +1,373 @@
+/* ==========================================================================
+   app.js — router, navigation, command palette, keyboard shortcuts, boot
+   ========================================================================== */
+
+(function () {
+  const U = App.utils, S = App.store, UI = App.ui;
+
+  const NAV = [
+    { group: "Overview", items: [
+      { id: "dashboard", label: "Dashboard", icon: "◫" },
+      { id: "calendar",  label: "Calendar",  icon: "▤" },
+      { id: "schedule",  label: "Schedule",  icon: "◱" }
+    ]},
+    { group: "Academics", items: [
+      { id: "homework",  label: "Homework",  icon: "✎", badge: () => S.openAssignments().length,
+        alert: () => S.overdue().length > 0 },
+      { id: "classes",   label: "Classes",   icon: "▣" },
+      { id: "grades",    label: "Grades",    icon: "◈" }
+    ]},
+    { group: "Study", items: [
+      { id: "focus",      label: "Focus timer", icon: "◷" },
+      { id: "flashcards", label: "Flashcards",  icon: "▢",
+        badge: () => U.sum(S.db.decks, (d) => d.cards.filter((c) => !c.next || c.next <= U.today()).length) },
+      { id: "notes",      label: "Notes",       icon: "✐" }
+    ]},
+    { group: "Life", items: [
+      { id: "activities", label: "Activities", icon: "◇" },
+      { id: "goals",      label: "Goals",      icon: "◎" },
+      { id: "contacts",   label: "Contacts",   icon: "☎" }
+    ]},
+    { group: "More", items: [
+      { id: "analytics", label: "Analytics", icon: "◨" },
+      { id: "sharing",   label: "Sharing",   icon: "⇄" },
+      { id: "settings",  label: "Settings",  icon: "⚙" }
+    ]}
+  ];
+
+  const FLAT = NAV.flatMap((g) => g.items);
+
+  /* ------------------------------------------------------------ router -- */
+
+  let current = null;
+
+  const router = {
+    go(id) {
+      if (!App.views[id]) id = "dashboard";
+      if (current && App.views[current] && App.views[current].unmount) {
+        App.views[current].unmount();
+      }
+      current = id;
+      S.db.ui.view = id;
+      S.save();
+      if (location.hash.slice(1) !== id) history.replaceState(null, "", "#" + id);
+      paint();
+      document.querySelector(".page").scrollTop = 0;
+      closeSidebar();
+    },
+    refresh() { paint(); },
+    get current() { return current; }
+  };
+  App.router = router;
+
+  function paint() {
+    const view = App.views[current] || App.views.dashboard;
+    const page = document.getElementById("page");
+
+    page.innerHTML = view.render();
+    if (view.mount) view.mount(page);
+
+    renderNav();
+    document.title = `${view.title} · Scholar`;
+
+    // Cross-view shortcuts that any page can emit.
+    U.on(page, "click", "[data-go]", (_e, el) => router.go(el.dataset.go));
+    U.on(page, "click", "[data-new-hw]", () => App.views.homework.form(null));
+    U.on(page, "click", "[data-open-hw]", (_e, el) => App.views.homework.detail(el.dataset.openHw));
+    U.on(page, "change", "[data-toggle-hw]", (e, el) => {
+      e.stopPropagation();
+      const a = S.byId("assignments", el.dataset.toggleHw);
+      if (!a) return;
+      S.update("assignments", a.id, { status: el.checked ? "done" : "todo" });
+      if (el.checked) UI.toast("Done ✅", a.title, "ok");
+    });
+  }
+
+  function renderNav() {
+    const host = document.getElementById("navScroll");
+    host.innerHTML = NAV.map((g) => `
+      <div class="nav-group">
+        <div class="nav-label">${g.group}</div>
+        ${g.items.map((it) => {
+          const n = it.badge ? it.badge() : 0;
+          return `<button class="nav-item ${it.id === current ? "active" : ""}" data-view="${it.id}">
+            <span class="ico">${it.icon}</span>
+            <span class="grow truncate">${it.label}</span>
+            ${n ? `<span class="count ${it.alert && it.alert() ? "alert" : ""}">${n}</span>` : ""}
+          </button>`;
+        }).join("")}
+      </div>`).join("");
+  }
+
+  /* ------------------------------------------------------------- theme -- */
+
+  App.applyTheme = function () {
+    const dark = S.settings.theme === "dark";
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    const btn = document.getElementById("themeBtn");
+    if (btn) btn.textContent = dark ? "☀" : "☾";
+    // Charts read entity colors per theme, so repaint the current view.
+    if (current) paint();
+  };
+
+  function toggleTheme() {
+    S.commit((db) => { db.settings.theme = db.settings.theme === "dark" ? "light" : "dark"; });
+    App.applyTheme();
+  }
+
+  /* -------------------------------------------------- command palette -- */
+
+  let palette = null;
+
+  function commands() {
+    const out = [];
+
+    FLAT.forEach((it) => out.push({
+      group: "Go to", label: it.label, icon: it.icon,
+      run: () => router.go(it.id)
+    }));
+
+    out.push(
+      { group: "Create", label: "New assignment", icon: "✎", sub: "N", run: () => App.views.homework.form(null) },
+      { group: "Create", label: "New event", icon: "▤", run: () => App.views.calendar.eventForm(null) },
+      { group: "Create", label: "New class", icon: "▣", run: () => App.views.classes.classForm(null) },
+      { group: "Create", label: "New note", icon: "✐", run: () => { router.go("notes"); setTimeout(() => document.querySelector("[data-new]").click(), 60); } },
+      { group: "Actions", label: "Toggle dark mode", icon: "☾", sub: "T", run: toggleTheme },
+      { group: "Actions", label: "Export backup", icon: "⬇", run: () => {
+          U.download(`scholar-backup-${U.today()}.json`, S.exportJSON());
+          UI.toast("Backup downloaded", "", "ok");
+        }},
+      { group: "Actions", label: "Start a focus block", icon: "◷", run: () => router.go("focus") }
+    );
+
+    // Jump straight to any assignment, class, or note.
+    S.openAssignments().slice(0, 40).forEach((a) => out.push({
+      group: "Assignments", label: a.title, icon: "○",
+      sub: `${S.className(a.classId)} · ${U.relDate(a.due)}`,
+      run: () => App.views.homework.detail(a.id)
+    }));
+    S.db.classes.forEach((c) => out.push({
+      group: "Classes", label: c.name, icon: "▣", sub: c.code || "",
+      run: () => App.views.classes.detail(c.id)
+    }));
+    S.db.notes.forEach((n) => out.push({
+      group: "Notes", label: n.title, icon: "✐", sub: S.className(n.classId),
+      run: () => { router.go("notes"); }
+    }));
+    S.db.teachers.forEach((t) => out.push({
+      group: "Contacts", label: t.name, icon: "☎", sub: t.subject || "",
+      run: () => { router.go("contacts"); }
+    }));
+
+    return out;
+  }
+
+  function openPalette() {
+    if (palette) return;
+    const all = commands();
+
+    const root = document.createElement("div");
+    root.className = "palette-root";
+    root.innerHTML = `<div class="palette">
+      <input type="text" placeholder="Search or jump to…" aria-label="Command palette" />
+      <div class="palette-list"></div>
+    </div>`;
+    document.body.appendChild(root);
+    palette = root;
+
+    const input = root.querySelector("input");
+    const list = root.querySelector(".palette-list");
+    let matches = [], sel = 0;
+
+    function score(cmd, q) {
+      const l = cmd.label.toLowerCase();
+      if (!q) return 1;
+      if (l.startsWith(q)) return 3;
+      if (l.includes(q)) return 2;
+      if ((cmd.sub || "").toLowerCase().includes(q)) return 1;
+      return 0;
+    }
+
+    function draw() {
+      const q = input.value.trim().toLowerCase();
+      matches = all
+        .map((c) => ({ c, s: score(c, q) }))
+        .filter((x) => x.s > 0)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 40)
+        .map((x) => x.c);
+
+      sel = 0;
+      if (!matches.length) {
+        list.innerHTML = `<p class="dim small center" style="padding:22px">No matches</p>`;
+        return;
+      }
+      let html = "", lastGroup = null;
+      matches.forEach((m, i) => {
+        if (m.group !== lastGroup) {
+          html += `<div class="palette-group">${U.esc(m.group)}</div>`;
+          lastGroup = m.group;
+        }
+        html += `<button class="palette-item ${i === 0 ? "sel" : ""}" data-i="${i}">
+          <span class="ico">${m.icon || "•"}</span>
+          <span class="truncate">${U.esc(m.label)}</span>
+          ${m.sub ? `<span class="sub truncate">${U.esc(m.sub)}</span>` : ""}
+        </button>`;
+      });
+      list.innerHTML = html;
+    }
+
+    function move(delta) {
+      if (!matches.length) return;
+      sel = U.clamp(sel + delta, 0, matches.length - 1);
+      U.$$(".palette-item", list).forEach((el, i) => el.classList.toggle("sel", i === sel));
+      const el = list.querySelector(".palette-item.sel");
+      if (el) el.scrollIntoView({ block: "nearest" });
+    }
+
+    function run(i) {
+      const cmd = matches[i];
+      closePalette();
+      if (cmd) setTimeout(() => cmd.run(), 10);
+    }
+
+    input.addEventListener("input", draw);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+      else if (e.key === "Enter") { e.preventDefault(); run(sel); }
+      else if (e.key === "Escape") { e.preventDefault(); closePalette(); }
+    });
+    root.addEventListener("click", (e) => {
+      if (e.target === root) return closePalette();
+      const item = e.target.closest("[data-i]");
+      if (item) run(Number(item.dataset.i));
+    });
+
+    draw();
+    input.focus();
+  }
+
+  function closePalette() {
+    if (palette) { palette.remove(); palette = null; }
+  }
+
+  /* --------------------------------------------------------- shortcuts -- */
+
+  let chord = null;   // "g" prefix for go-to shortcuts
+
+  function onKeydown(e) {
+    const mod = e.metaKey || e.ctrlKey;
+
+    if (mod && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      palette ? closePalette() : openPalette();
+      return;
+    }
+
+    // Let views claim keys first (flashcard study mode uses Space / 1 / 2).
+    const view = App.views[current];
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
+    if (!typing && view && view.onKey && view.onKey(e)) { e.preventDefault(); return; }
+
+    if (typing || palette || document.querySelector(".modal-root")) return;
+
+    const k = e.key.toLowerCase();
+
+    if (chord === "g") {
+      chord = null;
+      const map = { d: "dashboard", h: "homework", c: "calendar", g: "grades",
+                    s: "schedule", f: "focus", n: "notes", a: "analytics", t: "settings" };
+      if (map[k]) { e.preventDefault(); router.go(map[k]); }
+      return;
+    }
+
+    if (k === "g") { chord = "g"; setTimeout(() => { chord = null; }, 1200); return; }
+    if (k === "n") { e.preventDefault(); App.views.homework.form(null); return; }
+    if (k === "t") { e.preventDefault(); toggleTheme(); return; }
+    if (k === "?") { e.preventDefault(); router.go("settings"); return; }
+  }
+
+  /* ------------------------------------------------------ usage timer -- */
+
+  // Tracks foreground time so the parent view has a real number to show.
+  let lastTick = Date.now();
+
+  function flushUsage() {
+    const now = Date.now();
+    const mins = (now - lastTick) / 60000;
+    lastTick = now;
+    if (mins > 0 && mins < 120) {          // ignore absurd gaps (sleep/suspend)
+      S.addUsage(mins);
+      S.save();
+    }
+  }
+
+  /* ---------------------------------------------------------- sidebar -- */
+
+  function openSidebar() {
+    document.querySelector(".sidebar").classList.add("open");
+    document.getElementById("scrim").classList.add("show");
+  }
+  function closeSidebar() {
+    document.querySelector(".sidebar").classList.remove("open");
+    document.getElementById("scrim").classList.remove("show");
+  }
+
+  /* --------------------------------------------------------------- boot */
+
+  function boot() {
+    App.applyTheme();
+    S.touchStreak();
+
+    // Nav
+    U.on(document.getElementById("navScroll"), "click", "[data-view]", (_e, el) => router.go(el.dataset.view));
+    document.getElementById("themeBtn").addEventListener("click", toggleTheme);
+    document.getElementById("searchBtn").addEventListener("click", openPalette);
+    document.getElementById("addBtn").addEventListener("click", () => App.views.homework.form(null));
+    document.getElementById("hamburger").addEventListener("click", openSidebar);
+    document.getElementById("scrim").addEventListener("click", closeSidebar);
+    document.getElementById("profileChip").addEventListener("click", () => router.go("settings"));
+
+    document.addEventListener("keydown", onKeydown);
+    window.addEventListener("hashchange", () => {
+      const id = location.hash.slice(1);
+      if (id && id !== current) router.go(id);
+    });
+
+    // Any store change repaints the current view + nav badges.
+    S.subscribe(() => paint());
+
+    // Usage accounting
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) flushUsage();
+      else lastTick = Date.now();
+    });
+    window.addEventListener("beforeunload", flushUsage);
+    setInterval(() => { if (!document.hidden) flushUsage(); }, 60000);
+
+    // Refresh time-sensitive views (live status, countdowns) every minute.
+    setInterval(() => {
+      if (!document.hidden && ["dashboard", "schedule", "sharing"].includes(current)
+          && !document.querySelector(".modal-root") && !palette) {
+        paint();
+      }
+    }, 60000);
+
+    const start = location.hash.slice(1) || S.db.ui.view || "dashboard";
+    router.go(App.views[start] ? start : "dashboard");
+
+    // Profile chip
+    const p = S.profile;
+    document.getElementById("profileChip").innerHTML = `
+      ${UI.avatar(p.name, p.color)}
+      <span class="grow truncate" style="min-width:0">
+        <div class="small bold truncate">${U.esc(p.name)}</div>
+        <div class="tiny dim truncate">${U.esc(p.grade || "")}</div>
+      </span>
+      <span class="dim">⚙</span>`;
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
+})();

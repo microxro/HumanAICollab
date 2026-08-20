@@ -1,41 +1,95 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>ClassPulse — School Tracker</title>
-<link rel="stylesheet" href="style.css" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="description" content="Scholar — a complete school tracker for classes, homework, grades, schedule, extracurriculars, and study tools. Built with plain HTML, CSS, and JavaScript." />
+<meta name="color-scheme" content="light dark" />
+<title>Scholar — School Tracker</title>
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%234f46e5'/><text y='72' x='50' font-size='62' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>S</text></svg>" />
+
+<link rel="stylesheet" href="css/theme.css" />
+<link rel="stylesheet" href="css/layout.css" />
+<link rel="stylesheet" href="css/components.css" />
+<link rel="stylesheet" href="css/views.css" />
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark">◆</span>
-    <span class="brand-name">ClassPulse</span>
-    <span class="brand-tag">school tracker</span>
+<div class="shell">
+
+  <!-- ------------------------------------------------------- sidebar -- -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <span class="logo">S</span>
+      <span class="logo-text">Schol<span>ar</span></span>
+    </div>
+
+    <nav class="sidebar-scroll" id="navScroll" aria-label="Main navigation">
+      <!-- rendered by app.js -->
+    </nav>
+
+    <div class="sidebar-foot">
+      <button class="profile-chip" id="profileChip" aria-label="Open settings"></button>
+    </div>
+  </aside>
+
+  <!-- ---------------------------------------------------------- main -- -->
+  <div class="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Open navigation">☰</button>
+
+      <button class="searchbar" id="searchBtn" aria-label="Open command palette">
+        <span aria-hidden="true">⌕</span>
+        <span class="label">Search or jump to…</span>
+        <kbd>⌘K</kbd>
+      </button>
+
+      <div class="topbar-right">
+        <button class="icon-btn" id="addBtn" data-tip="New assignment" aria-label="New assignment">+</button>
+        <button class="icon-btn" id="themeBtn" data-tip="Toggle theme" aria-label="Toggle dark mode">☾</button>
+      </div>
+    </header>
+
+    <main class="page" id="page">
+      <p class="dim center" style="padding:60px">Loading Scholar…</p>
+    </main>
   </div>
+</div>
 
-  <div class="role-switcher" role="tablist" aria-label="Choose role">
-    <button class="role-pill active" data-role="student" role="tab" aria-selected="true">Student</button>
-    <button class="role-pill" data-role="parent" role="tab" aria-selected="false">Parent</button>
-    <button class="role-pill" data-role="teacher" role="tab" aria-selected="false">Teacher</button>
-  </div>
+<div class="scrim" id="scrim"></div>
+<div class="toast-host" id="toastHost"></div>
 
-  <div class="user-picker">
-    <label for="userSelect" class="visually-hidden">Viewing as</label>
-    <select id="userSelect"></select>
-  </div>
-</header>
+<noscript>
+  <p style="padding:40px;text-align:center">
+    Scholar needs JavaScript enabled — everything runs in your browser, with no server.
+  </p>
+</noscript>
 
-<main id="app" class="app">
-  <!-- rendered by app.js -->
-  <p class="loading">Loading ClassPulse…</p>
-</main>
+<!-- core -->
+<script src="js/utils.js"></script>
+<script src="js/store.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/charts.js"></script>
 
-<footer class="footer">
-  <p>ClassPulse is a client-side prototype. All data lives only in this browser's local storage — nothing is sent to a server. Location &amp; usage "sharing" between roles is simulated for demo purposes.</p>
-</footer>
+<!-- views -->
+<script src="js/views/dashboard.js"></script>
+<script src="js/views/calendar.js"></script>
+<script src="js/views/schedule.js"></script>
+<script src="js/views/homework.js"></script>
+<script src="js/views/classes.js"></script>
+<script src="js/views/grades.js"></script>
+<script src="js/views/focus.js"></script>
+<script src="js/views/flashcards.js"></script>
+<script src="js/views/notes.js"></script>
+<script src="js/views/activities.js"></script>
+<script src="js/views/goals.js"></script>
+<script src="js/views/contacts.js"></script>
+<script src="js/views/analytics.js"></script>
+<script src="js/views/sharing.js"></script>
+<script src="js/views/settings.js"></script>
 
-<script src="app.js" defer></script>
+<!-- boot -->
+<script src="js/app.js"></script>
 </body>
 </html>
