@@ -163,7 +163,35 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
+
+/* U27 — pull to refresh: the expected gesture for re-syncing on a phone. */
+.ptr-indicator {
+  display: none;
+  position: absolute;
+  top: var(--topbar-h); left: 0; right: 0;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 25;
+  transform: translateY(-44px);
+}
+.ptr-spin {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  display: grid; place-items: center;
+  font-size: .95rem;
+  color: var(--brand-600);
+  transition: transform .15s var(--ease);
+}
+.ptr-indicator.armed .ptr-spin { transform: rotate(180deg); }
+.ptr-indicator.loading .ptr-spin { animation: ptrSpin .7s linear infinite; }
+@keyframes ptrSpin { to { transform: rotate(360deg); } }
 
 .topbar {
   height: var(--topbar-h);
@@ -344,6 +372,7 @@
   .searchbar .label, .searchbar kbd { display: none; }
   .today-strip { display: none !important; }
   .page { padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
+  .ptr-indicator { display: flex; }
 }
 
 /* ==========================================================================

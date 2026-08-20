@@ -571,6 +571,56 @@
     }).join("");
   }
 
+  /* ------------------------------------------------- U27 pull to refresh -- */
+  // Touch-only: the expected gesture for re-syncing on a phone. Only arms
+  // when the page is already scrolled to the top, so it never fights a
+  // normal downward scroll partway down a list.
+
+  function initPullToRefresh() {
+    const page = document.getElementById("page");
+    const ind = document.getElementById("ptrIndicator");
+    if (!page || !ind) return;
+    const THRESHOLD = 64;
+    let startY = 0, pulling = false, busy = false;
+
+    page.addEventListener("touchstart", (e) => {
+      if (busy || page.scrollTop > 0) { pulling = false; return; }
+      startY = e.touches[0].clientY;
+      pulling = true;
+    }, { passive: true });
+
+    page.addEventListener("touchmove", (e) => {
+      if (!pulling || busy) return;
+      const dy = e.touches[0].clientY - startY;
+      if (dy <= 0) { ind.style.transform = ""; ind.classList.remove("armed"); return; }
+      const dist = Math.min(dy * 0.5, 90);
+      ind.style.transform = `translateY(${dist}px)`;
+      ind.classList.toggle("armed", dist >= THRESHOLD);
+    }, { passive: true });
+
+    page.addEventListener("touchend", () => {
+      if (!pulling || busy) { pulling = false; return; }
+      pulling = false;
+      const armed = ind.classList.contains("armed");
+      ind.classList.remove("armed");
+      if (!armed) { ind.style.transform = ""; return; }
+
+      busy = true;
+      ind.classList.add("loading");
+      ind.style.transform = "translateY(48px)";
+      const finish = () => { busy = false; ind.classList.remove("loading"); ind.style.transform = ""; };
+
+      if (App.sync.isSignedIn()) {
+        App.sync.pullAndMerge()
+          .then(() => { router.refresh(); UI.toast("Refreshed", "", "ok"); })
+          .catch(() => UI.toast("Couldn't refresh", "Check your connection.", "danger"))
+          .finally(finish);
+      } else {
+        setTimeout(() => { router.refresh(); finish(); }, 350);
+      }
+    });
+  }
+
   /* --------------------------------------------------------- sync badge -- */
 
   function paintSyncBadge() {
@@ -623,6 +673,7 @@
     document.getElementById("scrim").addEventListener("click", closeSidebar);
     U.on(document.getElementById("mobileTabbar"), "click", "[data-view]", (_e, el) => router.go(el.dataset.view)); // U05
     U.on(document.getElementById("mobileTabbar"), "click", "[data-tabbar-more]", openSidebar);
+    initPullToRefresh(); // U27
     document.getElementById("profileChip").addEventListener("click", () => router.go("settings"));
     document.getElementById("syncBtn").addEventListener("click", () => {
       if (App.sync.isSignedIn()) App.sync.push(false).then(() => UI.toast("Synced", "", "ok"));
