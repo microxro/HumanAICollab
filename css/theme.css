@@ -181,3 +181,45 @@ button { cursor: pointer; }
     transition-duration: .01ms !important;
   }
 }
+
+/* ==========================================================================
+   U09 — accent colour choice (Settings → Preferences)
+
+   Only the brand ramp + ring shift; every other token (surfaces, text,
+   semantic colors) stays exactly as designed. Applied via [data-accent] on
+   <html>, alongside (never instead of) the existing theme tokens above.
+   ========================================================================== */
+
+[data-accent="teal"] {
+  --brand-50: #ecfdf5; --brand-100: #d1fae5; --brand-200: #a7f3d0; --brand-300: #6ee7d5;
+  --brand-400: #2dd4bf; --brand-500: #14b8a6; --brand-600: #0f766e; --brand-700: #115e59;
+}
+[data-theme="dark"][data-accent="teal"] {
+  --brand-50: #0b2e29; --brand-100: #0f3e37; --brand-200: #155e52;
+  --brand-400: #2dd4bf; --brand-500: #2dd4bf; --brand-600: #14b8a6; --brand-700: #0d9488;
+}
+
+[data-accent="rose"] {
+  --brand-50: #fff1f2; --brand-100: #ffe4e6; --brand-200: #fecdd3; --brand-300: #fda4af;
+  --brand-400: #fb7185; --brand-500: #e11d48; --brand-600: #be123c; --brand-700: #9f1239;
+}
+[data-theme="dark"][data-accent="rose"] {
+  --brand-50: #3d0c17; --brand-100: #4c0f1d; --brand-200: #6b1526;
+  --brand-400: #fb7185; --brand-500: #fb7185; --brand-600: #e11d48; --brand-700: #be123c;
+}
+
+[data-accent="amber"] {
+  --brand-50: #fffbeb; --brand-100: #fef3c7; --brand-200: #fde68a; --brand-300: #fcd34d;
+  --brand-400: #fbbf24; --brand-500: #d97706; --brand-600: #b45309; --brand-700: #92400e;
+}
+[data-theme="dark"][data-accent="amber"] {
+  --brand-50: #3a2a0c; --brand-100: #4a350f; --brand-200: #6b4d16;
+  --brand-400: #fbbf24; --brand-500: #f0a832; --brand-600: #d97706; --brand-700: #b45309;
+}
+
+/* ============================================================ U46 — CVD preview
+   Applies a colour-vision-deficiency simulation filter to the whole app so a
+   class-colour or chart choice can be checked before it ships. Off by default. */
+[data-cvd="protanopia"]  { filter: url(#cvd-protanopia); }
+[data-cvd="deuteranopia"] { filter: url(#cvd-deuteranopia); }
+[data-cvd="tritanopia"]  { filter: url(#cvd-tritanopia); }

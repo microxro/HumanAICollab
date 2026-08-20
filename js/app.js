@@ -60,6 +60,7 @@
       }
       current = id;
       S.db.ui.view = id;
+      S.trackNavVisit(id);   // U02 — feeds the "float to top" ranking
       S.save();
       if (location.hash.slice(1) !== id) history.replaceState(null, "", "#" + id);
       paint();
@@ -118,20 +119,46 @@
     page.scrollTop = scrollTop;
   }
 
+  function navRow(it) {
+    const n = it.badge ? it.badge() : 0;
+    const pinned = S.isPinnedNav(it.id);
+    return `<div class="nav-row">
+      <button class="nav-item ${it.id === current ? "active" : ""}" data-view="${it.id}">
+        <span class="ico">${it.icon}</span>
+        <span class="grow truncate">${it.label}</span>
+        ${n ? `<span class="count ${it.alert && it.alert() ? "alert" : ""}">${n}</span>` : ""}
+      </button>
+      <button class="pin-toggle ${pinned ? "on" : ""}" data-pin-nav="${it.id}"
+              aria-label="${pinned ? "Unpin" : "Pin"} ${it.label}" data-tip="${pinned ? "Unpin" : "Pin to top"}">★</button>
+    </div>`;
+  }
+
+  // U02 — the screens you actually use float to the top of the sidebar:
+  // explicitly pinned ones first, auto-filled with your most-visited the
+  // rest of the way to three, so it works even before you've pinned anything.
   function renderNav() {
     const host = document.getElementById("navScroll");
-    host.innerHTML = NAV.map((g) => `
-      <div class="nav-group">
+    const pin = S.effectivePinnedNav(null, 3);
+    const pinnedSet = new Set(pin.ids);
+
+    let html = "";
+    if (pin.ids.length) {
+      html += `<div class="nav-group pinned-group">
+        <div class="nav-label">Pinned</div>
+        ${pin.ids.map((id) => FLAT.find((x) => x.id === id)).filter(Boolean).map(navRow).join("")}
+      </div>`;
+    }
+
+    html += NAV.map((g) => {
+      const items = g.items.filter((it) => !pinnedSet.has(it.id));
+      if (!items.length) return "";
+      return `<div class="nav-group">
         <div class="nav-label">${g.group}</div>
-        ${g.items.map((it) => {
-          const n = it.badge ? it.badge() : 0;
-          return `<button class="nav-item ${it.id === current ? "active" : ""}" data-view="${it.id}">
-            <span class="ico">${it.icon}</span>
-            <span class="grow truncate">${it.label}</span>
-            ${n ? `<span class="count ${it.alert && it.alert() ? "alert" : ""}">${n}</span>` : ""}
-          </button>`;
-        }).join("")}
-      </div>`).join("");
+        ${items.map(navRow).join("")}
+      </div>`;
+    }).join("");
+
+    host.innerHTML = html;
   }
 
   /* ------------------------------------------------------------- theme -- */
@@ -148,6 +175,61 @@
   function toggleTheme() {
     S.commit((db) => { db.settings.theme = db.settings.theme === "dark" ? "light" : "dark"; });
     App.applyTheme();
+  }
+
+  /* -------------------------------------------- U01/U09/U10 shell prefs -- */
+
+  App.applyShellPrefs = function () {
+    const html = document.documentElement;
+    html.setAttribute("data-sidebar", S.settings.sidebarCollapsed ? "collapsed" : "expanded");
+    html.setAttribute("data-density", S.settings.density === "compact" ? "compact" : "comfortable");
+    if (S.settings.accent && S.settings.accent !== "indigo") html.setAttribute("data-accent", S.settings.accent);
+    else html.removeAttribute("data-accent");
+    html.setAttribute("data-cvd", S.settings.cvdPreview || "none");
+    const ico = document.getElementById("collapseIco");
+    if (ico) ico.textContent = S.settings.sidebarCollapsed ? "⇥" : "⇤";
+  };
+
+  function toggleSidebar() {
+    S.commit((db) => { db.settings.sidebarCollapsed = !db.settings.sidebarCollapsed; });
+    App.applyShellPrefs();
+  }
+
+  /* ------------------------------------------------- U26 notifications -- */
+
+  function openNotifPanel() {
+    const rows = S.recentNotifications(25);
+    UI.modal({
+      title: "Recent notifications",
+      size: "narrow",
+      footer: `<button type="button" class="btn btn-primary" data-close>Close</button>`,
+      body: rows.length
+        ? `<div class="list">${rows.map((n) => `<div class="list-item" style="padding:9px 2px">
+            <span class="grow"><div class="title">${U.esc(n.title)}</div>
+              ${n.msg ? `<div class="meta">${U.esc(n.msg)}</div>` : ""}</span>
+            <span class="tiny dim nowrap">${U.esc(new Date(n.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</span>
+          </div>`).join("")}</div>`
+        : `<p class="dim small center" style="padding:20px">Nothing yet — toasts you see land here.</p>`
+    });
+  }
+
+  /* --------------------------------------------------- U45 shortcuts help */
+
+  function openShortcutHelp() {
+    const rows = [
+      ["⌘K / Ctrl+K", "Command palette"], ["G then D", "Dashboard"], ["G then H", "Homework"],
+      ["G then C", "Calendar"], ["G then P", "Planner"], ["G then G", "Grades"],
+      ["G then F", "Focus timer"], ["G then N", "Notes"], ["N", "New assignment"],
+      ["T", "Toggle dark mode"], ["Space", "Flip a flashcard"], ["1–4", "Answer a quiz question"],
+      ["?", "This shortcut list"], ["Esc", "Close a dialog"]
+    ];
+    UI.modal({
+      title: "Keyboard shortcuts",
+      size: "narrow",
+      footer: `<button type="button" class="btn btn-primary" data-close>Close</button>`,
+      body: `<div class="col gap-4">${rows.map(([k, d]) => `
+        <div class="between" style="padding:5px 0"><span class="small muted">${U.esc(d)}</span><span class="kbd">${U.esc(k)}</span></div>`).join("")}</div>`
+    });
   }
 
   /* -------------------------------------------------- command palette -- */
@@ -329,7 +411,7 @@
     if (k === "g") { chord = "g"; setTimeout(() => { chord = null; }, 1200); return; }
     if (k === "n") { e.preventDefault(); App.views.homework.form(null); return; }
     if (k === "t") { e.preventDefault(); toggleTheme(); return; }
-    if (k === "?") { e.preventDefault(); router.go("settings"); return; }
+    if (k === "?") { e.preventDefault(); openShortcutHelp(); return; }
   }
 
   /* ------------------------------------------------------ usage timer -- */
@@ -404,12 +486,21 @@
 
   function boot() {
     App.applyTheme();
+    App.applyShellPrefs();
     S.touchStreak();
     S.runTemplates(28);
+    S.autoArchive();
 
     // Nav
     U.on(document.getElementById("navScroll"), "click", "[data-view]", (_e, el) => router.go(el.dataset.view));
+    U.on(document.getElementById("navScroll"), "click", "[data-pin-nav]", (e, el) => {
+      e.stopPropagation();
+      S.togglePinnedNav(el.dataset.pinNav);
+      renderNav();
+    });
     document.getElementById("themeBtn").addEventListener("click", toggleTheme);
+    document.getElementById("sidebarCollapseBtn").addEventListener("click", toggleSidebar);
+    document.getElementById("notifBtn").addEventListener("click", openNotifPanel);
     document.getElementById("searchBtn").addEventListener("click", openPalette);
     document.getElementById("addBtn").addEventListener("click", () => App.views.homework.form(null));
     document.getElementById("hamburger").addEventListener("click", openSidebar);

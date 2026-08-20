@@ -18,6 +18,8 @@ App.ui = (function () {
       host = document.createElement("div");
       host.id = "toastHost";
       host.className = "toast-host";
+      host.setAttribute("role", "status");
+      host.setAttribute("aria-live", "polite");
       document.body.appendChild(host);
     }
     const el = document.createElement("div");
@@ -28,6 +30,7 @@ App.ui = (function () {
       </div>
       ${action ? `<button class="btn btn-sm t-action">${U.esc(action.label)}</button>` : ""}`;
     host.appendChild(el);
+    if (App.store && App.store.logNotification) App.store.logNotification(title, msg, kind);
 
     let dead = false;
     const kill = () => {

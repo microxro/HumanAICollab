@@ -216,6 +216,48 @@ App.views.settings = (function () {
               ${[1, 2, 3, 5, 7, 14].map((v) => `<option value="${v}" ${v === st.dueSoonDays ? "selected" : ""}>${v} days</option>`).join("")}
             </select>
           </div>
+          <div class="between" style="padding:12px 0">
+            <div><div class="bold small">Language</div>
+              <div class="tiny dim">Nav labels, common actions, and dates</div></div>
+            <select class="select input-sm" id="localeSel" style="width:140px">
+              ${App.i18n.available().map((l) => `<option value="${l.code}" ${l.code === st.locale ? "selected" : ""}>${l.name}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-head"><h3>Layout &amp; accessibility</h3></div>
+        <div class="card-body" style="padding-top:4px">
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div><div class="bold small">Sidebar</div><div class="tiny dim">Icon-only mode fits more page on narrow screens</div></div>
+            <button class="btn btn-sm" id="prefCollapseBtn">${st.sidebarCollapsed ? "Expand" : "Collapse"}</button>
+          </div>
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div><div class="bold small">Density</div><div class="tiny dim">Compact fits more rows on screen</div></div>
+            <div class="segmented">
+              <button data-density-opt="comfortable" class="${st.density !== "compact" ? "active" : ""}">Comfortable</button>
+              <button data-density-opt="compact" class="${st.density === "compact" ? "active" : ""}">Compact</button>
+            </div>
+          </div>
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div><div class="bold small">Accent colour</div><div class="tiny dim">Buttons, links, and highlights — independent of class colours</div></div>
+            <div class="row gap-6">
+              ${[["indigo", "#4f46e5"], ["teal", "#0f766e"], ["rose", "#be123c"], ["amber", "#b45309"]].map(([id, hex]) => `
+                <button class="swatch ${((st.accent || "indigo") === id) ? "active" : ""}" data-accent-opt="${id}"
+                        style="background:${hex};width:24px;height:24px" aria-label="${id}"></button>`).join("")}
+            </div>
+          </div>
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div><div class="bold small">Colour-blind preview</div><div class="tiny dim">Simulates how class colours and charts look</div></div>
+            <select class="select input-sm" id="cvdSel" style="width:150px">
+              <option value="none" ${st.cvdPreview === "none" ? "selected" : ""}>Off</option>
+              <option value="protanopia" ${st.cvdPreview === "protanopia" ? "selected" : ""}>Protanopia</option>
+              <option value="deuteranopia" ${st.cvdPreview === "deuteranopia" ? "selected" : ""}>Deuteranopia</option>
+              <option value="tritanopia" ${st.cvdPreview === "tritanopia" ? "selected" : ""}>Tritanopia</option>
+            </select>
+          </div>
+          ${toggleRow("Hide GPA", "Show progress bars without the number, if grades cause anxiety", st.wellbeing.hideGPA, `data-pref-nested="wellbeing.hideGPA"`)}
         </div>
       </div>
 
@@ -819,6 +861,37 @@ App.views.settings = (function () {
     });
     U.on(root, "change", "[data-pref-num]", (_e, el) => {
       S.commit((db) => { db.settings[el.dataset.prefNum] = Number(el.value); });
+    });
+    U.on(root, "change", "[data-pref-nested]", (_e, el) => {
+      const [group, key] = el.dataset.prefNested.split(".");
+      S.commit((db) => { db.settings[group][key] = el.checked; });
+    });
+
+    const localeSel = root.querySelector("#localeSel");
+    if (localeSel) localeSel.addEventListener("change", (e) => { App.i18n.setLocale(e.target.value); App.router.refresh(); });
+
+    const collapseBtn = root.querySelector("#prefCollapseBtn");
+    if (collapseBtn) collapseBtn.addEventListener("click", () => {
+      S.commit((db) => { db.settings.sidebarCollapsed = !db.settings.sidebarCollapsed; });
+      App.applyShellPrefs();
+      App.router.refresh();
+    });
+
+    U.on(root, "click", "[data-density-opt]", (_e, el) => {
+      S.commit((db) => { db.settings.density = el.dataset.densityOpt; });
+      App.applyShellPrefs();
+      App.router.refresh();
+    });
+    U.on(root, "click", "[data-accent-opt]", (_e, el) => {
+      S.commit((db) => { db.settings.accent = el.dataset.accentOpt; });
+      App.applyShellPrefs();
+      App.router.refresh();
+      UI.toast("Accent updated", U.titleCase(el.dataset.accentOpt));
+    });
+    const cvdSel = root.querySelector("#cvdSel");
+    if (cvdSel) cvdSel.addEventListener("change", (e) => {
+      S.commit((db) => { db.settings.cvdPreview = e.target.value; });
+      App.applyShellPrefs();
     });
 
     U.on(root, "change", "[data-notif]", (_e, el) => {

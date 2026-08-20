@@ -106,6 +106,24 @@
 .nav-item.active .count { background: var(--brand-500); color: #fff; }
 .nav-item .count.alert { background: var(--danger); color: #fff; }
 
+/* U02 — pin a nav item so it floats into its own group at the top */
+.nav-row { display: flex; align-items: center; gap: 2px; }
+.nav-row .nav-item { flex: 1; min-width: 0; }
+.pin-toggle {
+  flex-shrink: 0;
+  width: 22px; height: 22px;
+  border: none; background: transparent;
+  border-radius: var(--radius-xs);
+  color: var(--text-3);
+  font-size: .78rem;
+  opacity: 0;
+  transition: opacity .12s var(--ease), color .12s var(--ease), background-color .12s var(--ease);
+}
+.nav-row:hover .pin-toggle, .pin-toggle.on { opacity: 1; }
+.pin-toggle:hover { background: var(--surface-3); color: var(--text); }
+.pin-toggle.on { color: var(--warn); }
+.nav-group.pinned-group .nav-label { color: var(--warn); }
+
 .sidebar-foot {
   border-top: 1px solid var(--border);
   padding: 10px;
@@ -286,3 +304,55 @@
   .searchbar { min-width: 0; }
   .searchbar .label, .searchbar kbd { display: none; }
 }
+
+/* ==========================================================================
+   U01 — collapsible sidebar (icon-only mode)
+   U10 — density setting (compact spacing)
+   ========================================================================== */
+
+html[data-sidebar="collapsed"] {
+  --sidebar-w: 60px;
+}
+html[data-sidebar="collapsed"] .logo-text,
+html[data-sidebar="collapsed"] .nav-label,
+html[data-sidebar="collapsed"] .nav-item .lbl,
+html[data-sidebar="collapsed"] .nav-item .grow,
+html[data-sidebar="collapsed"] .nav-item .count,
+html[data-sidebar="collapsed"] .pin-toggle,
+html[data-sidebar="collapsed"] .profile-chip .grow {
+  display: none;
+}
+html[data-sidebar="collapsed"] .nav-item { justify-content: center; padding: 8px; }
+html[data-sidebar="collapsed"] .sidebar-head { justify-content: center; padding: 0 8px; }
+html[data-sidebar="collapsed"] .profile-chip { justify-content: center; }
+
+.sidebar-collapse-btn {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.sidebar-collapse-btn:hover { background: var(--surface-3); color: var(--text); }
+html[data-sidebar="collapsed"] .sidebar-collapse-btn { justify-content: center; }
+html[data-sidebar="collapsed"] .sidebar-collapse-btn .lbl { display: none; }
+
+/* Density: shave padding/row-height across the shell without changing type
+   scale or removing any information — same content, tighter rhythm. */
+html[data-density="compact"] .page { padding: 14px 16px 18px; }
+html[data-density="compact"] .card-body { padding: 12px; }
+html[data-density="compact"] .card-head { padding: 9px 12px; }
+html[data-density="compact"] .list-item { padding: 7px 12px; }
+html[data-density="compact"] .hw-row { padding: 7px 12px; }
+html[data-density="compact"] .table th, html[data-density="compact"] .table td { padding: 6px 10px; }
+html[data-density="compact"] .stat { padding: 10px 11px; }
+html[data-density="compact"] .grid { gap: 10px; }
+html[data-density="compact"] .nav-item { padding: 5px 10px; }
+html[data-density="compact"] .navgroup-label,
+html[data-density="compact"] .nav-label { margin-bottom: 3px; }
+html[data-density="compact"] .nav-group + .nav-group { margin-top: 10px; }
