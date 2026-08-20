@@ -16,9 +16,20 @@ App.charts = (function () {
   // Charts inherit theme colors from CSS vars via classes in views.css.
   const PAD = { t: 12, r: 12, b: 24, l: 34 };
 
-  function svg(w, h, inner, cls) {
+  function svg(w, h, inner, cls, ariaLabel) {
     return `<svg class="chart ${cls || ""}" viewBox="0 0 ${w} ${h}"
-                 preserveAspectRatio="none" role="img" style="height:${h}px">${inner}</svg>`;
+                 preserveAspectRatio="none" role="img" style="height:${h}px"
+                 ${ariaLabel ? `aria-label="${U.esc(ariaLabel)}"` : ""}>${inner}</svg>`;
+  }
+
+  // U43 — a screen-reader summary and a real data table behind every chart
+  // that's SVG-only (hbars/stackbar/ring already render their values as
+  // visible text, so they don't need this).
+  function altTable(caption, headers, rows) {
+    return `<table class="sr-only"><caption>${U.esc(caption)}</caption>
+      <thead><tr>${headers.map((h) => `<th>${U.esc(h)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${U.esc(c)}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>`;
   }
 
   function niceMax(v) {
@@ -79,6 +90,25 @@ App.charts = (function () {
       <text class="axis-text" x="${PAD.l}" y="${h - 7}">${U.esc(U.fmtDate(first.date))}</text>
       <text class="axis-text" x="${w - PAD.r}" y="${h - 7}" text-anchor="end">${U.esc(U.fmtDate(last.date))}</text>`;
 
+    // U34/U35 — a transparent capture layer over the plot area. The point
+    // positions ride along as a data attribute so bindLineInteraction() can
+    // do hover-crosshair and drag-to-zoom without needing the original
+    // JS array — it works on whatever HTML actually got inserted.
+    const ptData = pts.map((p, i) => ({
+      x: U.round(x(i), 1), y: U.round(y(p.pct), 1),
+      label: p.title || U.fmtDate(p.date), value: U.round(p.pct, 1), date: p.date
+    }));
+    const capture = `<g class="chart-crosshair-g" style="display:none">
+        <line class="crosshair-line" x1="0" y1="${PAD.t}" x2="0" y2="${PAD.t + ih}" />
+        <circle class="crosshair-dot" r="4" cx="0" cy="0" />
+      </g>
+      <rect class="chart-brush-sel" x="0" y="${PAD.t}" width="0" height="${ih}" style="display:none" />
+      <rect class="chart-capture" x="${PAD.l}" y="${PAD.t}" width="${iw}" height="${ih}" fill="transparent"
+            data-points='${JSON.stringify(ptData).replace(/'/g, "&#39;")}' data-unit="${U.esc(o.unit)}" />`;
+
+    const caption = opts && opts.caption || "Trend chart";
+    const table = altTable(caption, ["Date", "Value"], pts.map((p) => [p.title || U.fmtDate(p.date), U.round(p.pct, 1) + o.unit]));
+
     return svg(w, h, `
       <defs>
         <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
@@ -89,7 +119,86 @@ App.charts = (function () {
       ${grid}
       <path class="area" d="${area}" />
       <path class="line" d="${d}" />
-      ${dots}${endLabel}${xLabels}`);
+      ${dots}${endLabel}${xLabels}${capture}`, "", caption) + table;
+  }
+
+  /**
+   * U34/U35 — wire hover-crosshair and drag-to-zoom onto every `.chart-capture`
+   * rect inside `root` (there's normally one per line() chart). Call this
+   * once after inserting the chart's HTML into the DOM.
+   *
+   * `onZoom(startLabel, endLabel)` fires when a drag-select completes with a
+   * real range (more than a few px) — the caller re-renders line() with a
+   * sliced points array and offers a "Reset zoom" control; there's nothing
+   * to undo in here, zoom state lives with the caller's data.
+   */
+  function bindLineInteraction(root, onZoom) {
+    // Tooltips live in document.body (so they're never clipped by an
+    // overflow:hidden card), so a repaint's fresh chart nodes wouldn't take
+    // the old tooltip with them — sweep any leftover ones from a previous
+    // bind on this same view before adding new ones.
+    document.querySelectorAll(".chart-tip").forEach((el) => el.remove());
+
+    root.querySelectorAll(".chart-capture").forEach((rect) => {
+      const svgEl = rect.closest("svg");
+      const g = svgEl.querySelector(".chart-crosshair-g");
+      const line = g.querySelector(".crosshair-line");
+      const dot = g.querySelector(".crosshair-dot");
+      const sel = svgEl.querySelector(".chart-brush-sel");
+      const tip = document.createElement("div");
+      tip.className = "chart-tip";
+      tip.style.display = "none";
+      document.body.appendChild(tip);
+
+      const pts = JSON.parse(rect.dataset.points);
+      const unit = rect.dataset.unit || "";
+      let dragStartI = null;
+
+      const svgX = (clientX) => {
+        const box = svgEl.getBoundingClientRect();
+        const vb = svgEl.viewBox.baseVal;
+        return ((clientX - box.left) / box.width) * vb.width;
+      };
+      const nearest = (sx) => pts.reduce((best, p, i) =>
+        Math.abs(p.x - sx) < Math.abs(pts[best].x - sx) ? i : best, 0);
+
+      const showAt = (i, clientX, clientY) => {
+        const p = pts[i];
+        g.style.display = "";
+        line.setAttribute("x1", p.x); line.setAttribute("x2", p.x);
+        dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y);
+        tip.textContent = `${p.label} — ${p.value}${unit}`;
+        tip.style.display = "block";
+        const vw = window.innerWidth;
+        tip.style.left = Math.max(4, Math.min(clientX + 12, vw - tip.offsetWidth - 4)) + "px";
+        tip.style.top = Math.max(4, clientY - 34) + "px";
+      };
+      const hide = () => { g.style.display = "none"; tip.style.display = "none"; };
+
+      rect.addEventListener("pointermove", (e) => {
+        const i = nearest(svgX(e.clientX));
+        showAt(i, e.clientX, e.clientY);
+        if (dragStartI != null) {
+          const lo = Math.min(dragStartI, i), hi = Math.max(dragStartI, i);
+          sel.style.display = "block";
+          sel.setAttribute("x", pts[lo].x);
+          sel.setAttribute("width", Math.max(1, pts[hi].x - pts[lo].x));
+        }
+      });
+      rect.addEventListener("pointerleave", () => { if (dragStartI == null) hide(); });
+      rect.addEventListener("pointerdown", (e) => {
+        dragStartI = nearest(svgX(e.clientX));
+        rect.setPointerCapture(e.pointerId);
+      });
+      rect.addEventListener("pointerup", (e) => {
+        if (dragStartI == null) return;
+        const endI = nearest(svgX(e.clientX));
+        sel.style.display = "none";
+        const lo = Math.min(dragStartI, endI), hi = Math.max(dragStartI, endI);
+        dragStartI = null;
+        if (hi - lo >= 1 && onZoom) onZoom(pts[lo].date, pts[hi].date);
+      });
+    });
   }
 
   /* -------------------------------------------------------------- bars -- */
@@ -132,7 +241,10 @@ App.charts = (function () {
               </rect>${label}`;
     }).join("");
 
-    return svg(w, h, grid + marks);
+    const caption = opts && opts.caption || "Bar chart";
+    const table = altTable(caption, ["Label", "Value"],
+      rows.map((r) => [r.full || r.label, o.fmt ? o.fmt(r.value) : r.value + o.unit]));
+    return svg(w, h, grid + marks, "", caption) + table;
   }
 
   /**
@@ -256,5 +368,5 @@ App.charts = (function () {
     return `<div class="center dim small" style="height:${h}px;display:grid;place-items:center">${U.esc(msg)}</div>`;
   }
 
-  return { line, bars, hbars, ring, heatmap, stackbar, sparkline };
+  return { line, bars, hbars, ring, heatmap, stackbar, sparkline, bindLineInteraction };
 })();

@@ -6,6 +6,7 @@ App.views.grades = (function () {
   const U = App.utils, S = App.store, UI = App.ui, C = App.charts;
 
   let selected = null;      // classId for the trend chart, null = all
+  let trendZoom = null;     // U35 — {start, end} ISO dates from a drag-select
   let colPickerOpen = false;   // U31 — configurable columns on "Recently scored"
 
   // U31 — which columns show and what the table's sorted by, persisted so
@@ -542,7 +543,8 @@ App.views.grades = (function () {
     const gradedRows = rows.filter((r) => r.pct != null);
     const g = S.gpa();
     const gWeighted = S.gpa(true);
-    const trend = S.gradeTrend(selected);
+    let trend = S.gradeTrend(selected);
+    if (trendZoom) trend = trend.filter((p) => p.date >= trendZoom.start && p.date <= trendZoom.end);
     const rtCfg = recentTableConfig();
     const recent = U.sortBy(S.db.assignments.filter((a) => a.graded && a.earned != null),
       RECENT_SORTERS[rtCfg.sortKey] || RECENT_SORTERS.due, rtCfg.sortDir === "desc").slice(0, 10);
@@ -598,13 +600,17 @@ App.views.grades = (function () {
           <div class="card-head">
             <div>
               <h3>Grade trend</h3>
-              <div class="sub">Cumulative average after each graded item</div>
+              <div class="sub">Cumulative average after each graded item ·
+                ${trendZoom ? "zoomed — drag again, or reset" : "drag to zoom into a range"}</div>
             </div>
-            <select class="select input-sm" id="trendCls" style="max-width:180px">
-              <option value="">All classes</option>${UI.classOptions(selected)}
-            </select>
+            <div class="row gap-8">
+              ${trendZoom ? `<button class="btn btn-sm" data-reset-zoom>↺ Reset zoom</button>` : ""}
+              <select class="select input-sm" id="trendCls" style="max-width:180px">
+                <option value="">All classes</option>${UI.classOptions(selected)}
+              </select>
+            </div>
           </div>
-          <div class="card-body">${C.line(trend, { h: 220 })}</div>
+          <div class="card-body">${C.line(trend, { h: 220, caption: "Grade trend" + (selected ? " — " + S.className(selected) : "") })}</div>
         </div>
 
         <div class="card">
@@ -800,7 +806,14 @@ ${S.profile.name}`);
     });
     U.on(root, "click", "[data-add-req]", () => reqForm());
     const sel = root.querySelector("#trendCls");
-    if (sel) sel.addEventListener("change", (e) => { selected = e.target.value || null; App.router.refresh(); });
+    if (sel) sel.addEventListener("change", (e) => { selected = e.target.value || null; trendZoom = null; App.router.refresh(); });
+
+    // U34/U35 — hover crosshair + drag-to-zoom on the grade trend chart.
+    U.on(root, "click", "[data-reset-zoom]", () => { trendZoom = null; App.router.refresh(); });
+    C.bindLineInteraction(root, (start, end) => {
+      trendZoom = { start, end };
+      App.router.refresh();
+    });
 
     // U31 — configurable columns on the "Recently scored" table.
     U.on(root, "click", "[data-cols-toggle]", (e) => {

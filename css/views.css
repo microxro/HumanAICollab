@@ -344,6 +344,24 @@
 .chart .bar-r:hover { fill: var(--brand-700); }
 .chart .bar-r.alt { fill: var(--brand-300); }
 
+/* U34/U35 — hover crosshair + drag-to-zoom brush on line() charts */
+.chart-capture { cursor: crosshair; touch-action: none; }
+.chart-crosshair-g .crosshair-line { stroke: var(--text-3); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-crosshair-g .crosshair-dot { fill: var(--brand-600); stroke: var(--surface); stroke-width: 2; }
+.chart-brush-sel { fill: var(--brand-500); opacity: .15; }
+.chart-tip {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  background: var(--text);
+  color: var(--bg);
+  font-size: .72rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
 .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 .legend-item { display: flex; align-items: center; gap: 6px; font-size: .75rem; color: var(--text-2); }
 .legend-swatch { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
