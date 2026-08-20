@@ -186,6 +186,105 @@ App.views.classes = (function () {
     });
   }
 
+  /* --------------------------------------------------------- F002 rubric */
+
+  function rubricList(cl) {
+    const rows = () => S.rubricsFor(cl.id);
+    UI.modal({
+      title: "Rubrics",
+      sub: cl.name,
+      size: "wide",
+      footer: `<button type="button" class="btn btn-primary" data-close>Done</button>`,
+      body: `<div class="row gap-8 mb-12">
+          <button type="button" class="btn btn-sm" id="addRubric">+ New rubric</button>
+        </div>
+        <div id="rubricRows">${rows().length ? `<div class="list" style="border:1px solid var(--border);border-radius:var(--radius)">
+          ${rows().map((r) => `<div class="list-item">
+            <span class="grow"><div class="title">${U.esc(r.name)}</div>
+              <div class="meta">${U.plural(r.criteria.length, "criterion", "criteria")}</div></span>
+            <button class="btn btn-sm" data-edit-rubric="${r.id}">Edit</button>
+            <button class="icon-btn btn-sm" data-del-rubric="${r.id}" aria-label="Delete">✕</button>
+          </div>`).join("")}
+        </div>` : `<p class="dim small">No rubrics yet — build one to score assignments by criteria.</p>`}</div>`,
+      onMount(root) {
+        root.querySelector("#addRubric").addEventListener("click", () => { UI.closeModal(); rubricForm(cl, null); });
+        U.on(root, "click", "[data-edit-rubric]", (_e, el) => { UI.closeModal(); rubricForm(cl, S.byId("rubrics", el.dataset.editRubric)); });
+        U.on(root, "click", "[data-del-rubric]", (_e, el) => {
+          const r = S.byId("rubrics", el.dataset.delRubric);
+          S.commit((db) => { db.rubrics = db.rubrics.filter((x) => x.id !== r.id); });
+          UI.closeModal();
+          rubricList(cl);
+          UI.toast("Rubric deleted", r.name, "warn");
+        });
+      }
+    });
+  }
+
+  function critRow(crit) {
+    const c = crit || { id: U.uid("crit"), name: "", levels: [{ id: U.uid("lvl"), name: "Excellent", points: 10 }, { id: U.uid("lvl"), name: "Needs work", points: 5 }] };
+    return `<div class="card mb-8" data-crit="${c.id}"><div class="card-body tight">
+      <div class="row gap-8 mb-8">
+        <input class="input grow" data-crit-name value="${U.esc(c.name)}" placeholder="Criterion — e.g. Thesis clarity" />
+        <button type="button" class="icon-btn btn-sm" data-del-crit aria-label="Remove criterion">✕</button>
+      </div>
+      <div data-levels>${c.levels.map((l) => levelRow(l)).join("")}</div>
+      <button type="button" class="btn btn-sm" data-add-level>+ Level</button>
+    </div></div>`;
+  }
+  function levelRow(l) {
+    return `<div class="row gap-8 mb-6" data-level="${l.id}">
+      <input class="input input-sm grow" data-lvl-name value="${U.esc(l.name)}" placeholder="Level name" />
+      <input class="input input-sm" type="number" min="0" style="width:80px" data-lvl-points value="${l.points}" />
+      <button type="button" class="icon-btn btn-sm" data-del-level aria-label="Remove level">✕</button>
+    </div>`;
+  }
+
+  function rubricForm(cl, rubric) {
+    UI.modal({
+      title: rubric ? "Edit rubric" : "New rubric",
+      sub: cl.name,
+      size: "wide",
+      okLabel: "Save rubric",
+      body: `<div class="field mb-12">
+          <label>Rubric name</label>
+          <input class="input" name="name" required value="${U.esc(rubric ? rubric.name : "")}" placeholder="Essay rubric" />
+        </div>
+        <div id="critRows">${(rubric ? rubric.criteria : [null]).map((c) => critRow(c)).join("")}</div>
+        <button type="button" class="btn btn-sm mt-4" id="addCrit">+ Add criterion</button>`,
+      onMount(root) {
+        const box = root.querySelector("#critRows");
+        box.addEventListener("click", (e) => {
+          if (e.target.closest("[data-del-crit]")) { e.target.closest("[data-crit]").remove(); return; }
+          if (e.target.closest("[data-del-level]")) { e.target.closest("[data-level]").remove(); return; }
+          const addLvl = e.target.closest("[data-add-level]");
+          if (addLvl) {
+            addLvl.previousElementSibling.insertAdjacentHTML("beforeend", levelRow({ id: U.uid("lvl"), name: "", points: 0 }));
+          }
+        });
+        root.querySelector("#addCrit").addEventListener("click", () => {
+          box.insertAdjacentHTML("beforeend", critRow(null));
+        });
+      },
+      onSubmit(d, root) {
+        if (!d.name.trim()) return false;
+        const criteria = U.$$("[data-crit]", root).map((row) => ({
+          id: row.dataset.crit,
+          name: row.querySelector("[data-crit-name]").value.trim() || "Criterion",
+          levels: U.$$("[data-level]", row).map((lvl) => ({
+            id: lvl.dataset.level,
+            name: lvl.querySelector("[data-lvl-name]").value.trim() || "Level",
+            points: Number(lvl.querySelector("[data-lvl-points]").value) || 0
+          }))
+        })).filter((c) => c.levels.length);
+        if (!criteria.length) return false;
+        const patch = { classId: cl.id, name: d.name.trim(), criteria };
+        if (rubric) S.update("rubrics", rubric.id, patch);
+        else S.insert("rubrics", patch);
+        UI.toast("Rubric saved", patch.name, "ok");
+      }
+    });
+  }
+
   /* ----------------------------------------------------------- files --- */
 
   /**
@@ -271,6 +370,7 @@ App.views.classes = (function () {
     const t = S.teacher(c.teacherId);
     const p = S.period(c.periodId);
     const pct = S.classGrade(id);
+    const gd = S.gradeDisplay(id);
     const cats = S.categoryBreakdown(id);
     const work = U.sortBy(S.assignmentsFor(id), (a) => a.due, true);
     const graded = work.filter((a) => a.graded);
@@ -282,6 +382,7 @@ App.views.classes = (function () {
       size: "wide",
       footer: `<button class="btn left btn-danger" data-del>Delete class</button>
                <button class="btn" data-files>Files</button>
+               <button class="btn" data-rubrics>Rubrics</button>
                <button class="btn" data-cats>Categories</button>
                <button class="btn" data-edit>Edit</button>
                <button class="btn btn-primary" data-close>Done</button>`,
@@ -290,8 +391,9 @@ App.views.classes = (function () {
           <div class="row gap-12">
             ${UI.gradePill(pct, true)}
             <div>
-              <div class="bold">${pct != null ? U.pctToLetter(pct) : "No grade yet"}</div>
-              <div class="tiny dim">${U.plural(graded.length, "graded item")} · ${c.credits} credit${c.credits === 1 ? "" : "s"}</div>
+              <div class="bold">${gd.mode === "percentage" ? (pct != null ? U.pctToLetter(pct) : "No grade yet") : gd.label}</div>
+              <div class="tiny dim">${U.plural(graded.length, "graded item")} · ${c.credits} credit${c.credits === 1 ? "" : "s"}
+                ${c.percentileInput != null ? ` · class avg ${c.percentileInput}%` : ""}</div>
             </div>
           </div>
           <div class="vdiv"></div>
@@ -345,6 +447,7 @@ App.views.classes = (function () {
         root.querySelector("[data-edit]").addEventListener("click", () => { UI.closeModal(); classForm(c); });
         root.querySelector("[data-cats]").addEventListener("click", () => { UI.closeModal(); categoryEditor(c); });
         root.querySelector("[data-files]").addEventListener("click", () => { UI.closeModal(); fileManager(c); });
+        root.querySelector("[data-rubrics]").addEventListener("click", () => { UI.closeModal(); rubricList(c); });
         root.querySelector("[data-del]").addEventListener("click", () => {
           UI.closeModal();
           UI.confirm({
@@ -386,6 +489,7 @@ App.views.classes = (function () {
         const t = S.teacher(c.teacherId);
         const p = S.period(c.periodId);
         const pct = S.classGrade(c.id);
+        const gd = S.gradeDisplay(c.id);
         const open = S.assignmentsFor(c.id).filter((a) => a.status !== "done").length;
         return `<div class="card card-link" data-class="${c.id}">
           <div style="height:4px;background:${U.esc(c.color)};border-radius:var(--radius) var(--radius) 0 0"></div>
@@ -395,7 +499,7 @@ App.views.classes = (function () {
                 <h3 class="truncate">${U.esc(c.name)}</h3>
                 <div class="tiny dim">${U.esc(c.code || "")}${c.code && p ? " · " : ""}${U.esc(p ? p.name : "")}</div>
               </div>
-              ${UI.gradePill(pct)}
+              ${gd.mode === "percentage" ? UI.gradePill(pct) : `<span class="badge">${U.esc(gd.label)}</span>`}
             </div>
             <div class="row gap-8 small muted mb-8">
               ${t ? UI.avatar(t.name, c.color, "sm") : ""}

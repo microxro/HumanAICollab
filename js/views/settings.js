@@ -395,8 +395,10 @@ App.views.settings = (function () {
             const live = t.current;
             const g = live ? S.gpa(null, t.id) : t.gpa;
             const cr = live ? U.sum(S.termClasses(t.id), (c) => c.credits || 1) : t.credits;
+            const parent = t.parentId ? S.byId("terms", t.parentId) : null;
             return `<tr>
-              <td><div class="bold">${U.esc(t.name)}</div>
+              <td>${parent ? `<div class="tiny dim">↳ rolls into ${U.esc(parent.name)}</div>` : ""}
+                <div class="bold">${U.esc(t.name)}</div>
                 ${live ? `<span class="badge solid">Current</span>` : ""}</td>
               <td class="small muted nowrap">${U.esc(U.fmtDate(t.start))} – ${U.esc(U.fmtDate(t.end))}</td>
               <td class="right nums bold">${g != null ? U.round(g, 2) : "—"}</td>
@@ -705,13 +707,19 @@ App.views.settings = (function () {
           <input class="input" type="number" name="gpa" step="0.01" min="0" max="5" placeholder="—" /></div>
         <div class="field"><label>Credits</label>
           <input class="input" type="number" name="credits" step="0.5" min="0" placeholder="6" /></div>
+        <div class="field full"><label>Rolls into <span class="hint">e.g. Q1 rolls into S1 — nested grading periods</span></label>
+          <select class="select" name="parentId">
+            <option value="">— Standalone —</option>
+            ${S.db.terms.filter((t) => !t.parentId).map((t) => `<option value="${t.id}">${U.esc(t.name)}</option>`).join("")}
+          </select></div>
       </div>`,
       onSubmit(d) {
         if (!d.name.trim()) return false;
         S.insert("terms", {
           name: d.name.trim(), start: d.start, end: d.end, current: false,
           gpa: d.gpa === "" || d.gpa == null ? null : Number(d.gpa),
-          credits: d.credits === "" || d.credits == null ? null : Number(d.credits)
+          credits: d.credits === "" || d.credits == null ? null : Number(d.credits),
+          parentId: d.parentId || null
         });
         UI.toast("Term added", d.name);
       }

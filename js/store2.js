@@ -77,6 +77,10 @@
       if (c.percentileInput === undefined) c.percentileInput = null;
       if (c.timezone === undefined) c.timezone = null;
       if (!c.standardsScale) c.standardsScale = 4; // 1..4 proficiency
+      if (c.latePenalty === undefined) c.latePenalty = null;    // { perDay, max } — F021
+      if (!c.rules) c.rules = { dropLowest: {}, curve: 0 };
+      if (!c.rules.catFloor) c.rules.catFloor = {};             // { categoryId: pct } — F009
+      if (!c.rules.catCap) c.rules.catCap = {};
     });
 
     db.assignments.forEach((a) => {
@@ -124,6 +128,31 @@
     assignmentsFor: S.assignmentsFor
   };
 
+  // F009 — category floors/caps: e.g. "homework can't drop the grade below
+  // 50% in that bucket." Recomputes the weighted average from
+  // categoryBreakdown() with each category's pct clamped first.
+  function weightedFromCategories(classId) {
+    const c = S.cls(classId);
+    const rules = (c && c.rules) || {};
+    const cats = S.categoryBreakdown(classId).filter((k) => k.pct != null);
+    if (!cats.length) return null;
+    let weighted = 0, usedWeight = 0;
+    cats.forEach((cat) => {
+      let pct = cat.pct;
+      const floor = rules.catFloor && rules.catFloor[cat.id];
+      const cap = rules.catCap && rules.catCap[cat.id];
+      if (floor != null) pct = Math.max(pct, floor);
+      if (cap != null) pct = Math.min(pct, cap);
+      weighted += pct * cat.weight;
+      usedWeight += cat.weight;
+    });
+    if (!usedWeight) return null;
+    return U.clamp(weighted / usedWeight + (rules.curve || 0), 0, 150);
+  }
+  function hasCatRules(rules) {
+    return rules && ((rules.catFloor && Object.keys(rules.catFloor).length) || (rules.catCap && Object.keys(rules.catCap).length));
+  }
+
   // F001 standards mode + F005 pass/fail + F004 exam weighting, layered on
   // top of the original weighted-category math.
   S.classGrade = function (classId) {
@@ -131,7 +160,7 @@
     if (!c) return orig.classGrade(classId);
     if (c.gradingMode === "standards" || c.passFail || c.auditOnly) return null;
 
-    let pct = orig.classGrade(classId);
+    let pct = hasCatRules(c.rules) ? weightedFromCategories(classId) : orig.classGrade(classId);
     if (pct == null || !c.examWeight) return pct;
 
     const finals = S.assignmentsFor(classId).filter((a) => a.graded && a.earned != null && /final|semester exam/i.test(a.type + a.title));
@@ -174,8 +203,11 @@
     if (termId && kids.length) {
       let pts = 0, credits = 0;
       kids.forEach((k) => {
-        const g = orig.gpa(weighted, k.id);
-        const cr = U.sum(S.termClasses(k.id), (c) => c.credits || 1);
+        // Live child terms compute from their current classes; archived
+        // child terms use the final gpa/credits recorded when they closed —
+        // same split cumulativeGpa() already uses for standalone terms.
+        const g = k.current ? orig.gpa(weighted, k.id) : (k.gpa != null ? k.gpa : 0);
+        const cr = k.current ? U.sum(S.termClasses(k.id), (c) => c.credits || 1) : (k.credits || 0);
         if (cr) { pts += g * cr; credits += cr; }
       });
       return credits ? pts / credits : 0;
@@ -199,7 +231,7 @@
 
   S.blockedBy = function (assignmentId) {
     const a = S.byId("assignments", assignmentId);
-    if (!a || !a.dependsOn.length) return [];
+    if (!a || !a.dependsOn || !a.dependsOn.length) return [];
     return a.dependsOn.map((id) => S.byId("assignments", id)).filter((x) => x && x.status !== "done");
   };
   S.isBlocked = function (assignmentId) { return S.blockedBy(assignmentId).length > 0; };
@@ -294,11 +326,12 @@
     if (!a || !a.rubricId) return null;
     const rubric = S.byId("rubrics", a.rubricId);
     if (!rubric) return null;
+    const scores = a.rubricScores || {};
     let earned = 0, total = 0;
     rubric.criteria.forEach((crit) => {
       const max = Math.max(...crit.levels.map((l) => l.points), 0);
       total += max;
-      const pickedId = a.rubricScores[crit.id];
+      const pickedId = scores[crit.id];
       const picked = crit.levels.find((l) => l.id === pickedId);
       earned += picked ? picked.points : 0;
     });

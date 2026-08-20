@@ -93,6 +93,10 @@ App.views.homework = (function () {
           <select class="select" name="categoryId" id="hwCat"></select>
         </div>
         <div class="field">
+          <label>Rubric <span class="hint">(optional)</span></label>
+          <select class="select" name="rubricId" id="hwRubric"></select>
+        </div>
+        <div class="field">
           <label>Due date</label>
           <input class="input" type="date" name="due" required value="${a.due || U.today()}" />
         </div>
@@ -147,6 +151,7 @@ App.views.homework = (function () {
       onMount(root) {
         const clsSel = root.querySelector("#hwClass");
         const catSel = root.querySelector("#hwCat");
+        const rubricSel = root.querySelector("#hwRubric");
 
         const fillCats = () => {
           const c = S.cls(clsSel.value);
@@ -155,8 +160,14 @@ App.views.homework = (function () {
             ? cats.map((k) => `<option value="${k.id}" ${k.id === a.categoryId ? "selected" : ""}>${U.esc(k.name)} (${k.weight}%)</option>`).join("")
             : `<option value="">— None —</option>`;
         };
+        const fillRubrics = () => {
+          const rubrics = S.rubricsFor(clsSel.value);
+          rubricSel.innerHTML = `<option value="">— None —</option>` +
+            rubrics.map((r) => `<option value="${r.id}" ${r.id === a.rubricId ? "selected" : ""}>${U.esc(r.name)}</option>`).join("");
+        };
         fillCats();
-        clsSel.addEventListener("change", fillCats);
+        fillRubrics();
+        clsSel.addEventListener("change", () => { fillCats(); fillRubrics(); });
 
         const list = root.querySelector("#stList");
         root.querySelector("#addSt").addEventListener("click", () => {
@@ -198,11 +209,15 @@ App.views.homework = (function () {
         const earned = d.earned === null || d.earned === "" ? null : Number(d.earned);
         const patch = {
           title: d.title.trim(), classId: d.classId, categoryId: d.categoryId || null,
+          rubricId: d.rubricId || null,
           due: d.due, type: d.type, priority: d.priority, status: d.status,
           estMinutes: Number(d.estMinutes) || 0, points: Number(d.points) || 0,
           earned, graded: earned != null, notes: d.notes.trim(), subtasks
         };
-        if (as) { S.update("assignments", as.id, patch); UI.toast("Assignment updated", patch.title); }
+        if (as) {
+          if (as.graded && as.earned !== earned) S.logGradeChange(as.id, "earned", as.earned, earned);
+          S.update("assignments", as.id, patch); UI.toast("Assignment updated", patch.title);
+        }
         else { S.insert("assignments", Object.assign({ assigned: U.today(), actualMinutes: 0 }, patch));
                UI.toast("Assignment added", `${patch.title} · due ${U.relDate(patch.due)}`, "ok"); }
       }
@@ -230,6 +245,7 @@ App.views.homework = (function () {
     const late = S.latePenaltyEstimate(a.id);      // F021
     const kids = S.subAssignments(a.id);           // F018/026
     const linkedNotes = S.notesFor(a.id);          // F023
+    const rubric = a.rubricId ? S.byId("rubrics", a.rubricId) : null;   // F002
 
     UI.modal({
       title: a.title,
@@ -264,6 +280,7 @@ App.views.homework = (function () {
           <button type="button" class="btn btn-sm ${timing ? "btn-danger" : "btn-primary"}" data-timer>
             ${timing ? "⏹ Stop timer" : "▶ Start timer"}
           </button>
+          ${rubric ? `<button type="button" class="btn btn-sm" data-rubric-score>📋 Score via "${U.esc(rubric.name)}"</button>` : ""}
           <label class="row gap-6 small" style="margin-left:auto">
             <input type="checkbox" class="check" data-submitted ${a.submitted ? "checked" : ""} /> Turned in
           </label>
@@ -339,6 +356,11 @@ App.views.homework = (function () {
           UI.closeModal();
           splitForm(a.id);
         });
+        const rubricBtn = root.querySelector("[data-rubric-score]");
+        if (rubricBtn) rubricBtn.addEventListener("click", () => {
+          UI.closeModal();
+          rubricScoreModal(a.id);
+        });
         const snoozeBtn = root.querySelector("[data-snooze]");
         if (snoozeBtn) snoozeBtn.addEventListener("click", () => {
           UI.closeModal();
@@ -397,6 +419,40 @@ App.views.homework = (function () {
         if (!parts.length) return false;
         const made = S.splitAssignment(assignmentId, parts);
         UI.toast("Parts created", `${made.length} added`, "ok");
+      }
+    });
+  }
+
+  /* --------------------------------------------------------- F002 score -- */
+
+  function rubricScoreModal(assignmentId) {
+    const a = S.byId("assignments", assignmentId);
+    const rubric = a && a.rubricId ? S.byId("rubrics", a.rubricId) : null;
+    if (!a || !rubric) return;
+
+    UI.modal({
+      title: "Score with rubric",
+      sub: rubric.name,
+      size: "wide",
+      okLabel: "Save score",
+      body: rubric.criteria.map((crit) => `
+        <div class="field mb-12">
+          <label>${U.esc(crit.name)}</label>
+          <select class="select" data-crit-pick="${crit.id}">
+            ${crit.levels.map((l) => `<option value="${l.id}" ${(a.rubricScores || {})[crit.id] === l.id ? "selected" : ""}>${U.esc(l.name)} — ${l.points} pts</option>`).join("")}
+          </select>
+        </div>`).join(""),
+      onSubmit(_d, root) {
+        const rubricScores = {};
+        U.$$("[data-crit-pick]", root).forEach((sel) => { rubricScores[sel.dataset.critPick] = sel.value; });
+        const before = a.earned;
+        S.update("assignments", a.id, { rubricScores });
+        const score = S.scoreFromRubric(a.id);
+        if (score) {
+          if (a.graded && before !== score.earned) S.logGradeChange(a.id, "earned", before, score.earned);
+          S.update("assignments", a.id, { earned: score.earned, points: score.total, graded: true, status: "done" });
+        }
+        UI.toast("Scored", score ? `${score.earned}/${score.total}` : rubric.name, "ok");
       }
     });
   }
