@@ -29,7 +29,11 @@ App.sync = (function () {
   /* --------------------------------------------------------- plumbing -- */
 
   function on(fn) { state.listeners.add(fn); return () => state.listeners.delete(fn); }
-  function emit() { state.listeners.forEach((f) => { try { f(info()); } catch (e) { console.error(e); } }); }
+  function emit() {
+    const snapshot = [...state.listeners];
+    const i = info();
+    snapshot.forEach((f) => { try { f(i); } catch (e) { console.error(e); } });
+  }
 
   function setStatus(s, err) {
     state.status = s;

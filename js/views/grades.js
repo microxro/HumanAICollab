@@ -7,6 +7,128 @@ App.views.grades = (function () {
 
   let selected = null;      // classId for the trend chart, null = all
 
+  /* ------------------------------------------------------ target planner */
+
+  /**
+   * "What do I need on everything that's left?" — the forward-looking
+   * counterpart to the per-assignment what-if.
+   */
+  function targetPlanner(classId) {
+    const c = S.cls(classId);
+    if (!c) return;
+    const current = S.classGrade(classId);
+    const remaining = S.assignmentsFor(classId).filter((a) => !a.graded && a.points > 0);
+    const remainingPts = U.sum(remaining, (a) => a.points);
+    const forecast = S.gradeForecast(classId);
+
+    const targets = [
+      { label: "A (93)", value: 93 }, { label: "A− (90)", value: 90 },
+      { label: "B+ (87)", value: 87 }, { label: "B (83)", value: 83 }
+    ];
+
+    UI.modal({
+      title: "What do I need?",
+      sub: c.name,
+      size: "wide",
+      footer: `<button type="button" class="btn btn-primary" data-close>Close</button>`,
+      body: `
+        <div class="row gap-16 wrap mb-16">
+          <div><div class="tiny dim">Current</div>${UI.gradePill(current, true)}</div>
+          <div class="vdiv"></div>
+          <div><div class="tiny dim">Work left</div>
+            <div class="bold">${U.plural(remaining.length, "assignment")}</div>
+            <div class="tiny dim">${remainingPts} points</div></div>
+          ${forecast ? `<div class="vdiv"></div>
+            <div><div class="tiny dim">Projected at term end</div>
+              <div class="bold">${U.round(forecast.projected, 1)}% ± ${U.round(forecast.band, 1)}</div>
+              <div class="tiny dim">${forecast.slopePerWeek >= 0 ? "▲" : "▼"}
+                ${U.round(Math.abs(forecast.slopePerWeek), 2)} pts/week</div></div>` : ""}
+        </div>
+
+        ${!remaining.length ? `<p class="small muted">No ungraded work left in this class — the grade is what it is.</p>` : `
+          <h4 class="mb-8">To finish with…</h4>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Target grade</th><th class="right">Average needed on remaining work</th><th class="right">Verdict</th></tr></thead>
+            <tbody>${targets.map((t) => {
+              const need = S.neededOnRemaining(classId, t.value);
+              const impossible = need == null;
+              const easy = !impossible && need <= 0;
+              return `<tr>
+                <td class="bold">${t.label}</td>
+                <td class="right">${impossible ? `<span class="dim">Not reachable</span>`
+                  : easy ? `<span style="color:var(--ok)">Already secured</span>`
+                  : `<span class="nums bold">${U.round(need, 1)}%</span>
+                     <span class="dim small">(${U.pctToLetter(need)})</span>`}</td>
+                <td class="right">${impossible ? `<span class="badge danger">Out of reach</span>`
+                  : easy ? `<span class="badge ok">Locked in</span>`
+                  : need > 100 ? `<span class="badge danger">Needs extra credit</span>`
+                  : need > 95 ? `<span class="badge warn">Very tight</span>`
+                  : need > 85 ? `<span class="badge info">Doable</span>`
+                  : `<span class="badge ok">Comfortable</span>`}</td>
+              </tr>`;
+            }).join("")}</tbody>
+          </table></div>
+
+          <div class="divider"></div>
+          <h4 class="mb-8">Remaining work</h4>
+          <div class="list" style="border:1px solid var(--border);border-radius:var(--radius)">
+            ${U.sortBy(remaining, (a) => a.due).map((a) => `<div class="list-item">
+              <span class="grow"><div class="title">${U.esc(a.title)}</div>
+                <div class="meta">${U.esc(a.type)} · ${a.points} pts</div></span>
+              ${UI.dueBadge(a.due)}
+            </div>`).join("")}
+          </div>`}`
+    });
+  }
+
+  /* ------------------------------------------------------- grade rules -- */
+
+  function rulesForm(classId) {
+    const c = S.cls(classId);
+    if (!c) return;
+    const rules = c.rules || { dropLowest: {}, curve: 0 };
+
+    UI.modal({
+      title: "Grading rules",
+      sub: c.name,
+      size: "wide",
+      okLabel: "Save rules",
+      body: `
+        <h4 class="mb-8">Drop lowest scores</h4>
+        <p class="hint mb-12">Many syllabi drop the lowest quiz or homework. Scholar applies this before averaging.</p>
+        ${(c.categories || []).map((cat) => {
+          const n = S.assignmentsFor(classId).filter((a) => a.graded && a.categoryId === cat.id).length;
+          return `<div class="between" style="padding:8px 0;border-bottom:1px solid var(--border)">
+            <div>
+              <div class="small bold">${U.esc(cat.name)}</div>
+              <div class="tiny dim">${cat.weight}% of grade · ${U.plural(n, "graded item")}</div>
+            </div>
+            <select class="select input-sm" data-drop="${cat.id}" style="width:110px">
+              ${[0, 1, 2, 3].map((v) => `<option value="${v}" ${(rules.dropLowest || {})[cat.id] === v || (!((rules.dropLowest || {})[cat.id]) && v === 0) ? "selected" : ""}>
+                ${v === 0 ? "Keep all" : "Drop " + v}</option>`).join("")}
+            </select>
+          </div>`;
+        }).join("")}
+
+        <div class="divider"></div>
+        <div class="field">
+          <label>Curve <span class="hint">points added to the final class average</span></label>
+          <input class="input" type="number" name="curve" step="0.5" min="-20" max="20" value="${rules.curve || 0}" />
+        </div>
+        <p class="hint mt-8">Extra credit is handled naturally — give an assignment more earned points than
+        it's worth and the category average goes above 100%.</p>`,
+      onSubmit(d, root) {
+        const dropLowest = {};
+        U.$$("[data-drop]", root).forEach((sel) => {
+          const n = Number(sel.value) || 0;
+          if (n > 0) dropLowest[sel.dataset.drop] = n;
+        });
+        S.update("classes", classId, { rules: { dropLowest, curve: Number(d.curve) || 0 } });
+        UI.toast("Rules saved", c.name);
+      }
+    });
+  }
+
   /* --------------------------------------------------- what-if planner -- */
 
   /**
@@ -202,10 +324,11 @@ App.views.grades = (function () {
           <div class="stat-foot">${S.settings.gpaWeighted ? `Unweighted: ${U.round(g, 2)}` : `Weighted: ${U.round(gWeighted, 2)}`}</div>
         </div>
         <div class="stat">
-          <div class="stat-ico">📈</div>
-          <div class="stat-label">Overall average</div>
-          <div class="stat-value">${gradedRows.length ? U.round(U.avg(gradedRows, (r) => r.pct), 1) + "%" : "—"}</div>
-          <div class="stat-foot">Across all graded classes</div>
+          <div class="stat-ico">📜</div>
+          <div class="stat-label">Cumulative GPA</div>
+          <div class="stat-value">${U.round(S.cumulativeGpa().gpa, 2)}</div>
+          <div class="stat-foot">${S.cumulativeGpa().credits} credits ·
+            ${U.plural(S.db.terms.length, "term")}</div>
         </div>
         <div class="stat">
           <div class="stat-ico">🏆</div>
@@ -269,7 +392,11 @@ App.views.grades = (function () {
               <td class="right">${UI.gradePill(pct)}</td>
               <td class="right bold">${pct != null ? U.pctToLetter(pct) : "—"}</td>
               <td class="right nums">${pct != null ? U.round(U.pctToGpa(pct), 1) : "—"}</td>
-              <td class="right"><button class="btn btn-sm" data-whatif="${c.id}">What-if</button></td>
+              <td class="right nowrap">
+                <button class="btn btn-sm" data-target="${c.id}">Need</button>
+                <button class="btn btn-sm" data-whatif="${c.id}">What-if</button>
+                <button class="btn btn-sm" data-rules="${c.id}">Rules</button>
+              </td>
             </tr>`;
           }).join("")}</tbody>
         </table></div>
@@ -298,6 +425,44 @@ App.views.grades = (function () {
           : UI.emptyState("📝", "No scores yet", "Add a score to an assignment to start tracking your grade.")}
       </div>
 
+      ${(() => {
+        const missing = S.missingWork();
+        if (!missing.length) return "";
+        return `<div class="card mt-16" style="border-left:3px solid var(--danger)">
+          <div class="card-head">
+            <div><h3>Missing work</h3>
+              <div class="sub">Scored zero or marked missing — these hurt the most and are often fixable</div></div>
+            <span class="badge danger">${missing.length}</span>
+          </div>
+          <div class="list">
+            ${missing.map((a) => {
+              const c = S.cls(a.classId);
+              const t = c ? S.teacher(c.teacherId) : null;
+              // How much the class average recovers if this gets made up.
+              const before = S.classGrade(a.classId);
+              const saved = (() => {
+                const orig = a.earned;
+                a.earned = a.points;
+                const after = S.classGrade(a.classId);
+                a.earned = orig;
+                return after != null && before != null ? after - before : 0;
+              })();
+              return `<div class="list-item">
+                <i class="dot-badge" style="background:${U.esc(c ? c.color : "#888")}"></i>
+                <span class="grow" style="min-width:0">
+                  <div class="title truncate">${U.esc(a.title)}</div>
+                  <div class="meta">${U.esc(c ? c.name : "—")} · ${a.points} pts ·
+                    ${U.esc(U.relDate(a.due))}</div>
+                </span>
+                ${saved > 0.05 ? `<span class="badge warn">+${U.round(saved, 1)} pts if made up</span>` : ""}
+                ${t && t.email ? `<a class="btn btn-sm" href="${makeupMail(t, a, c)}">✉ Ask</a>` : ""}
+                <button class="btn btn-sm" data-score="${a.id}">Fix score</button>
+              </div>`;
+            }).join("")}
+          </div>
+        </div>`;
+      })()}
+
       <div class="card mt-16">
         <div class="card-head"><h3>Waiting on a score</h3><span class="sub">Completed but not yet graded</span></div>
         ${(() => {
@@ -317,8 +482,26 @@ App.views.grades = (function () {
     </div>`;
   }
 
+  // A ready-to-send note about a zero — the message students most avoid writing.
+  function makeupMail(t, a, c) {
+    const last = t.name.split(" ").slice(-1)[0];
+    const subject = encodeURIComponent(`Missing assignment — ${a.title}`);
+    const body = encodeURIComponent(
+`Hi ${t.name},
+
+I noticed I have a zero for "${a.title}" in ${c ? c.name : "your class"} (due ${U.fmtDate(a.due, "full")}).
+
+I wanted to check whether it's still possible to turn it in or make it up, and what you'd like me to do.
+
+Thank you,
+${S.profile.name}`);
+    return `mailto:${t.email}?subject=${subject}&body=${body}`;
+  }
+
   function mount(root) {
     U.on(root, "click", "[data-whatif]", (_e, el) => whatIf(el.dataset.whatif));
+    U.on(root, "click", "[data-target]", (_e, el) => targetPlanner(el.dataset.target));
+    U.on(root, "click", "[data-rules]", (_e, el) => rulesForm(el.dataset.rules));
     U.on(root, "click", "[data-score]", (_e, el) => scoreEntry(S.byId("assignments", el.dataset.score)));
     U.on(root, "click", "[data-toggle-weight]", () => {
       S.commit((db) => { db.settings.gpaWeighted = !db.settings.gpaWeighted; });
@@ -328,5 +511,5 @@ App.views.grades = (function () {
     if (sel) sel.addEventListener("change", (e) => { selected = e.target.value || null; App.router.refresh(); });
   }
 
-  return { render, mount, whatIf, title: "Grades" };
+  return { render, mount, whatIf, targetPlanner, title: "Grades" };
 })();

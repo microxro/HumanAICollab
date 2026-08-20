@@ -329,6 +329,18 @@ App.views.homework = (function () {
         </div>
       </div>
 
+      <div class="card mb-16">
+        <div class="card-body tight">
+          <div class="row gap-8">
+            <span class="dim" style="font-size:1.05rem">⚡</span>
+            <input class="input grow" id="quickAdd" autocomplete="off"
+                   placeholder="Quick add — try: calc pset due friday high 45m" />
+            <button class="btn btn-primary" id="quickGo">Add</button>
+          </div>
+          <div id="quickPreview" class="row wrap gap-6 mt-8" hidden></div>
+        </div>
+      </div>
+
       <div class="card mb-16"><div class="card-body tight">
         <div class="row wrap gap-8">
           <input class="input input-sm" id="hwSearch" placeholder="Search assignments…"
@@ -358,7 +370,55 @@ App.views.homework = (function () {
     </div>`;
   }
 
+  /* --------------------------------------------------------- quick add -- */
+
+  // Shows what the parser understood before anything is saved, so the
+  // shorthand never feels like a guess.
+  function renderPreview(box, parsed) {
+    if (!parsed || !parsed.raw.trim()) { box.hidden = true; return; }
+    box.hidden = false;
+    const chips = parsed.tokens.map((t) => {
+      const style = t.color ? ` style="background:${U.hexAlpha(t.color, .16)};color:${U.esc(t.color)}"` : "";
+      return `<span class="tag"${style}>${U.esc(t.label)}</span>`;
+    }).join("");
+    box.innerHTML = `<span class="tiny dim">Will create:</span>
+      <span class="tag" style="background:var(--brand-50);color:var(--brand-600)">${U.esc(parsed.title)}</span>
+      ${chips}
+      ${parsed.tokens.length ? "" : `<span class="tiny dim">— add a day, duration, or class to fill in more</span>`}`;
+  }
+
+  function commitQuickAdd(input, box) {
+    const parsed = App.nlp.parse(input.value);
+    if (!parsed || !parsed.title.trim()) {
+      UI.toast("Nothing to add", "Type something like “chem lab due tuesday 90m”.", "warn");
+      return;
+    }
+    S.insert("assignments", {
+      title: parsed.title, classId: parsed.classId, categoryId: parsed.categoryId,
+      due: parsed.due, type: parsed.type, priority: parsed.priority,
+      status: "todo", points: parsed.points, earned: null, graded: false,
+      estMinutes: parsed.estMinutes, actualMinutes: 0, subtasks: [], notes: "",
+      assigned: U.today(), termId: (S.currentTerm() || {}).id,
+      scheduledFor: null, scheduledMin: null, missing: false
+    });
+    input.value = "";
+    box.hidden = true;
+    UI.toast("Added", `${parsed.title} · ${S.className(parsed.classId)} · due ${U.relDate(parsed.due)}`, "ok");
+  }
+
   function mount(root) {
+    const qa = root.querySelector("#quickAdd");
+    const qp = root.querySelector("#quickPreview");
+    if (qa && qp) {
+      qa.addEventListener("input", () => renderPreview(qp, App.nlp.parse(qa.value)));
+      qa.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); commitQuickAdd(qa, qp); }
+        if (e.key === "Escape") { qa.value = ""; qp.hidden = true; qa.blur(); }
+      });
+      const go = root.querySelector("#quickGo");
+      if (go) go.addEventListener("click", () => commitQuickAdd(qa, qp));
+    }
+
     U.on(root, "click", "[data-add]", () => form(null));
     U.on(root, "click", "[data-mode]", (_e, el) => { mode = el.dataset.mode; App.router.refresh(); });
     U.on(root, "click", "[data-open]", (_e, el) => detail(el.dataset.open));

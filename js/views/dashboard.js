@@ -52,6 +52,31 @@ App.views.dashboard = (function () {
     </div>`;
   }
 
+  /**
+   * Surfaces genuine crunch — clustered tests, over-booked evenings, a game
+   * the night before an exam — before it arrives, not after.
+   */
+  function warningsHTML() {
+    const list = App.planner.warnings(14).slice(0, 3);
+    if (!list.length) return "";
+    const worst = list[0].level;
+    return `<div class="card" style="border-left:3px solid var(--${worst === "high" ? "danger" : "warn"})">
+      <div class="card-head" style="padding:12px 16px">
+        <h3>${worst === "high" ? "⚠️" : "🟡"} Heads up</h3>
+        <button class="btn btn-sm" data-go="planner">Open planner</button>
+      </div>
+      <div class="list">
+        ${list.map((w) => `<div class="list-item" style="padding:9px 16px">
+          <span class="grow">
+            <div class="title">${U.esc(w.title)}</div>
+            <div class="meta">${U.esc(w.detail)}</div>
+          </span>
+          <span class="badge ${w.level === "high" ? "danger" : "warn"}">${U.esc(U.relDate(w.date))}</span>
+        </div>`).join("")}
+      </div>
+    </div>`;
+  }
+
   function statsHTML() {
     const due = S.dueSoon();
     const late = S.overdue();
@@ -166,6 +191,7 @@ App.views.dashboard = (function () {
 
     return `<div class="page-inner col gap-20">
       ${heroHTML()}
+      ${warningsHTML()}
       ${statsHTML()}
 
       <div class="grid g-main">

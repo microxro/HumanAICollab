@@ -1,13 +1,24 @@
 /* ==========================================================================
-   views/settings.js — profile, preferences, data export/import
+   views/settings.js — account, preferences, terms, data, and diagnostics
    ========================================================================== */
 
 App.views.settings = (function () {
   const U = App.utils, S = App.store, UI = App.ui;
 
+  let tab = "account";
+  let idbBytes = null;
+  let installEvent = null;   // captured beforeinstallprompt
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    installEvent = e;
+  });
+
+  /* ------------------------------------------------------------- helpers */
+
   function dataSize() {
     try {
-      const raw = localStorage.getItem("scholar.db.v1") || "";
+      const raw = localStorage.getItem("scholar.db.v2") || "";
       const kb = new Blob([raw]).size / 1024;
       return kb > 1024 ? `${U.round(kb / 1024, 2)} MB` : `${U.round(kb, 1)} KB`;
     } catch (e) { return "unknown"; }
@@ -20,39 +31,513 @@ App.views.settings = (function () {
       ["Events", d.events.length], ["Notes", d.notes.length],
       ["Flashcards", U.sum(d.decks, (x) => x.cards.length)],
       ["Study sessions", d.studySessions.length],
-      ["Activities", d.activities.length], ["Contacts", d.teachers.length]
+      ["Books", d.reading.length], ["Applications", d.collegeApps.length]
     ];
   }
 
+  function toggleRow(title, desc, checked, attr) {
+    return `<div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0;padding-right:12px">
+        <div class="bold small">${title}</div>
+        <div class="tiny dim">${desc}</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" ${attr} ${checked ? "checked" : ""} />
+        <span class="track"></span>
+      </label>
+    </div>`;
+  }
+
+  /* ------------------------------------------------------------- account */
+
+  function authForm(mode) {
+    const isSignup = mode === "signup";
+    UI.modal({
+      title: isSignup ? "Create an account" : "Sign in",
+      sub: isSignup ? "Sync across devices, link a parent, and join study groups" : "",
+      okLabel: isSignup ? "Create account" : "Sign in",
+      body: `<div class="form-grid">
+        ${isSignup ? `<div class="field full"><label>Your name</label>
+          <input class="input" name="name" required value="${U.esc(S.profile.name || "")}" /></div>` : ""}
+        <div class="field full"><label>Email</label>
+          <input class="input" type="email" name="email" required autocomplete="email" /></div>
+        <div class="field full"><label>Password</label>
+          <input class="input" type="password" name="password" required minlength="8"
+                 autocomplete="${isSignup ? "new-password" : "current-password"}" />
+          ${isSignup ? `<span class="hint">At least 8 characters, with a letter and a number.</span>` : ""}</div>
+        ${isSignup ? `<div class="field full"><label>I am a…</label>
+          <select class="select" name="role">
+            <option value="student">Student</option>
+            <option value="parent">Parent / guardian</option>
+          </select>
+          <span class="hint">A parent account sees a linked student's status — it doesn't track homework of its own.</span>
+        </div>` : ""}
+      </div>
+      <p class="hint mt-12">Your data is stored under your account so it follows you between devices.
+        Sign out any time — the local copy stays on this device.</p>`,
+      onSubmit(d) {
+        const p = isSignup
+          ? App.sync.signUp(d.email, d.password, d.name, d.role)
+          : App.sync.signIn(d.email, d.password);
+        p.then((user) => {
+          UI.toast(isSignup ? "Account created" : "Signed in", user.email, "ok");
+          App.router.refresh();
+        }).catch((e) => UI.toast(isSignup ? "Couldn't sign up" : "Couldn't sign in", e.message, "danger"));
+      }
+    });
+  }
+
+  function accountTab() {
+    const s = App.sync.info();
+    const p = S.profile;
+
+    if (!s.signedIn) {
+      return `
+        <div class="card mb-16">
+          <div class="card-head"><h3>Cloud sync</h3><span class="badge">Signed out</span></div>
+          <div class="card-body">
+            <p class="small muted mb-16">
+              Scholar works completely offline — everything you've entered is saved in this browser.
+              An account adds cross-device sync, the parent portal, and study groups.
+            </p>
+            <div class="row gap-8">
+              <button class="btn btn-primary" data-signup>Create an account</button>
+              <button class="btn" data-signin>Sign in</button>
+            </div>
+          </div>
+        </div>
+        ${profileCard(p)}`;
+    }
+
+    const statusLabel = {
+      idle: ["ok", "Synced"], syncing: ["info", "Syncing…"],
+      error: ["warn", "Offline"], conflict: ["warn", "Conflict"], offline: ["", "Local only"]
+    }[s.status] || ["", s.status];
+
+    return `
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>Account</h3><div class="sub">${U.esc(s.user.email)}</div></div>
+          <span class="badge ${statusLabel[0]}">${statusLabel[1]}</span>
+        </div>
+        <div class="card-body">
+          <div class="row gap-12 mb-16">
+            ${UI.avatar(s.user.name, p.color, "lg")}
+            <div class="grow">
+              <div class="bold">${U.esc(s.user.name)}</div>
+              <div class="tiny dim">${U.titleCase(s.user.role)} account ·
+                ${s.lastSync ? "last synced " + new Date(s.lastSync).toLocaleString() : "not synced yet"}</div>
+            </div>
+          </div>
+          ${s.error ? `<p class="tiny" style="color:var(--warn)">${U.esc(s.error)}</p>` : ""}
+          ${toggleRow("Automatic sync", "Push changes to the cloud a few seconds after you make them",
+            S.db.account.autoSync, `data-autosync`)}
+          <div class="row gap-8 mt-16">
+            <button class="btn" data-sync-now>↻ Sync now</button>
+            <button class="btn" data-signout>Sign out</button>
+          </div>
+        </div>
+      </div>
+
+      ${s.user.role === "student" ? linkCard() : parentLinkCard()}
+      ${profileCard(p)}`;
+  }
+
+  function linkCard() {
+    return `<div class="card mb-16">
+      <div class="card-head">
+        <div><h3>Parent access</h3><div class="sub">Generate a code for a parent to link to you</div></div>
+      </div>
+      <div class="card-body">
+        <p class="small muted mb-12">
+          Your parent creates their own Scholar account, then enters this code once.
+          They'll see whatever your Sharing toggles allow — nothing more.
+        </p>
+        <div id="linkCodeBox"></div>
+        <button class="btn btn-primary" data-mint-code>Generate a link code</button>
+        <div class="divider"></div>
+        <h4 class="mb-8">Who can see me</h4>
+        <div id="parentList"><p class="dim small">Loading…</p></div>
+      </div>
+    </div>`;
+  }
+
+  function parentLinkCard() {
+    return `<div class="card mb-16">
+      <div class="card-head"><h3>Linked students</h3></div>
+      <div class="card-body">
+        <p class="small muted mb-12">Open the Parent portal to see live status for each student you're linked to.</p>
+        <button class="btn btn-primary" data-go="parent">Open parent portal →</button>
+      </div>
+    </div>`;
+  }
+
+  function profileCard(p) {
+    return `<div class="card">
+      <div class="card-head"><h3>Profile</h3></div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="field"><label>Your name</label>
+            <input class="input" data-p="name" value="${U.esc(p.name)}" /></div>
+          <div class="field"><label>Email</label>
+            <input class="input" type="email" data-p="email" value="${U.esc(p.email || "")}" /></div>
+          <div class="field"><label>School</label>
+            <input class="input" data-p="school" value="${U.esc(p.school || "")}" /></div>
+          <div class="field"><label>Grade level</label>
+            <input class="input" data-p="grade" value="${U.esc(p.grade || "")}" /></div>
+          <div class="field"><label>Guardian name</label>
+            <input class="input" data-p="parentName" value="${U.esc(p.parentName || "")}" /></div>
+          <div class="field"><label>Guardian email</label>
+            <input class="input" type="email" data-p="parentEmail" value="${U.esc(p.parentEmail || "")}" /></div>
+        </div>
+        <button class="btn btn-primary mt-16" data-save-profile>Save profile</button>
+      </div>
+    </div>`;
+  }
+
+  /* --------------------------------------------------------- preferences */
+
+  function prefsTab() {
+    const st = S.settings;
+    const n = st.notifications;
+    const perm = App.notify.permission();
+
+    return `
+      <div class="card mb-16">
+        <div class="card-head"><h3>Appearance &amp; general</h3></div>
+        <div class="card-body" style="padding-top:4px">
+          ${toggleRow("Dark mode", "Switch between the light and dark palette", st.theme === "dark", `data-pref="theme"`)}
+          ${toggleRow("Week starts on Monday", "Affects the calendar and weekly totals", st.weekStartsMonday, `data-pref="weekStartsMonday"`)}
+          ${toggleRow("Weighted GPA", "AP, Honors, and IB classes get a +1.0 bump, capped at 5.0", st.gpaWeighted, `data-pref="gpaWeighted"`)}
+          <div class="between" style="padding:12px 0">
+            <div><div class="bold small">"Due soon" window</div>
+              <div class="tiny dim">How many days ahead counts as due soon</div></div>
+            <select class="select input-sm" data-pref-num="dueSoonDays" style="width:110px">
+              ${[1, 2, 3, 5, 7, 14].map((v) => `<option value="${v}" ${v === st.dueSoonDays ? "selected" : ""}>${v} days</option>`).join("")}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>Reminders</h3><div class="sub">Browser notifications — no server needed</div></div>
+          <span class="badge ${perm === "granted" ? "ok" : perm === "denied" ? "danger" : ""}">
+            ${perm === "granted" ? "Allowed" : perm === "denied" ? "Blocked" : perm === "unsupported" ? "Unsupported" : "Not asked"}
+          </span>
+        </div>
+        <div class="card-body" style="padding-top:4px">
+          ${perm === "denied" ? `<p class="small" style="color:var(--danger);padding:8px 0">
+            Notifications are blocked for this site. Re-allow them in your browser's site settings
+            (the padlock icon in the address bar), then come back.</p>` : ""}
+
+          ${toggleRow("Enable reminders", "Nudges before class, before deadlines, and a morning digest",
+            n.enabled, `data-notif="enabled" ${perm === "denied" || perm === "unsupported" ? "disabled" : ""}`)}
+
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div><div class="bold small">Before a class starts</div>
+              <div class="tiny dim">Lead time for class and practice reminders</div></div>
+            <select class="select input-sm" data-notif-num="classStartMin" style="width:120px">
+              ${[0, 5, 10, 15, 30].map((v) => `<option value="${v}" ${v === n.classStartMin ? "selected" : ""}>${v ? v + " min" : "Off"}</option>`).join("")}
+            </select>
+          </div>
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div><div class="bold small">Before work is due</div></div>
+            <select class="select input-sm" data-notif-num="dueSoonMin" style="width:120px">
+              ${[0, 60, 120, 240, 480].map((v) => `<option value="${v}" ${v === n.dueSoonMin ? "selected" : ""}>${v ? U.fmtDur(v) : "Off"}</option>`).join("")}
+            </select>
+          </div>
+          ${toggleRow("Morning digest", "A 7–9 AM summary of the day ahead", n.dailyDigest, `data-notif="dailyDigest"`)}
+          <div class="row gap-8" style="padding-top:12px">
+            <div class="field"><label class="tiny">Quiet from</label>
+              <input class="input input-sm" type="time" data-notif-time="quietStart" value="${n.quietStart}" /></div>
+            <div class="field"><label class="tiny">Quiet until</label>
+              <input class="input input-sm" type="time" data-notif-time="quietEnd" value="${n.quietEnd}" /></div>
+            <div class="grow"></div>
+            <button class="btn btn-sm" data-test-notif style="align-self:flex-end">Send a test</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>Install as an app</h3><div class="sub">Works offline, opens from your home screen</div></div>
+        </div>
+        <div class="card-body">
+          <p class="small muted mb-12">
+            Scholar is a progressive web app. Installing gives it its own window and full offline access —
+            all your data is already stored locally, so nothing breaks without a connection.
+          </p>
+          <div class="row gap-8 wrap">
+            <button class="btn btn-primary" data-install>⬇ Install Scholar</button>
+            <button class="btn" data-update-sw>↻ Check for updates</button>
+          </div>
+          <p class="hint mt-12" id="installHint">
+            On iPhone/iPad: tap Share → “Add to Home Screen”.
+            On Chrome desktop: use the install icon in the address bar if the button is greyed out.
+          </p>
+        </div>
+      </div>`;
+  }
+
+  /* ------------------------------------------------------------- schedule */
+
+  function scheduleTab() {
+    const sc = S.settings.schedule;
+    const terms = S.db.terms;
+
+    return `
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>Schedule type</h3><div class="sub">Weekly, or a rotating A/B block cycle</div></div>
+        </div>
+        <div class="card-body">
+          <div class="segmented mb-16">
+            <button class="${sc.mode === "weekly" ? "active" : ""}" data-sched-mode="weekly">Same every week</button>
+            <button class="${sc.mode === "rotating" ? "active" : ""}" data-sched-mode="rotating">Rotating days</button>
+          </div>
+
+          ${sc.mode === "rotating" ? `
+            <div class="form-grid">
+              <div class="field"><label>Cycle days</label>
+                <input class="input" id="cycleDays" value="${U.esc(sc.cycle.join(", "))}" placeholder="A, B" />
+                <span class="hint">Comma separated — e.g. "A, B" or "1, 2, 3, 4"</span></div>
+              <div class="field"><label>Cycle starts on</label>
+                <input class="input" type="date" id="cycleAnchor" value="${sc.anchor}" />
+                <span class="hint">The first day of the cycle (a Day ${sc.cycle[0]})</span></div>
+            </div>
+            ${toggleRow("Skip weekends", "Weekends don't advance the cycle", sc.skipWeekends, `data-sched-weekend`)}
+            <button class="btn btn-primary mt-12" data-save-cycle>Save cycle</button>
+
+            <div class="divider"></div>
+            <h4 class="mb-8">Next two weeks</h4>
+            <div class="row wrap gap-6">
+              ${Array.from({ length: 14 }, (_, i) => {
+                const iso = U.dateKey(U.addDays(new Date(), i));
+                const cd = S.cycleDayFor(iso);
+                const n = S.classesOnDate(iso).length;
+                return `<button class="chip ${cd ? "active" : ""}" data-day-ex="${iso}"
+                          title="${n} classes — click to override">
+                  ${U.esc(U.fmtDate(iso, "day"))}: ${cd ? "Day " + cd : "No school"}
+                </button>`;
+              }).join("")}
+            </div>
+            <p class="hint mt-8">Click a day to mark it as a holiday or force a specific cycle day.</p>
+
+            <div class="divider"></div>
+            <h4 class="mb-8">Which cycle days does each class meet?</h4>
+            ${S.termClasses().map((c) => `
+              <div class="between" style="padding:8px 0;border-bottom:1px solid var(--border)">
+                <span class="row gap-8">
+                  <i class="dot-badge" style="background:${U.esc(c.color)}"></i>
+                  <span class="small bold">${U.esc(c.name)}</span>
+                </span>
+                <span class="row gap-4">
+                  ${sc.cycle.map((cd) => `<button class="chip ${(c.patternDays || []).includes(cd) ? "active" : ""}"
+                    data-class-pattern="${c.id}" data-cd="${U.esc(cd)}">${U.esc(cd)}</button>`).join("")}
+                </span>
+              </div>`).join("")}
+          ` : `<p class="small muted">Classes meet on the same weekdays every week.
+               Set each class's days from the Classes tab.</p>`}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div><h3>Terms</h3><div class="sub">Archive a finished term to keep it in your cumulative GPA</div></div>
+          <button class="btn btn-sm btn-primary" data-add-term>+ Add term</button>
+        </div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Term</th><th>Dates</th><th class="right">GPA</th><th class="right">Credits</th><th></th></tr></thead>
+          <tbody>${terms.map((t) => {
+            const live = t.current;
+            const g = live ? S.gpa(null, t.id) : t.gpa;
+            const cr = live ? U.sum(S.termClasses(t.id), (c) => c.credits || 1) : t.credits;
+            return `<tr>
+              <td><div class="bold">${U.esc(t.name)}</div>
+                ${live ? `<span class="badge solid">Current</span>` : ""}</td>
+              <td class="small muted nowrap">${U.esc(U.fmtDate(t.start))} – ${U.esc(U.fmtDate(t.end))}</td>
+              <td class="right nums bold">${g != null ? U.round(g, 2) : "—"}</td>
+              <td class="right nums">${cr || "—"}</td>
+              <td class="right">
+                ${live ? `<button class="btn btn-sm" data-archive="${t.id}">Archive</button>`
+                       : `<button class="btn btn-sm" data-make-current="${t.id}">Make current</button>`}
+                <button class="icon-btn btn-sm" data-del-term="${t.id}" aria-label="Delete term">✕</button>
+              </td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table></div>
+        <div class="card-foot">
+          <div class="between">
+            <span class="small muted">Cumulative GPA across all terms</span>
+            <span class="bold">${U.round(S.cumulativeGpa().gpa, 2)} · ${S.cumulativeGpa().credits} credits</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /* ----------------------------------------------------------------- data */
+
+  function dataTab() {
+    const trash = S.db.trash;
+    return `
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>Your data</h3><div class="sub">In this browser · ${dataSize()}${idbBytes != null ? ` + ${App.idb.fmtSize(idbBytes)} of files` : ""}</div></div>
+        </div>
+        <div class="card-body">
+          <div class="grid g-4 mb-16">
+            ${counts().map(([label, n]) => `
+              <div class="center" style="padding:10px;background:var(--surface-2);border-radius:var(--radius-sm)">
+                <div class="bold" style="font-size:1.3rem">${n}</div>
+                <div class="tiny dim">${label}</div>
+              </div>`).join("")}
+          </div>
+          <div class="row gap-8 wrap">
+            <button class="btn" data-export>⬇ Export backup</button>
+            <button class="btn" data-import>⬆ Import backup</button>
+            <button class="btn" data-import-school>📥 Import from Canvas / Classroom</button>
+            <button class="btn" data-export-ics>📅 Export calendar</button>
+            <button class="btn" data-print>🖨 Print</button>
+          </div>
+          <p class="hint mt-12">
+            Everything lives in this browser unless you're signed in. Clearing your browser data erases it —
+            export a backup before switching devices.
+          </p>
+        </div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>Trash</h3><div class="sub">Deleted items are recoverable until you empty this</div></div>
+          ${trash.length ? `<button class="btn btn-sm" data-empty-trash>Empty trash</button>` : ""}
+        </div>
+        ${trash.length ? `<div class="list">
+          ${trash.slice(0, 20).map((t) => `<div class="list-item">
+            <span class="grow">
+              <div class="title truncate">${U.esc(t.label)}</div>
+              <div class="meta">${U.esc(t.coll)} · deleted ${new Date(t.deletedAt).toLocaleString()}</div>
+            </span>
+            <button class="btn btn-sm" data-restore="${t.id}">Restore</button>
+          </div>`).join("")}
+        </div>` : `<div class="card-body"><p class="dim small">Trash is empty.</p></div>`}
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-head"><h3>Recurring assignments</h3>
+          <button class="btn btn-sm btn-primary" data-add-template>+ Add</button></div>
+        ${S.db.templates.length ? `<div class="list">
+          ${S.db.templates.map((t) => `<div class="list-item">
+            <i class="dot-badge" style="background:${U.esc(S.classColor(t.classId))}"></i>
+            <span class="grow">
+              <div class="title">${U.esc(t.title)}</div>
+              <div class="meta">${U.esc(S.className(t.classId))} · every ${t.interval > 1 ? t.interval + " weeks on " : ""}${(t.days || []).join(", ")}</div>
+            </span>
+            <span class="badge ${t.active !== false ? "ok" : ""}">${t.active !== false ? "Active" : "Paused"}</span>
+            <button class="btn btn-sm" data-toggle-template="${t.id}">${t.active !== false ? "Pause" : "Resume"}</button>
+            <button class="icon-btn btn-sm" data-del-template="${t.id}" aria-label="Delete">✕</button>
+          </div>`).join("")}
+        </div>` : `<div class="card-body"><p class="dim small">
+          No recurring assignments. Add one for a weekly problem set or reading quiz and Scholar will create
+          each occurrence automatically.</p></div>`}
+      </div>
+
+      <div class="card" style="border-left:3px solid var(--danger)">
+        <div class="card-head"><h3>Danger zone</h3></div>
+        <div class="card-body">
+          <div class="row gap-8 wrap">
+            <button class="btn" data-reseed">↺ Restore demo data</button>
+            <button class="btn btn-danger" data-wipe>🗑 Clear everything</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /* ------------------------------------------------------------ shortcuts */
+
+  function aboutTab() {
+    return `
+      <div class="card mb-16">
+        <div class="card-head"><h3>Keyboard shortcuts</h3></div>
+        <div class="card-body">
+          <div class="grid g-2">
+            ${[["⌘K / Ctrl+K", "Command palette"], ["G then D", "Dashboard"],
+               ["G then H", "Homework"], ["G then C", "Calendar"], ["G then P", "Planner"],
+               ["G then G", "Grades"], ["G then F", "Focus timer"], ["G then N", "Notes"],
+               ["N", "New assignment"], ["T", "Toggle dark mode"],
+               ["Space", "Flip a flashcard"], ["1–4", "Answer a quiz question"],
+               ["Esc", "Close a dialog"]].map(([k, d]) => `
+              <div class="between" style="padding:7px 0">
+                <span class="small muted">${d}</span><span class="kbd">${k}</span>
+              </div>`).join("")}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>About</h3></div>
+        <div class="card-body small muted">
+          <p><strong style="color:var(--text)">Scholar ${S.SCHEMA === 2 ? "2.0" : ""}</strong> —
+          a school tracker built with plain HTML, CSS, and JavaScript. No framework, no build step.</p>
+          <p class="mt-8">Accounts, cross-device sync, the parent portal, and study groups run on
+          Netlify Functions with Netlify Blobs. Everything else works entirely offline in your browser.</p>
+          <p class="mt-8">Location uses the browser Geolocation API with a campus geofence you set yourself.
+          Which class you're in comes from your timetable — GPS can't tell Room 204 from Room 206.</p>
+        </div>
+      </div>`;
+  }
+
+  /* --------------------------------------------------------------- render */
+
+  const TABS = [
+    { id: "account", label: "Account" },
+    { id: "prefs", label: "Preferences" },
+    { id: "schedule", label: "Schedule & terms" },
+    { id: "data", label: "Data" },
+    { id: "about", label: "About" }
+  ];
+
+  function render() {
+    if (idbBytes == null) App.idb.usage().then((n) => { idbBytes = n; }).catch(() => { idbBytes = 0; });
+
+    return `<div class="page-inner" style="max-width:900px">
+      <div class="page-head">
+        <div><h1>Settings</h1><div class="sub">Account, preferences, and your data</div></div>
+      </div>
+      <div class="tabs mb-16">
+        ${TABS.map((t) => `<button class="tab ${tab === t.id ? "active" : ""}" data-tab="${t.id}">${t.label}</button>`).join("")}
+      </div>
+      ${tab === "account" ? accountTab()
+        : tab === "prefs" ? prefsTab()
+        : tab === "schedule" ? scheduleTab()
+        : tab === "data" ? dataTab()
+        : aboutTab()}
+    </div>`;
+  }
+
+  /* ---------------------------------------------------------------- forms */
+
   function importDialog() {
     UI.modal({
-      title: "Import a backup",
+      title: "Import a Scholar backup",
       okLabel: "Import",
       body: `<div class="field">
-          <label>Choose a Scholar JSON backup</label>
-          <input class="input" type="file" name="file" id="impFile" accept="application/json,.json" />
+          <label>Choose a backup file</label>
+          <input class="input" type="file" id="impFile" accept="application/json,.json" />
         </div>
-        <div class="field mt-12">
-          <label>…or paste the JSON directly</label>
-          <textarea class="textarea" id="impText" rows="6" placeholder='{ "schema": 1, … }'></textarea>
-        </div>
-        <p class="hint mt-8" style="color:var(--danger)">
-          ⚠ Importing replaces everything currently in the app.
-        </p>`,
+        <div class="field mt-12"><label>…or paste the JSON</label>
+          <textarea class="textarea" id="impText" rows="5" placeholder='{ "schema": 2, … }'></textarea></div>
+        <p class="hint mt-8" style="color:var(--danger)">⚠ This replaces everything currently in the app.</p>`,
       onSubmit(_d, root) {
         const file = root.querySelector("#impFile").files[0];
         const text = root.querySelector("#impText").value.trim();
-
         const apply = (raw) => {
           try {
             S.importJSON(raw);
             UI.toast("Backup imported", "All data replaced.", "ok");
             App.router.go("dashboard");
-          } catch (err) {
-            UI.toast("Import failed", err.message, "danger");
-          }
+          } catch (err) { UI.toast("Import failed", err.message, "danger"); }
         };
-
         if (file) {
           const fr = new FileReader();
           fr.onload = () => apply(String(fr.result));
@@ -67,133 +552,254 @@ App.views.settings = (function () {
     });
   }
 
-  function render() {
-    const p = S.profile;
-    const st = S.settings;
-
-    return `<div class="page-inner" style="max-width:860px">
-      <div class="page-head">
-        <div>
-          <h1>Settings</h1>
-          <div class="sub">Profile, preferences, and your data</div>
+  /** ICS / CSV import from Canvas, Google Classroom, Infinite Campus, etc. */
+  function schoolImportDialog() {
+    UI.modal({
+      title: "Import from your school",
+      sub: "Canvas, Google Classroom, Infinite Campus, PowerSchool — anything that exports .ics or .csv",
+      size: "wide",
+      okLabel: "Choose file",
+      footer: `<button type="button" class="btn" data-close>Cancel</button>`,
+      body: `<div class="field">
+          <label>Calendar (.ics) or gradebook (.csv) file</label>
+          <input class="input" type="file" id="schoolFile" accept=".ics,.csv,text/calendar,text/csv" />
         </div>
-      </div>
-
-      <div class="card mb-16">
-        <div class="card-head"><h3>Profile</h3></div>
-        <div class="card-body">
-          <div class="row gap-16 mb-16">
-            ${UI.avatar(p.name, p.color, "xl")}
-            <div>
-              <div class="bold">${U.esc(p.name)}</div>
-              <div class="small muted">${U.esc(p.grade)} · ${U.esc(p.school)}</div>
-            </div>
-          </div>
-          <div class="form-grid">
-            <div class="field"><label>Your name</label>
-              <input class="input" data-p="name" value="${U.esc(p.name)}" /></div>
-            <div class="field"><label>Email</label>
-              <input class="input" type="email" data-p="email" value="${U.esc(p.email || "")}" /></div>
-            <div class="field"><label>School</label>
-              <input class="input" data-p="school" value="${U.esc(p.school || "")}" /></div>
-            <div class="field"><label>Grade level</label>
-              <input class="input" data-p="grade" value="${U.esc(p.grade || "")}" /></div>
-            <div class="field"><label>Guardian name</label>
-              <input class="input" data-p="parentName" value="${U.esc(p.parentName || "")}" /></div>
-            <div class="field"><label>Guardian email</label>
-              <input class="input" type="email" data-p="parentEmail" value="${U.esc(p.parentEmail || "")}" /></div>
-          </div>
-          <button class="btn btn-primary mt-16" data-save-profile>Save profile</button>
+        <div class="divider"></div>
+        <div class="small muted">
+          <div class="bold" style="color:var(--text)">Where to find your export</div>
+          <ul class="md-list mt-8" style="padding-left:18px">
+            <li><strong>Canvas</strong> — Calendar → “Calendar Feed” link at the bottom right</li>
+            <li><strong>Google Classroom</strong> — the class calendar in Google Calendar → Settings → Export</li>
+            <li><strong>Infinite Campus / PowerSchool</strong> — Grades → export or print to CSV</li>
+          </ul>
         </div>
-      </div>
-
-      <div class="card mb-16">
-        <div class="card-head"><h3>Preferences</h3></div>
-        <div class="card-body" style="padding-top:4px">
-          ${[
-            ["theme", "Dark mode", "Switch between the light and dark palette", st.theme === "dark"],
-            ["weekStartsMonday", "Week starts on Monday", "Affects the calendar and weekly totals", st.weekStartsMonday],
-            ["gpaWeighted", "Weighted GPA", "AP and Honors classes get a +1.0 bump, capped at 5.0", st.gpaWeighted]
-          ].map(([key, title, desc, on]) => `
-            <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
-              <div style="min-width:0;padding-right:12px">
-                <div class="bold small">${title}</div>
-                <div class="tiny dim">${desc}</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" data-pref="${key}" ${on ? "checked" : ""} />
-                <span class="track"></span>
-              </label>
-            </div>`).join("")}
-
-          <div class="between" style="padding:12px 0">
-            <div>
-              <div class="bold small">"Due soon" window</div>
-              <div class="tiny dim">How many days ahead counts as due soon</div>
-            </div>
-            <select class="select input-sm" data-pref-num="dueSoonDays" style="width:110px">
-              ${[1, 2, 3, 5, 7, 14].map((n) => `<option value="${n}" ${n === st.dueSoonDays ? "selected" : ""}>${n} days</option>`).join("")}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="card mb-16">
-        <div class="card-head">
-          <div><h3>Your data</h3><div class="sub">Stored in this browser only · ${dataSize()}</div></div>
-        </div>
-        <div class="card-body">
-          <div class="grid g-4 mb-16">
-            ${counts().map(([label, n]) => `
-              <div class="center" style="padding:10px;background:var(--surface-2);border-radius:var(--radius-sm)">
-                <div class="bold" style="font-size:1.3rem">${n}</div>
-                <div class="tiny dim">${label}</div>
-              </div>`).join("")}
-          </div>
-          <div class="row gap-8 wrap">
-            <button class="btn" data-export>⬇ Export backup</button>
-            <button class="btn" data-import>⬆ Import backup</button>
-            <button class="btn" data-print>🖨 Print view</button>
-            <span class="grow"></span>
-            <button class="btn" data-reseed>↺ Restore demo data</button>
-            <button class="btn btn-danger" data-wipe>🗑 Clear everything</button>
-          </div>
-          <p class="hint mt-12">
-            Everything lives in this browser's local storage — clearing your browser data will erase it.
-            Export a backup before switching devices.
-          </p>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h3>Keyboard shortcuts</h3></div>
-        <div class="card-body">
-          <div class="grid g-2">
-            ${[
-              ["⌘K / Ctrl+K", "Open the command palette"],
-              ["G then D", "Go to dashboard"],
-              ["G then H", "Go to homework"],
-              ["G then C", "Go to calendar"],
-              ["N", "New assignment"],
-              ["T", "Toggle dark mode"],
-              ["Space", "Flip a flashcard (in study mode)"],
-              ["Esc", "Close a dialog"]
-            ].map(([k, d]) => `
-              <div class="between" style="padding:7px 0">
-                <span class="small muted">${d}</span>
-                <span class="kbd">${k}</span>
-              </div>`).join("")}
-          </div>
-        </div>
-      </div>
-
-      <p class="center tiny dim mt-24">
-        Scholar · a school tracker built with plain HTML, CSS, and JavaScript — no frameworks, no backend.
-      </p>
-    </div>`;
+        <div id="importPreview" class="mt-16"></div>`,
+      onMount(root) {
+        root.querySelector("#schoolFile").addEventListener("change", (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const fr = new FileReader();
+          fr.onload = () => {
+            const text = String(fr.result);
+            const isCsv = /\.csv$/i.test(file.name) || (!/BEGIN:VCALENDAR/i.test(text) && text.includes(","));
+            let rows;
+            try {
+              rows = isCsv ? App.ics.previewCSV(text) : App.ics.preview(text);
+            } catch (err) {
+              UI.toast("Couldn't read that file", err.message, "danger");
+              return;
+            }
+            if (!rows.length) {
+              root.querySelector("#importPreview").innerHTML =
+                `<p class="small" style="color:var(--warn)">Nothing recognizable found in that file.</p>`;
+              return;
+            }
+            renderImportPreview(root, rows, isCsv);
+          };
+          fr.readAsText(file);
+        });
+      }
+    });
   }
 
+  function renderImportPreview(root, rows, isCsv) {
+    const box = root.querySelector("#importPreview");
+    box.innerHTML = `
+      <div class="between mb-8">
+        <h4>${U.plural(rows.length, "item")} found</h4>
+        <button type="button" class="btn btn-sm" id="toggleAll">Toggle all</button>
+      </div>
+      <div class="table-wrap" style="max-height:300px;overflow-y:auto">
+        <table class="table"><thead><tr>
+          <th style="width:30px"></th><th>Item</th><th>Class</th><th>Date</th><th>Type</th>
+        </tr></thead><tbody>
+          ${rows.map((r, i) => `<tr>
+            <td><input type="checkbox" class="check" data-row="${i}" checked /></td>
+            <td class="small">${U.esc(r.title)}</td>
+            <td class="small muted">
+              <select class="select input-sm" data-row-class="${i}" style="min-width:130px">
+                <option value="">—</option>${UI.classOptions(r.classId)}
+              </select>
+            </td>
+            <td class="small nowrap">${U.esc(U.fmtDate(r.date))}</td>
+            <td><span class="badge">${U.esc(r.kind)}</span></td>
+          </tr>`).join("")}
+        </tbody></table>
+      </div>
+      <button type="button" class="btn btn-primary mt-12" id="doImport">Import selected</button>`;
+
+    box.querySelector("#toggleAll").addEventListener("click", () => {
+      const boxes = U.$$("[data-row]", box);
+      const anyOff = boxes.some((b) => !b.checked);
+      boxes.forEach((b) => { b.checked = anyOff; });
+    });
+
+    box.querySelector("#doImport").addEventListener("click", () => {
+      U.$$("[data-row]", box).forEach((cb) => {
+        const i = Number(cb.dataset.row);
+        rows[i].include = cb.checked;
+        const sel = box.querySelector(`[data-row-class="${i}"]`);
+        if (sel) rows[i].classId = sel.value || null;
+      });
+      const res = isCsv ? App.ics.applyCSV(rows) : App.ics.apply(rows);
+      UI.closeModal();
+      UI.toast("Import complete",
+        `${res.added} added${res.skipped ? ` · ${res.skipped} skipped as duplicates` : ""}`, "ok");
+    });
+  }
+
+  function termForm() {
+    UI.modal({
+      title: "Add a term",
+      okLabel: "Add",
+      body: `<div class="form-grid">
+        <div class="field full"><label>Name</label>
+          <input class="input" name="name" required placeholder="Spring Semester" /></div>
+        <div class="field"><label>Starts</label>
+          <input class="input" type="date" name="start" value="${U.today()}" /></div>
+        <div class="field"><label>Ends</label>
+          <input class="input" type="date" name="end" value="${U.dateKey(U.addDays(new Date(), 120))}" /></div>
+        <div class="field"><label>Final GPA <span class="hint">past terms only</span></label>
+          <input class="input" type="number" name="gpa" step="0.01" min="0" max="5" placeholder="—" /></div>
+        <div class="field"><label>Credits</label>
+          <input class="input" type="number" name="credits" step="0.5" min="0" placeholder="6" /></div>
+      </div>`,
+      onSubmit(d) {
+        if (!d.name.trim()) return false;
+        S.insert("terms", {
+          name: d.name.trim(), start: d.start, end: d.end, current: false,
+          gpa: d.gpa === "" || d.gpa == null ? null : Number(d.gpa),
+          credits: d.credits === "" || d.credits == null ? null : Number(d.credits)
+        });
+        UI.toast("Term added", d.name);
+      }
+    });
+  }
+
+  function templateForm() {
+    const classes = S.termClasses();
+    if (!classes.length) { UI.toast("Add a class first"); return; }
+    UI.modal({
+      title: "Recurring assignment",
+      sub: "Scholar creates each occurrence automatically",
+      size: "wide",
+      okLabel: "Create",
+      body: `<div class="form-grid">
+        <div class="field full"><label>Title</label>
+          <input class="input" name="title" required placeholder="Weekly problem set" /></div>
+        <div class="field"><label>Class</label>
+          <select class="select" name="classId">${UI.classOptions(classes[0].id)}</select></div>
+        <div class="field"><label>Type</label>
+          <select class="select" name="type">
+            ${["Homework", "Reading", "Quiz", "Lab", "Essay"].map((t) => `<option>${t}</option>`).join("")}
+          </select></div>
+        <div class="field"><label>Points</label>
+          <input class="input" type="number" name="points" min="0" value="25" /></div>
+        <div class="field"><label>Est. minutes</label>
+          <input class="input" type="number" name="estMinutes" min="5" step="5" value="45" /></div>
+        <div class="field"><label>Repeat every</label>
+          <select class="select" name="interval">
+            <option value="1">Week</option><option value="2">2 weeks</option><option value="4">4 weeks</option>
+          </select></div>
+        <div class="field"><label>Until</label>
+          <input class="input" type="date" name="until" value="${(S.currentTerm() || {}).end || U.dateKey(U.addDays(new Date(), 90))}" /></div>
+        <div class="field full"><label>On which days</label>
+          ${UI.dayPicker("days", ["Fri"])}</div>
+      </div>`,
+      onMount(root) { UI.bindDays(root); },
+      onSubmit(d) {
+        if (!d.title.trim()) return false;
+        const cls = S.cls(d.classId);
+        S.insert("templates", {
+          title: d.title.trim(), classId: d.classId, type: d.type,
+          categoryId: cls && cls.categories[0] ? cls.categories[0].id : null,
+          points: Number(d.points) || 0, estMinutes: Number(d.estMinutes) || 30,
+          priority: "med", freq: "weekly",
+          days: d.days ? d.days.split(",").filter(Boolean) : ["Fri"],
+          interval: Number(d.interval) || 1, until: d.until,
+          createdOn: U.today(), active: true, lastGenerated: null
+        });
+        const n = S.runTemplates(28);
+        UI.toast("Recurring assignment created", `${n} upcoming occurrence${n === 1 ? "" : "s"} added`, "ok");
+      }
+    });
+  }
+
+  function dayExceptionForm(iso) {
+    const sc = S.settings.schedule;
+    UI.modal({
+      title: U.fmtDate(iso, "long"),
+      sub: "Override the cycle for this one day",
+      okLabel: "Save",
+      body: `<div class="field">
+        <label>This day is…</label>
+        <select class="select" name="val">
+          <option value="">Follow the normal cycle</option>
+          <option value="none" ${sc.exceptions[iso] === "none" ? "selected" : ""}>No school (holiday)</option>
+          ${sc.cycle.map((cd) => `<option value="${U.esc(cd)}" ${sc.exceptions[iso] === cd ? "selected" : ""}>Day ${U.esc(cd)}</option>`).join("")}
+        </select>
+      </div>`,
+      onSubmit(d) {
+        S.commit((db) => {
+          if (!d.val) delete db.settings.schedule.exceptions[iso];
+          else db.settings.schedule.exceptions[iso] = d.val;
+        });
+        UI.toast("Day updated", U.fmtDate(iso, "day"));
+      }
+    });
+  }
+
+  /* ---------------------------------------------------------------- mount */
+
   function mount(root) {
+    U.on(root, "click", "[data-tab]", (_e, el) => { tab = el.dataset.tab; App.router.refresh(); });
+
+    /* --- account */
+    U.on(root, "click", "[data-signup]", () => authForm("signup"));
+    U.on(root, "click", "[data-signin]", () => authForm("signin"));
+    U.on(root, "click", "[data-signout]", () => {
+      UI.confirm({
+        title: "Sign out?",
+        message: "Your data stays on this device. Sign back in any time to resume syncing.",
+        okLabel: "Sign out",
+        onConfirm() { App.sync.signOut(); UI.toast("Signed out"); App.router.refresh(); }
+      });
+    });
+    U.on(root, "click", "[data-sync-now]", () => {
+      App.sync.push(false).then(() => { UI.toast("Synced", "", "ok"); App.router.refresh(); });
+    });
+    U.on(root, "change", "[data-autosync]", (_e, el) => {
+      S.commit((db) => { db.account.autoSync = el.checked; });
+    });
+    U.on(root, "click", "[data-mint-code]", () => {
+      App.sync.createLinkCode().then((code) => {
+        const box = root.querySelector("#linkCodeBox");
+        if (box) box.innerHTML = `<div class="card mb-12" style="background:var(--brand-50);border:none">
+          <div class="card-body center">
+            <div class="tiny dim">Give this to your parent — valid for 24 hours, single use</div>
+            <div class="mono" style="font-size:2rem;font-weight:800;letter-spacing:.2em;color:var(--brand-600);margin-top:6px">${U.esc(code)}</div>
+          </div></div>`;
+      }).catch((e) => UI.toast("Couldn't create a code", e.message, "danger"));
+    });
+
+    if (tab === "account" && App.sync.isSignedIn() && App.sync.info().user.role === "student") {
+      App.sync.parents().then((list) => {
+        const box = root.querySelector("#parentList");
+        if (!box) return;
+        box.innerHTML = list.length
+          ? list.map((p) => `<div class="list-item" style="padding:8px 0">
+              ${UI.avatar(p.name, "#64748b", "sm")}
+              <span class="grow"><div class="small bold">${U.esc(p.name)}</div>
+                <div class="tiny dim">Linked ${U.fmtDate(U.dateKey(new Date(p.since)))}</div></span>
+              <button class="btn btn-sm" data-unlink-parent="${p.id}">Remove</button>
+            </div>`).join("")
+          : `<p class="dim small">Nobody is linked to your account.</p>`;
+      }).catch(() => {});
+    }
+    U.on(root, "click", "[data-unlink-parent]", (_e, el) => {
+      App.sync.unlink(el.dataset.unlinkParent).then(() => { UI.toast("Removed"); App.router.refresh(); });
+    });
+
     U.on(root, "click", "[data-save-profile]", () => {
       const patch = {};
       U.$$("[data-p]", root).forEach((el) => { patch[el.dataset.p] = el.value.trim(); });
@@ -201,6 +807,7 @@ App.views.settings = (function () {
       UI.toast("Profile saved", patch.name, "ok");
     });
 
+    /* --- preferences */
     U.on(root, "change", "[data-pref]", (_e, el) => {
       const key = el.dataset.pref;
       if (key === "theme") {
@@ -210,18 +817,146 @@ App.views.settings = (function () {
         S.commit((db) => { db.settings[key] = el.checked; });
       }
     });
-
     U.on(root, "change", "[data-pref-num]", (_e, el) => {
       S.commit((db) => { db.settings[el.dataset.prefNum] = Number(el.value); });
     });
 
+    U.on(root, "change", "[data-notif]", (_e, el) => {
+      const key = el.dataset.notif;
+      if (key === "enabled") {
+        if (el.checked) {
+          App.notify.enable().then((okd) => {
+            if (!okd) UI.toast("Permission needed", "Your browser blocked notifications.", "warn");
+            App.router.refresh();
+          });
+        } else { App.notify.disable(); App.router.refresh(); }
+        return;
+      }
+      S.commit((db) => { db.settings.notifications[key] = el.checked; });
+    });
+    U.on(root, "change", "[data-notif-num]", (_e, el) => {
+      S.commit((db) => { db.settings.notifications[el.dataset.notifNum] = Number(el.value); });
+    });
+    U.on(root, "change", "[data-notif-time]", (_e, el) => {
+      S.commit((db) => { db.settings.notifications[el.dataset.notifTime] = el.value; });
+    });
+    U.on(root, "click", "[data-test-notif]", () => {
+      if (!App.notify.test()) UI.toast("Enable reminders first", "Turn the toggle on to allow notifications.", "warn");
+    });
+
+    U.on(root, "click", "[data-install]", () => {
+      if (installEvent) {
+        installEvent.prompt();
+        installEvent.userChoice.then((res) => {
+          UI.toast(res.outcome === "accepted" ? "Installing…" : "Install dismissed", "", res.outcome === "accepted" ? "ok" : "");
+          installEvent = null;
+        });
+      } else if (window.matchMedia("(display-mode: standalone)").matches) {
+        UI.toast("Already installed", "You're running the installed app.", "ok");
+      } else {
+        UI.toast("Use your browser's install option",
+          "Chrome: the install icon in the address bar. iOS Safari: Share → Add to Home Screen.");
+      }
+    });
+    U.on(root, "click", "[data-update-sw]", () => {
+      if (!navigator.serviceWorker) { UI.toast("Not supported here"); return; }
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (!reg) { UI.toast("Not installed yet"); return; }
+        reg.update().then(() => UI.toast("Checked for updates", "Reload to apply anything new.", "ok"));
+      });
+    });
+
+    /* --- schedule & terms */
+    U.on(root, "click", "[data-sched-mode]", (_e, el) => {
+      S.commit((db) => { db.settings.schedule.mode = el.dataset.schedMode; });
+      UI.toast("Schedule type changed", el.dataset.schedMode === "rotating" ? "Rotating cycle" : "Same every week");
+    });
+    U.on(root, "change", "[data-sched-weekend]", (_e, el) => {
+      S.commit((db) => { db.settings.schedule.skipWeekends = el.checked; });
+    });
+    U.on(root, "click", "[data-save-cycle]", () => {
+      const days = root.querySelector("#cycleDays").value.split(",").map((s) => s.trim()).filter(Boolean);
+      const anchor = root.querySelector("#cycleAnchor").value;
+      if (!days.length) { UI.toast("Add at least one cycle day", "", "warn"); return; }
+      S.commit((db) => {
+        db.settings.schedule.cycle = days;
+        db.settings.schedule.anchor = anchor;
+      });
+      UI.toast("Cycle saved", days.join(" → "));
+    });
+    U.on(root, "click", "[data-day-ex]", (_e, el) => dayExceptionForm(el.dataset.dayEx));
+    U.on(root, "click", "[data-class-pattern]", (_e, el) => {
+      const c = S.cls(el.dataset.classPattern);
+      const cd = el.dataset.cd;
+      if (!c) return;
+      const set = new Set(c.patternDays || []);
+      if (set.has(cd)) set.delete(cd); else set.add(cd);
+      S.update("classes", c.id, { patternDays: [...set] });
+    });
+
+    U.on(root, "click", "[data-add-term]", termForm);
+    U.on(root, "click", "[data-archive]", (_e, el) => {
+      const t = S.byId("terms", el.dataset.archive);
+      const gpa = S.gpa(null, t.id);
+      const credits = U.sum(S.termClasses(t.id), (c) => c.credits || 1);
+      UI.confirm({
+        title: "Archive this term?",
+        message: `"${t.name}" will be frozen at GPA ${U.round(gpa, 2)} (${credits} credits) and counted in your cumulative GPA. Create a new term for your next classes.`,
+        okLabel: "Archive",
+        onConfirm() {
+          S.commit((db) => {
+            const term = db.terms.find((x) => x.id === t.id);
+            term.current = false; term.gpa = U.round(gpa, 2); term.credits = credits;
+          });
+          UI.toast("Term archived", t.name, "ok");
+        }
+      });
+    });
+    U.on(root, "click", "[data-make-current]", (_e, el) => {
+      S.commit((db) => { db.terms.forEach((t) => { t.current = t.id === el.dataset.makeCurrent; }); });
+      UI.toast("Current term changed");
+    });
+    U.on(root, "click", "[data-del-term]", (_e, el) => {
+      const t = S.byId("terms", el.dataset.delTerm);
+      UI.deleteWithUndo("terms", t.id, t.name);
+    });
+
+    /* --- data */
     U.on(root, "click", "[data-export]", () => {
       U.download(`scholar-backup-${U.today()}.json`, S.exportJSON());
       UI.toast("Backup downloaded", "Keep it somewhere safe.", "ok");
     });
-
     U.on(root, "click", "[data-import]", importDialog);
+    U.on(root, "click", "[data-import-school]", schoolImportDialog);
+    U.on(root, "click", "[data-export-ics]", () => {
+      App.ics.download();
+      UI.toast("Calendar exported", "Open the .ics to import it.", "ok");
+    });
     U.on(root, "click", "[data-print]", () => window.print());
+
+    U.on(root, "click", "[data-restore]", (_e, el) => {
+      S.restore(el.dataset.restore);
+      UI.toast("Restored", "", "ok");
+    });
+    U.on(root, "click", "[data-empty-trash]", () => {
+      UI.confirm({
+        title: "Empty the trash?",
+        message: `${U.plural(S.db.trash.length, "item")} will be permanently deleted.`,
+        okLabel: "Empty trash", danger: true,
+        onConfirm() { S.purgeTrash(); UI.toast("Trash emptied"); }
+      });
+    });
+
+    U.on(root, "click", "[data-add-template]", templateForm);
+    U.on(root, "click", "[data-toggle-template]", (_e, el) => {
+      const t = S.byId("templates", el.dataset.toggleTemplate);
+      S.update("templates", t.id, { active: t.active === false });
+      if (t.active !== false) S.runTemplates(28);
+    });
+    U.on(root, "click", "[data-del-template]", (_e, el) => {
+      const t = S.byId("templates", el.dataset.delTemplate);
+      UI.deleteWithUndo("templates", t.id, t.title);
+    });
 
     U.on(root, "click", "[data-reseed]", () => {
       UI.confirm({
@@ -231,11 +966,10 @@ App.views.settings = (function () {
         onConfirm() { S.reset(); UI.toast("Demo data restored"); App.router.go("dashboard"); }
       });
     });
-
     U.on(root, "click", "[data-wipe]", () => {
       UI.confirm({
         title: "Clear everything?",
-        message: "All assignments, notes, grades, and logs will be deleted. Your classes and bell schedule are kept so you can start fresh. This can't be undone.",
+        message: "All assignments, notes, grades, and logs will be deleted. Your classes and bell schedule are kept. This can't be undone.",
         okLabel: "Clear it all", danger: true,
         onConfirm() { S.wipe(); UI.toast("Data cleared", "Starting fresh.", "warn"); App.router.go("dashboard"); }
       });

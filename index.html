@@ -8,6 +8,13 @@
 <title>Scholar — School Tracker</title>
 
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%234f46e5'/><text y='72' x='50' font-size='62' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>S</text></svg>" />
+<link rel="apple-touch-icon" href="assets/icon-192.png" />
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#4f46e5" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0c0f17" media="(prefers-color-scheme: dark)" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Scholar" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 
 <link rel="stylesheet" href="css/theme.css" />
 <link rel="stylesheet" href="css/layout.css" />
@@ -46,6 +53,7 @@
       </button>
 
       <div class="topbar-right">
+        <button class="icon-btn" id="syncBtn" data-tip="Sync status" aria-label="Sync status">○</button>
         <button class="icon-btn" id="addBtn" data-tip="New assignment" aria-label="New assignment">+</button>
         <button class="icon-btn" id="themeBtn" data-tip="Toggle theme" aria-label="Toggle dark mode">☾</button>
       </div>
@@ -72,21 +80,36 @@
 <script src="js/ui.js"></script>
 <script src="js/charts.js"></script>
 
+<!-- libraries -->
+<script src="js/md.js"></script>
+<script src="js/nlp.js"></script>
+<script src="js/ics.js"></script>
+<script src="js/idb.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/planner.js"></script>
+
 <!-- views -->
 <script src="js/views/dashboard.js"></script>
 <script src="js/views/calendar.js"></script>
 <script src="js/views/schedule.js"></script>
+<script src="js/views/planner.js"></script>
 <script src="js/views/homework.js"></script>
 <script src="js/views/classes.js"></script>
 <script src="js/views/grades.js"></script>
 <script src="js/views/focus.js"></script>
 <script src="js/views/flashcards.js"></script>
 <script src="js/views/notes.js"></script>
+<script src="js/views/reading.js"></script>
 <script src="js/views/activities.js"></script>
 <script src="js/views/goals.js"></script>
+<script src="js/views/college.js"></script>
 <script src="js/views/contacts.js"></script>
 <script src="js/views/analytics.js"></script>
 <script src="js/views/sharing.js"></script>
+<script src="js/views/groups.js"></script>
+<script src="js/views/parent.js"></script>
 <script src="js/views/settings.js"></script>
 
 <!-- boot -->

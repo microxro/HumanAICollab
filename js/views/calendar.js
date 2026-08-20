@@ -5,8 +5,8 @@
 App.views.calendar = (function () {
   const U = App.utils, S = App.store, UI = App.ui;
 
-  let cursor = new Date();          // any date inside the displayed month
-  let mode = "month";               // month | agenda
+  let cursor = new Date();          // any date inside the displayed month/week
+  let mode = "month";               // month | week | agenda
 
   const TYPES = ["Exam", "Deadline", "Class", "Game", "Competition", "Meeting", "School", "Holiday", "Personal"];
 
@@ -169,6 +169,165 @@ App.views.calendar = (function () {
     </div>`;
   }
 
+  /* -------------------------------------------------------------- week -- */
+
+  /**
+   * Assign each timed item a column so overlapping events sit side by side
+   * instead of hiding one another. Items are grouped into clusters of mutually
+   * overlapping events; every item in a cluster shares the same column count,
+   * which keeps their widths aligned.
+   */
+  function layoutOverlaps(items) {
+    const sorted = U.sortBy(items, (i) => U.toMin(i.start));
+    const out = [];
+    let cluster = [];
+    let clusterEnd = -1;
+
+    const flush = () => {
+      if (!cluster.length) return;
+      // Greedy column packing within the cluster.
+      const columns = [];
+      cluster.forEach((it) => {
+        const s = U.toMin(it.start), e = U.toMin(it.end);
+        let placed = false;
+        for (let c = 0; c < columns.length; c++) {
+          if (columns[c] <= s) { columns[c] = e; it._col = c; placed = true; break; }
+        }
+        if (!placed) { it._col = columns.length; columns.push(e); }
+      });
+      const cols = Math.max(1, columns.length);
+      cluster.forEach((it) => out.push({ it, col: it._col, cols }));
+      cluster = [];
+      clusterEnd = -1;
+    };
+
+    sorted.forEach((it) => {
+      const s = U.toMin(it.start), e = U.toMin(it.end);
+      if (cluster.length && s >= clusterEnd) flush();
+      cluster.push(it);
+      clusterEnd = Math.max(clusterEnd, e);
+    });
+    flush();
+    return out;
+  }
+
+  /**
+   * Time-grid week view. Classes, activities, and events are positioned by
+   * clock time; scheduled study sessions from the planner appear as hatched
+   * blocks you can drag onto a different day.
+   */
+  function weekGrid() {
+    const startsMon = S.settings.weekStartsMonday;
+    const weekStart = U.startOfWeek(cursor, startsMon);
+    const days = Array.from({ length: 7 }, (_, i) => U.dateKey(U.addDays(weekStart, i)));
+    const today = U.today();
+
+    // Bound the grid to whatever actually happens that week.
+    let minMin = 8 * 60, maxMin = 18 * 60;
+    days.forEach((iso) => {
+      S.scheduleFor(iso).forEach((it) => {
+        if (!it.start) return;
+        minMin = Math.min(minMin, U.toMin(it.start));
+        maxMin = Math.max(maxMin, U.toMin(it.end || it.start) + 30);
+      });
+      S.db.assignments.filter((a) => a.scheduledFor === iso && a.scheduledMin != null).forEach((a) => {
+        minMin = Math.min(minMin, a.scheduledMin);
+        maxMin = Math.max(maxMin, a.scheduledMin + (a.estMinutes || 30));
+      });
+    });
+    minMin = Math.floor(minMin / 60) * 60;
+    maxMin = Math.ceil(maxMin / 60) * 60;
+    const span = Math.max(60, maxMin - minMin);
+    const PX_PER_MIN = 0.85;
+    const height = span * PX_PER_MIN;
+
+    const hours = [];
+    for (let m = minMin; m <= maxMin; m += 60) hours.push(m);
+
+    const nowMin = U.nowMin();
+    const showNow = days.includes(today) && nowMin >= minMin && nowMin <= maxMin;
+
+    return `<div class="week-wrap">
+      <div class="week-grid" style="--wk-h:${height}px">
+        <div class="week-corner"></div>
+        ${days.map((iso) => {
+          const d = U.parseDate(iso);
+          const cd = S.cycleDayFor(iso);
+          return `<div class="week-head ${iso === today ? "is-today" : ""}" data-day="${iso}">
+            <div class="tiny dim">${U.DOW_SHORT[d.getDay()]}</div>
+            <div class="week-num">${d.getDate()}</div>
+            ${cd ? `<span class="badge brand" style="font-size:.6rem">Day ${cd}</span>` : ""}
+          </div>`;
+        }).join("")}
+
+        <div class="week-gutter">
+          ${hours.map((m) => `<div class="week-hour" style="top:${(m - minMin) * PX_PER_MIN}px">
+            ${U.fmtTime(U.fromMin(m))}</div>`).join("")}
+        </div>
+
+        ${days.map((iso) => {
+          const items = S.scheduleFor(iso).filter((it) => it.start && it.end);
+          const planned = S.db.assignments.filter((a) => a.scheduledFor === iso && a.scheduledMin != null);
+          const allDay = S.db.events.filter((e) => e.date === iso && !e.start);
+          const dueItems = S.db.assignments.filter((a) => a.due === iso);
+
+          return `<div class="week-col ${iso === today ? "is-today" : ""}" data-drop-day="${iso}">
+            ${hours.map((m) => `<div class="week-line" style="top:${(m - minMin) * PX_PER_MIN}px"></div>`).join("")}
+
+            ${showNow && iso === today
+              ? `<div class="week-now" style="top:${(nowMin - minMin) * PX_PER_MIN}px"></div>` : ""}
+
+            ${layoutOverlaps(items).map(({ it, col, cols }) => {
+              const top = (U.toMin(it.start) - minMin) * PX_PER_MIN;
+              const h = Math.max(18, (U.toMin(it.end) - U.toMin(it.start)) * PX_PER_MIN);
+              const fg = U.contrastText(it.color);
+              // Side-by-side when two things genuinely clash, so neither hides.
+              const width = `calc((100% - 6px) / ${cols})`;
+              const left = `calc(3px + (100% - 6px) * ${col} / ${cols})`;
+              return `<div class="week-ev" style="top:${top}px;height:${h}px;left:${left};width:${width};right:auto;
+                           background:${U.esc(it.color)};color:${fg}"
+                           title="${U.esc(it.title)} · ${U.fmtTime(it.start)}–${U.fmtTime(it.end)}"
+                           ${it.kind === "event" ? `data-ev="${it.id}"` : it.kind === "class" ? `data-class="${it.id}"` : ""}>
+                <div class="truncate bold">${U.esc(it.title)}</div>
+                ${h > 34 && cols === 1 ? `<div class="truncate" style="opacity:.85;font-size:.62rem">${U.fmtTime(it.start)} · ${U.esc(it.location || "")}</div>` : ""}
+              </div>`;
+            }).join("")}
+
+            ${planned.map((a) => {
+              const top = (a.scheduledMin - minMin) * PX_PER_MIN;
+              const h = Math.max(16, (a.estMinutes || 30) * PX_PER_MIN);
+              const color = S.classColor(a.classId);
+              return `<div class="week-plan" draggable="true" data-plan="${a.id}"
+                           style="top:${top}px;height:${h}px;border-color:${U.esc(color)};color:${U.esc(color)}"
+                           title="Study: ${U.esc(a.title)}">
+                <div class="truncate">📚 ${U.esc(a.title)}</div>
+              </div>`;
+            }).join("")}
+          </div>`;
+        }).join("")}
+      </div>
+
+      <div class="week-allday">
+        <div class="tiny dim" style="padding:6px 8px">Due / all-day</div>
+        ${days.map((iso) => {
+          const due = S.db.assignments.filter((a) => a.due === iso);
+          const allDay = S.db.events.filter((e) => e.date === iso && !e.start);
+          return `<div class="week-allday-col" data-day="${iso}">
+            ${allDay.map((e) => `<span class="cal-pill" style="background:#64748b">${U.esc(e.title)}</span>`).join("")}
+            ${due.map((a) => `<span class="cal-pill" data-open-hw="${a.id}"
+                style="background:${U.esc(S.classColor(a.classId))};${a.status === "done" ? "opacity:.45;text-decoration:line-through" : ""}"
+                title="${U.esc(a.title)}">📌 ${U.esc(a.title)}</span>`).join("")}
+          </div>`;
+        }).join("")}
+      </div>
+
+      <p class="tiny dim mt-8">
+        Dashed blocks are planned study sessions — drag one to a different day to move it.
+        Set them up in the <a href="#planner" data-go="planner">Planner</a>.
+      </p>
+    </div>`;
+  }
+
   function agenda() {
     const out = [];
     for (let i = 0; i < 21; i++) {
@@ -199,7 +358,12 @@ App.views.calendar = (function () {
   /* ------------------------------------------------------------ render -- */
 
   function render() {
-    const label = `${U.MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`;
+    const monthLabel = `${U.MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`;
+    const weekStart = U.startOfWeek(cursor, S.settings.weekStartsMonday);
+    const weekEnd = U.addDays(weekStart, 6);
+    const weekLabel = `${U.fmtDate(U.dateKey(weekStart))} – ${U.fmtDate(U.dateKey(weekEnd))}`;
+    const label = mode === "week" ? weekLabel : monthLabel;
+
     const monthEvents = S.db.events.filter((e) => {
       const d = U.parseDate(e.date);
       return d.getMonth() === cursor.getMonth() && d.getFullYear() === cursor.getFullYear();
@@ -209,31 +373,33 @@ App.views.calendar = (function () {
       <div class="page-head">
         <div>
           <h1>Calendar</h1>
-          <div class="sub">${U.plural(monthEvents, "event")} in ${label} ·
-            classes, deadlines, and activities in one place</div>
+          <div class="sub">${U.plural(monthEvents, "event")} in ${monthLabel} ·
+            classes, deadlines, activities, and study blocks in one place</div>
         </div>
         <div class="page-actions">
           <div class="segmented">
             <button class="${mode === "month" ? "active" : ""}" data-mode="month">Month</button>
+            <button class="${mode === "week" ? "active" : ""}" data-mode="week">Week</button>
             <button class="${mode === "agenda" ? "active" : ""}" data-mode="agenda">Agenda</button>
           </div>
+          <button class="btn" data-export-ics>⬇ Export .ics</button>
           <button class="btn btn-primary" data-new>+ New event</button>
         </div>
       </div>
 
-      ${mode === "month" ? `
+      ${mode === "agenda" ? `<div class="card"><div class="card-body">${agenda()}</div></div>` : `
         <div class="between mb-12">
           <div class="row gap-6">
-            <button class="icon-btn" data-nav="-1" aria-label="Previous month">‹</button>
+            <button class="icon-btn" data-nav="-1" aria-label="Previous">‹</button>
             <button class="btn btn-sm" data-nav="0">Today</button>
-            <button class="icon-btn" data-nav="1" aria-label="Next month">›</button>
+            <button class="icon-btn" data-nav="1" aria-label="Next">›</button>
           </div>
           <h2>${U.esc(label)}</h2>
           <span style="width:120px"></span>
         </div>
-        ${monthGrid()}
-        <p class="tiny dim mt-12">Assignment due dates appear automatically — add or edit them from the Homework tab.</p>
-      ` : `<div class="card"><div class="card-body">${agenda()}</div></div>`}
+        ${mode === "week" ? weekGrid() : monthGrid()}
+        ${mode === "month" ? `<p class="tiny dim mt-12">Assignment due dates appear automatically — add or edit them from the Homework tab.</p>` : ""}
+      `}
     </div>`;
   }
 
@@ -242,14 +408,75 @@ App.views.calendar = (function () {
     U.on(root, "click", "[data-nav]", (_e, el) => {
       const n = Number(el.dataset.nav);
       if (n === 0) cursor = new Date();
+      else if (mode === "week") cursor = U.addDays(cursor, n * 7);
       else cursor = new Date(cursor.getFullYear(), cursor.getMonth() + n, 1);
       App.router.refresh();
     });
     U.on(root, "click", "[data-new]", () => eventForm(null));
+    U.on(root, "click", "[data-export-ics]", exportDialog);
     U.on(root, "click", "[data-day]", (_e, el) => dayDetail(el.dataset.day));
-    U.on(root, "click", "[data-ev]", (_e, el) => {
+    U.on(root, "click", "[data-ev]", (e, el) => {
+      e.stopPropagation();
       const ev = S.byId("events", el.dataset.ev);
       if (ev) eventForm(ev);
+    });
+    U.on(root, "click", "[data-class]", (e, el) => {
+      e.stopPropagation();
+      App.views.classes.detail(el.dataset.class);
+    });
+
+    // Drag a planned study block to another day in the week view.
+    let dragging = null;
+    U.on(root, "dragstart", "[data-plan]", (e, el) => {
+      dragging = el.dataset.plan;
+      el.style.opacity = ".4";
+      e.dataTransfer.effectAllowed = "move";
+    });
+    U.on(root, "dragend", "[data-plan]", (_e, el) => { el.style.opacity = ""; });
+    U.on(root, "dragover", "[data-drop-day]", (e, el) => { e.preventDefault(); el.classList.add("drop"); });
+    U.on(root, "dragleave", "[data-drop-day]", (_e, el) => el.classList.remove("drop"));
+    U.on(root, "drop", "[data-drop-day]", (e, el) => {
+      e.preventDefault();
+      el.classList.remove("drop");
+      if (!dragging) return;
+      const a = S.byId("assignments", dragging);
+      const target = el.dataset.dropDay;
+      dragging = null;
+      if (!a) return;
+      if (U.diffDays(target, a.due) > 0) {
+        UI.toast("That's after the deadline", `"${a.title}" is due ${U.relDate(a.due)}.`, "warn");
+        return;
+      }
+      S.update("assignments", a.id, { scheduledFor: target, scheduledAuto: false });
+      UI.toast("Moved", `${a.title} → ${U.fmtDate(target, "day")}`, "ok");
+    });
+  }
+
+  function exportDialog() {
+    UI.modal({
+      title: "Export to your calendar",
+      sub: "Downloads a .ics file you can import into Apple, Google, or Outlook Calendar",
+      okLabel: "Download .ics",
+      body: `<div class="col gap-8">
+        ${[["classes", "Classes", "Weekly recurring, through the end of term"],
+           ["activities", "Practices &amp; clubs", "Weekly recurring"],
+           ["events", "Events", "Tests, games, one-offs"],
+           ["assignments", "Assignment due dates", "As all-day items"]].map(([k, label, desc]) => `
+          <label class="between" style="padding:8px 0;border-bottom:1px solid var(--border)">
+            <span><span class="small bold">${label}</span>
+              <div class="tiny dim">${desc}</div></span>
+            <input type="checkbox" class="check" name="${k}" checked />
+          </label>`).join("")}
+      </div>
+      <p class="hint mt-12">Times are exported in your local timezone
+        (${U.esc(Intl.DateTimeFormat().resolvedOptions().timeZone || "local")}).</p>`,
+      onSubmit(d) {
+        App.ics.download({
+          classes: d.classes, activities: d.activities,
+          events: d.events, assignments: d.assignments
+        });
+        UI.toast("Calendar exported", "Open the .ics file to import it.", "ok");
+      }
     });
   }
 

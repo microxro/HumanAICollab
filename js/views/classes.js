@@ -186,6 +186,83 @@ App.views.classes = (function () {
     });
   }
 
+  /* ----------------------------------------------------------- files --- */
+
+  /**
+   * Syllabus, rubrics, and handouts. Metadata lives in the store (so it
+   * exports and syncs); the bytes live in IndexedDB on this device.
+   */
+  function fileManager(cl) {
+    const files = () => S.db.attachments.filter((a) => a.ownerType === "class" && a.ownerId === cl.id);
+
+    const listHTML = () => {
+      const rows = files();
+      if (!rows.length) return `<p class="dim small">No files yet. Add a syllabus, rubric, or a photo of the board.</p>`;
+      return `<div class="list" style="border:1px solid var(--border);border-radius:var(--radius)">
+        ${rows.map((f) => `<div class="list-item">
+          <span style="font-size:1.1rem">${/^image\//.test(f.type) ? "🖼️" : /pdf/.test(f.type) ? "📄" : "📎"}</span>
+          <span class="grow" style="min-width:0">
+            <div class="title truncate">${U.esc(f.name)}</div>
+            <div class="meta">${App.idb.fmtSize(f.size)} · added ${U.esc(U.fmtDate(f.addedOn))}</div>
+          </span>
+          <button class="btn btn-sm" data-open-file="${f.id}">Open</button>
+          <button class="icon-btn btn-sm" data-del-file="${f.id}" aria-label="Delete">✕</button>
+        </div>`).join("")}
+      </div>`;
+    };
+
+    UI.modal({
+      title: "Files",
+      sub: cl.name,
+      size: "wide",
+      footer: `<button type="button" class="btn btn-primary" data-close>Done</button>`,
+      body: `<div class="field mb-16">
+          <label>Add a file <span class="hint">up to 25 MB, stored on this device</span></label>
+          <input class="input" type="file" id="fileInput" multiple />
+        </div>
+        <div id="fileList">${listHTML()}</div>
+        <p class="hint mt-12">Files stay in this browser — they aren't included in JSON backups or cloud sync.</p>`,
+      onMount(root) {
+        const redraw = () => { root.querySelector("#fileList").innerHTML = listHTML(); };
+
+        root.querySelector("#fileInput").addEventListener("change", (e) => {
+          const chosen = Array.from(e.target.files || []);
+          if (!chosen.length) return;
+          Promise.all(chosen.map((file) => {
+            const id = U.uid("file");
+            return App.idb.put(id, file).then(() => {
+              S.db.attachments.push({
+                id, ownerType: "class", ownerId: cl.id, name: file.name,
+                size: file.size, type: file.type || "application/octet-stream",
+                addedOn: U.today(), storage: "idb"
+              });
+            }).catch((err) => {
+              UI.toast("Couldn't save " + file.name, err.message, "danger");
+            });
+          })).then(() => {
+            S.commit();
+            e.target.value = "";
+            redraw();
+            UI.toast("Files added", U.plural(chosen.length, "file"), "ok");
+          });
+        });
+
+        U.on(root, "click", "[data-open-file]", (_e, el) => {
+          const f = S.byId("attachments", el.dataset.openFile);
+          App.idb.openFile(f.id, f.name).catch((err) => UI.toast("Couldn't open", err.message, "danger"));
+        });
+
+        U.on(root, "click", "[data-del-file]", (_e, el) => {
+          const f = S.byId("attachments", el.dataset.delFile);
+          App.idb.del(f.id).catch(() => {});
+          S.commit((db) => { db.attachments = db.attachments.filter((x) => x.id !== f.id); });
+          redraw();
+          UI.toast("File deleted", f.name, "warn");
+        });
+      }
+    });
+  }
+
   /* ------------------------------------------------------------ detail -- */
 
   function detail(id) {
@@ -204,6 +281,7 @@ App.views.classes = (function () {
       sub: [c.code, p ? p.name : "", "Rm " + c.room].filter(Boolean).join(" · "),
       size: "wide",
       footer: `<button class="btn left btn-danger" data-del>Delete class</button>
+               <button class="btn" data-files>Files</button>
                <button class="btn" data-cats>Categories</button>
                <button class="btn" data-edit>Edit</button>
                <button class="btn btn-primary" data-close>Done</button>`,
@@ -266,6 +344,7 @@ App.views.classes = (function () {
       onMount(root) {
         root.querySelector("[data-edit]").addEventListener("click", () => { UI.closeModal(); classForm(c); });
         root.querySelector("[data-cats]").addEventListener("click", () => { UI.closeModal(); categoryEditor(c); });
+        root.querySelector("[data-files]").addEventListener("click", () => { UI.closeModal(); fileManager(c); });
         root.querySelector("[data-del]").addEventListener("click", () => {
           UI.closeModal();
           UI.confirm({

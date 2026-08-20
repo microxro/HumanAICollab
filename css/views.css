@@ -454,3 +454,188 @@
   .page { overflow: visible; padding: 0; }
   .card { box-shadow: none; break-inside: avoid; }
 }
+
+/* ==========================================================================
+   Week view (calendar time grid)
+   ========================================================================== */
+
+.week-wrap { overflow-x: auto; }
+
+.week-grid {
+  display: grid;
+  grid-template-columns: 62px repeat(7, minmax(94px, 1fr));
+  grid-template-rows: auto var(--wk-h, 600px);
+  min-width: 760px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.week-corner { background: var(--surface-2); border-bottom: 1px solid var(--border); }
+
+.week-head {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  padding: 7px 4px;
+  text-align: center;
+  cursor: pointer;
+}
+.week-head:hover { background: var(--surface-3); }
+.week-head .week-num { font-size: 1.05rem; font-weight: 700; line-height: 1.15; }
+.week-head.is-today .week-num { color: var(--brand-600); }
+[data-theme="dark"] .week-head.is-today .week-num { color: var(--brand-300); }
+
+.week-gutter { position: relative; background: var(--surface); }
+.week-hour {
+  position: absolute; right: 6px;
+  transform: translateY(-50%);
+  font-size: .64rem;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.week-col {
+  position: relative;
+  border-left: 1px solid var(--border);
+  transition: background-color .12s var(--ease);
+}
+.week-col.is-today { background: var(--brand-50); }
+[data-theme="dark"] .week-col.is-today { background: rgba(79, 70, 229, .07); }
+.week-col.drop { background: var(--brand-100); }
+
+.week-line {
+  position: absolute; left: 0; right: 0;
+  border-top: 1px solid var(--border);
+  pointer-events: none;
+  opacity: .65;
+}
+
+.week-now {
+  position: absolute; left: 0; right: 0;
+  height: 2px;
+  background: var(--danger);
+  z-index: 5;
+  pointer-events: none;
+}
+.week-now::before {
+  content: "";
+  position: absolute; left: -3px; top: -3px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.week-ev {
+  position: absolute;
+  left: 3px; right: 3px;
+  border-radius: 5px;
+  padding: 3px 5px;
+  font-size: .66rem;
+  line-height: 1.2;
+  overflow: hidden;
+  cursor: pointer;
+  z-index: 2;
+  box-shadow: 0 1px 2px rgba(0,0,0,.12);
+}
+.week-ev:hover { filter: brightness(1.07); z-index: 6; }
+
+.week-plan {
+  position: absolute;
+  left: 3px; right: 3px;
+  border: 1.5px dashed currentColor;
+  border-radius: 5px;
+  padding: 2px 5px;
+  font-size: .64rem;
+  font-weight: 600;
+  background: var(--surface);
+  overflow: hidden;
+  cursor: grab;
+  z-index: 3;
+}
+.week-plan:active { cursor: grabbing; }
+
+.week-allday {
+  display: grid;
+  grid-template-columns: 62px repeat(7, minmax(94px, 1fr));
+  min-width: 760px;
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--surface-2);
+}
+.week-allday-col {
+  border-left: 1px solid var(--border);
+  padding: 5px 4px;
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.week-allday-col .cal-pill { cursor: pointer; }
+
+/* ==========================================================================
+   Markdown rendering
+   ========================================================================== */
+
+.md { line-height: 1.62; font-size: .885rem; }
+.md > *:first-child { margin-top: 0; }
+.md p { margin: 0 0 .7em; }
+.md .md-h { margin: 1.1em 0 .45em; line-height: 1.3; }
+.md h3.md-h { font-size: 1.03rem; }
+.md h4.md-h { font-size: .93rem; }
+.md h5.md-h, .md h6.md-h { font-size: .86rem; color: var(--text-2); }
+
+.md .md-list { margin: 0 0 .7em; padding-left: 1.3em; }
+.md .md-list li { margin-bottom: .22em; }
+.md .md-tasks { list-style: none; padding-left: .2em; }
+.md .md-task { display: flex; gap: 7px; align-items: baseline; }
+.md .md-task.done { color: var(--text-3); text-decoration: line-through; }
+.md .md-box { color: var(--brand-500); flex-shrink: 0; }
+
+.md .md-code {
+  background: var(--surface-3);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: .86em;
+}
+.md .md-pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 13px;
+  overflow-x: auto;
+  margin: 0 0 .8em;
+}
+.md .md-pre code { font-family: var(--mono); font-size: .8rem; line-height: 1.5; }
+
+.md .md-quote {
+  border-left: 3px solid var(--brand-300);
+  background: var(--surface-2);
+  margin: 0 0 .8em;
+  padding: 8px 13px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--text-2);
+}
+.md .md-quote p:last-child { margin-bottom: 0; }
+
+.md .md-hr { border: none; border-top: 1px solid var(--border); margin: 1.2em 0; }
+.md .md-mark { background: var(--warn-bg); color: var(--warn); padding: 0 3px; border-radius: 3px; }
+.md .md-table { margin-bottom: .8em; }
+.md a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ==========================================================================
+   Misc additions
+   ========================================================================== */
+
+.spin { animation: spin 1.1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.toast .t-action { flex-shrink: 0; align-self: center; }
+
+@media (max-width: 640px) {
+  .week-grid, .week-allday { min-width: 640px; }
+}

@@ -51,7 +51,15 @@ App.geo = (function () {
   /* ------------------------------------------------------ subscriptions -- */
 
   function on(fn) { state.listeners.add(fn); return () => state.listeners.delete(fn); }
-  function emit() { state.listeners.forEach((f) => { try { f(status()); } catch (e) { console.error(e); } }); }
+
+  // Iterate a snapshot: listeners commonly re-render, which unsubscribes and
+  // re-subscribes. Set.forEach visits entries added mid-iteration, so a live
+  // Set would recurse forever here.
+  function emit() {
+    const snapshot = [...state.listeners];
+    const st = status();
+    snapshot.forEach((f) => { try { f(st); } catch (e) { console.error(e); } });
+  }
 
   /* -------------------------------------------------------- permissions -- */
 

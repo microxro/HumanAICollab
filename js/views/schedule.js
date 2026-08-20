@@ -13,10 +13,18 @@ App.views.schedule = (function () {
       : ["Mon", "Tue", "Wed", "Thu", "Fri"];
   }
 
+  /**
+   * In weekly mode the grid columns are weekdays. In rotating mode they're
+   * cycle days (Day A, Day B…), which is the only way an A/B schedule reads
+   * correctly — the same weekday is a different set of classes each week.
+   */
   function timetable() {
-    const D = days();
+    const sc = S.settings.schedule;
+    const rotating = sc.mode === "rotating";
+    const D = rotating ? sc.cycle.slice() : days();
     const periods = S.db.periods;
     const todayDow = U.dowName(U.today());
+    const todayCycle = rotating ? S.cycleDayFor(U.today()) : null;
     const now = U.nowMin();
 
     const cols = `70px repeat(${D.length}, minmax(0, 1fr))`;
@@ -24,18 +32,22 @@ App.views.schedule = (function () {
 
     html += `<div></div>`;
     D.forEach((d) => {
-      html += `<div class="tt-head" style="${d === todayDow ? "color:var(--brand-600)" : ""}">${d}</div>`;
+      const isToday = rotating ? d === todayCycle : d === todayDow;
+      html += `<div class="tt-head" style="${isToday ? "color:var(--brand-600)" : ""}">${rotating ? "Day " + U.esc(d) : d}</div>`;
     });
 
     periods.forEach((p) => {
       html += `<div class="tt-time"><span>${U.fmtTime(p.start)}</span><span class="dim">${U.fmtTime(p.end)}</span></div>`;
       D.forEach((d) => {
-        const c = S.db.classes.find((x) => x.periodId === p.id && x.days.includes(d));
+        const c = rotating
+          ? S.termClasses().find((x) => x.periodId === p.id && (x.patternDays || []).includes(d))
+          : S.termClasses().find((x) => x.periodId === p.id && x.days.includes(d));
         if (!c) {
           html += `<div class="tt-cell empty"></div>`;
           return;
         }
-        const isNow = d === todayDow && now >= U.toMin(p.start) && now < U.toMin(p.end);
+        const isToday = rotating ? d === todayCycle : d === todayDow;
+        const isNow = isToday && now >= U.toMin(p.start) && now < U.toMin(p.end);
         const fg = U.contrastText(c.color);
         html += `<div class="tt-cell ${isNow ? "now" : ""}" data-class="${c.id}"
                       style="background:${U.esc(c.color)};color:${fg}">
@@ -44,8 +56,8 @@ App.views.schedule = (function () {
       });
     });
 
-    // After-school row for activities
-    const anyActivity = S.db.activities.length > 0;
+    // After-school row for activities (weekday-based, so skipped in cycle view)
+    const anyActivity = S.db.activities.length > 0 && !rotating;
     if (anyActivity) {
       html += `<div class="tt-time"><span>After</span><span class="dim">school</span></div>`;
       D.forEach((d) => {
@@ -68,11 +80,13 @@ App.views.schedule = (function () {
     const items = S.scheduleFor(iso);
     const isToday = iso === U.today();
     const now = U.nowMin();
+    const cd = S.cycleDayFor(iso);
 
     return `<div class="agenda-day">
       <div class="agenda-date ${isToday ? "is-today" : ""}">
         <span class="dnum">${U.parseDate(iso).getDate()}</span>
         <span>${U.dowName(iso, true)}</span>
+        ${cd ? `<span class="badge brand">Day ${U.esc(cd)}</span>` : ""}
         ${isToday ? `<span class="badge solid">Today</span>` : ""}
       </div>
       ${items.length ? items.map((it) => {

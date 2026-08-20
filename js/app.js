@@ -9,28 +9,39 @@
     { group: "Overview", items: [
       { id: "dashboard", label: "Dashboard", icon: "◫" },
       { id: "calendar",  label: "Calendar",  icon: "▤" },
-      { id: "schedule",  label: "Schedule",  icon: "◱" }
+      { id: "schedule",  label: "Schedule",  icon: "◱" },
+      { id: "planner",   label: "Planner",   icon: "◳",
+        badge: () => App.planner.warnings(14).filter((w) => w.level === "high").length,
+        alert: () => true }
     ]},
     { group: "Academics", items: [
       { id: "homework",  label: "Homework",  icon: "✎", badge: () => S.openAssignments().length,
         alert: () => S.overdue().length > 0 },
       { id: "classes",   label: "Classes",   icon: "▣" },
-      { id: "grades",    label: "Grades",    icon: "◈" }
+      { id: "grades",    label: "Grades",    icon: "◈",
+        badge: () => S.missingWork().length, alert: () => true }
     ]},
     { group: "Study", items: [
       { id: "focus",      label: "Focus timer", icon: "◷" },
       { id: "flashcards", label: "Flashcards",  icon: "▢",
         badge: () => U.sum(S.db.decks, (d) => d.cards.filter((c) => !c.next || c.next <= U.today()).length) },
-      { id: "notes",      label: "Notes",       icon: "✐" }
+      { id: "notes",      label: "Notes",       icon: "✐" },
+      { id: "reading",    label: "Reading",     icon: "▥",
+        badge: () => S.db.reading.filter((r) => !r.done).length }
     ]},
     { group: "Life", items: [
       { id: "activities", label: "Activities", icon: "◇" },
       { id: "goals",      label: "Goals",      icon: "◎" },
+      { id: "college",    label: "Applications", icon: "◉" },
       { id: "contacts",   label: "Contacts",   icon: "☎" }
+    ]},
+    { group: "Connect", items: [
+      { id: "sharing",   label: "Sharing",   icon: "⇄" },
+      { id: "groups",    label: "Study groups", icon: "◐" },
+      { id: "parent",    label: "Parent portal", icon: "◧" }
     ]},
     { group: "More", items: [
       { id: "analytics", label: "Analytics", icon: "◨" },
-      { id: "sharing",   label: "Sharing",   icon: "⇄" },
       { id: "settings",  label: "Settings",  icon: "⚙" }
     ]}
   ];
@@ -52,7 +63,7 @@
       S.save();
       if (location.hash.slice(1) !== id) history.replaceState(null, "", "#" + id);
       paint();
-      document.querySelector(".page").scrollTop = 0;
+      document.getElementById("page").scrollTop = 0;   // a real navigation does reset scroll
       closeSidebar();
     },
     refresh() { paint(); },
@@ -60,27 +71,51 @@
   };
   App.router = router;
 
+  /**
+   * Renders the active view into a FRESH container element.
+   *
+   * The container must be new each time: views attach delegated listeners to
+   * whatever root they're handed, and a persistent node would accumulate one
+   * set per render. Stale handlers from other views then fire first, re-render
+   * the page, and detach the clicked node — so the correct handler's
+   * `root.contains(target)` check fails and the click silently does nothing.
+   * Throwing the node away drops its listeners with it.
+   */
   function paint() {
     const view = App.views[current] || App.views.dashboard;
     const page = document.getElementById("page");
+    const scrollTop = page.scrollTop;
 
-    page.innerHTML = view.render();
-    if (view.mount) view.mount(page);
+    const root = document.createElement("div");
+    root.className = "view-root";
+    root.innerHTML = view.render();
 
-    renderNav();
-    document.title = `${view.title} · Scholar`;
+    page.replaceChildren(root);
 
-    // Cross-view shortcuts that any page can emit.
-    U.on(page, "click", "[data-go]", (_e, el) => router.go(el.dataset.go));
-    U.on(page, "click", "[data-new-hw]", () => App.views.homework.form(null));
-    U.on(page, "click", "[data-open-hw]", (_e, el) => App.views.homework.detail(el.dataset.openHw));
-    U.on(page, "change", "[data-toggle-hw]", (e, el) => {
+    // Cross-view shortcuts any page can emit — bound before the view's own
+    // handlers so a view can still stopPropagation if it needs to override.
+    U.on(root, "click", "[data-go]", (e, el) => {
+      e.preventDefault();
+      router.go(el.dataset.go);
+    });
+    U.on(root, "click", "[data-new-hw]", () => App.views.homework.form(null));
+    U.on(root, "click", "[data-open-hw]", (_e, el) => App.views.homework.detail(el.dataset.openHw));
+    U.on(root, "change", "[data-toggle-hw]", (e, el) => {
       e.stopPropagation();
       const a = S.byId("assignments", el.dataset.toggleHw);
       if (!a) return;
       S.update("assignments", a.id, { status: el.checked ? "done" : "todo" });
       if (el.checked) UI.toast("Done ✅", a.title, "ok");
     });
+
+    if (view.mount) view.mount(root);
+
+    renderNav();
+    paintSyncBadge();
+    document.title = `${view.title} · Scholar`;
+
+    // A re-render triggered by a data change shouldn't jump the user to the top.
+    page.scrollTop = scrollTop;
   }
 
   function renderNav() {
@@ -132,11 +167,19 @@
       { group: "Create", label: "New event", icon: "▤", run: () => App.views.calendar.eventForm(null) },
       { group: "Create", label: "New class", icon: "▣", run: () => App.views.classes.classForm(null) },
       { group: "Create", label: "New note", icon: "✐", run: () => { router.go("notes"); setTimeout(() => document.querySelector("[data-new]").click(), 60); } },
+      { group: "Create", label: "New book / reading", icon: "▥", run: () => { router.go("reading"); setTimeout(() => { const b = document.querySelector("[data-add]"); if (b) b.click(); }, 60); } },
+      { group: "Create", label: "New college application", icon: "◉", run: () => { router.go("college"); setTimeout(() => { const b = document.querySelector("[data-add]"); if (b) b.click(); }, 60); } },
       { group: "Actions", label: "Toggle dark mode", icon: "☾", sub: "T", run: toggleTheme },
       { group: "Actions", label: "Export backup", icon: "⬇", run: () => {
           U.download(`scholar-backup-${U.today()}.json`, S.exportJSON());
           UI.toast("Backup downloaded", "", "ok");
         }},
+      { group: "Actions", label: "Export calendar (.ics)", icon: "📅", run: () => {
+          App.ics.download();
+          UI.toast("Calendar exported", "", "ok");
+        }},
+      { group: "Actions", label: "Import from Canvas / Classroom", icon: "⬆", run: () => router.go("settings") },
+      { group: "Actions", label: "Rebuild study plan", icon: "◳", run: () => router.go("planner") },
       { group: "Actions", label: "Start a focus block", icon: "◷", run: () => router.go("focus") }
     );
 
@@ -277,7 +320,8 @@
     if (chord === "g") {
       chord = null;
       const map = { d: "dashboard", h: "homework", c: "calendar", g: "grades",
-                    s: "schedule", f: "focus", n: "notes", a: "analytics", t: "settings" };
+                    s: "schedule", f: "focus", n: "notes", a: "analytics", t: "settings",
+                    p: "planner", r: "reading", u: "college", l: "flashcards" };
       if (map[k]) { e.preventDefault(); router.go(map[k]); }
       return;
     }
@@ -316,9 +360,52 @@
 
   /* --------------------------------------------------------------- boot */
 
+  /* ---------------------------------------------------- service worker -- */
+
+  function registerSW() {
+    if (!("serviceWorker" in navigator)) return;
+    // file:// has no origin a service worker can claim.
+    if (location.protocol === "file:") return;
+
+    navigator.serviceWorker.register("./sw.js").then((reg) => {
+      reg.addEventListener("updatefound", () => {
+        const sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener("statechange", () => {
+          if (sw.state === "installed" && navigator.serviceWorker.controller) {
+            UI.toast("Update available", "Reload to get the newest version.", "", {
+              label: "Reload",
+              onClick() { sw.postMessage("skipWaiting"); location.reload(); }
+            });
+          }
+        });
+      });
+    }).catch((e) => console.info("[scholar] service worker not registered:", e.message));
+  }
+
+  /* --------------------------------------------------------- sync badge -- */
+
+  function paintSyncBadge() {
+    const btn = document.getElementById("syncBtn");
+    if (!btn) return;
+    const s = App.sync.info();
+    const map = {
+      idle: ["✓", "Synced"], syncing: ["⟳", "Syncing…"],
+      error: ["!", "Offline — changes saved locally"],
+      conflict: ["!", "Sync conflict"], offline: ["○", "Local only — not signed in"]
+    };
+    const [icon, tip] = map[s.status] || ["○", "Local only"];
+    btn.textContent = icon;
+    btn.dataset.tip = tip;
+    btn.classList.toggle("spin", s.status === "syncing");
+    btn.style.color = s.status === "error" || s.status === "conflict" ? "var(--warn)"
+      : s.status === "idle" ? "var(--ok)" : "";
+  }
+
   function boot() {
     App.applyTheme();
     S.touchStreak();
+    S.runTemplates(28);
 
     // Nav
     U.on(document.getElementById("navScroll"), "click", "[data-view]", (_e, el) => router.go(el.dataset.view));
@@ -328,6 +415,18 @@
     document.getElementById("hamburger").addEventListener("click", openSidebar);
     document.getElementById("scrim").addEventListener("click", closeSidebar);
     document.getElementById("profileChip").addEventListener("click", () => router.go("settings"));
+    document.getElementById("syncBtn").addEventListener("click", () => {
+      if (App.sync.isSignedIn()) App.sync.push(false).then(() => UI.toast("Synced", "", "ok"));
+      else router.go("settings");
+    });
+
+    // Subsystems that need the DOM and the store ready.
+    registerSW();
+    App.sync.init();
+    App.geo.init();
+    App.notify.start();
+    App.sync.on(paintSyncBadge);
+    paintSyncBadge();
 
     document.addEventListener("keydown", onKeydown);
     window.addEventListener("hashchange", () => {
@@ -353,6 +452,9 @@
         paint();
       }
     }, 60000);
+
+    // Materialize recurring assignments once a day.
+    setInterval(() => S.runTemplates(28), 6 * 60 * 60 * 1000);
 
     const start = location.hash.slice(1) || S.db.ui.view || "dashboard";
     router.go(App.views[start] ? start : "dashboard");

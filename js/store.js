@@ -426,8 +426,10 @@ App.store = (function () {
     }
   }
 
+  // Snapshot first — subscribers re-render, and a render can add or remove
+  // subscribers. Iterating the live Set would visit those mid-flight.
   function emit() {
-    listeners.forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
+    [...listeners].forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
   }
 
   function commit(fn) {

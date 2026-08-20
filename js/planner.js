@@ -156,21 +156,27 @@ App.planner = (function () {
       days.push({ date: iso, capacity: w.minutes, used: 0, blocks: [], gaps: gapsFor(iso) });
     }
 
+    const MIN_CHUNK = 10;
+
+    // Latest day a piece of work can be scheduled. Overdue work is workable
+    // today — the deadline has passed, but the task hasn't gone away.
+    const lastDay = (it) => {
+      const due = it.a.due < today ? today : it.a.due;
+      const buffered = U.dateKey(U.addDays(U.parseDate(due), -buffer));
+      return buffered < today ? due : buffered;
+    };
+
     // Greedy fill: for each day, take the most urgent work still workable.
     days.forEach((day) => {
       let left = day.capacity;
-      while (left >= Math.min(blockMin, 15)) {
-        // Only work that is still due on/after today's date (with buffer),
-        // and not already finished by earlier days in this pass.
-        const candidate = items.find((it) => {
-          if (it.remaining <= 0) return false;
-          const dueWithBuffer = U.dateKey(U.addDays(U.parseDate(it.a.due), -buffer));
-          return day.date <= Math.max(it.a.due, dueWithBuffer) || day.date <= it.a.due;
-        });
+      while (left >= MIN_CHUNK) {
+        // Skip (don't abort on) items too small to be worth a session — a
+        // 7-minute remainder shouldn't strand the rest of the evening.
+        const candidate = items.find((it) =>
+          it.remaining >= MIN_CHUNK && day.date <= lastDay(it));
         if (!candidate) break;
 
         const chunk = Math.min(candidate.remaining, blockMin, left);
-        if (chunk < 10) break;
 
         day.blocks.push({
           assignmentId: candidate.a.id,
@@ -184,6 +190,15 @@ App.planner = (function () {
         candidate.remaining -= chunk;
         day.used += chunk;
         left -= chunk;
+
+        // Absorb a sub-session remainder into the block just placed rather
+        // than reporting the task as "short by 4 minutes".
+        if (candidate.remaining > 0 && candidate.remaining < MIN_CHUNK && left >= candidate.remaining) {
+          day.blocks[day.blocks.length - 1].minutes += candidate.remaining;
+          day.used += candidate.remaining;
+          left -= candidate.remaining;
+          candidate.remaining = 0;
+        }
       }
 
       // Merge consecutive blocks for the same assignment into one session.
@@ -210,9 +225,15 @@ App.planner = (function () {
       });
     });
 
+    // Anything still outstanding genuinely doesn't fit — either the deadline
+    // is too close for the hours available, or it's already overdue.
     const unplaced = items
-      .filter((it) => it.remaining > 0)
-      .map((it) => ({ assignment: it.a, minutesShort: it.remaining }));
+      .filter((it) => it.remaining >= MIN_CHUNK)
+      .map((it) => ({
+        assignment: it.a,
+        minutesShort: it.remaining,
+        overdue: it.a.due < today
+      }));
 
     const totalNeeded = U.sum(items, (i) => i.remaining) + U.sum(days, (d) => d.used);
     const totalCapacity = U.sum(days, (d) => d.capacity);

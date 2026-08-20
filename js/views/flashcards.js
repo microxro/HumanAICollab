@@ -9,6 +9,7 @@ App.views.flashcards = (function () {
   const INTERVALS = { 1: 0, 2: 1, 3: 3, 4: 7, 5: 16 };
 
   let study = null;   // { deckId, queue: [cardId], i, flipped }
+  let quiz = null;    // { deckId, mode:'choice'|'typed', queue, i, choices, answered, correct }
 
   function dueCards(deck) {
     const t = U.today();
@@ -106,6 +107,146 @@ App.views.flashcards = (function () {
           ${[1, 2, 3, 4, 5].map((b) => `<i class="box-pip ${(card.box || 1) >= b ? "on" : ""}"></i>`).join("")}
         </span>
       </div>
+    </div>`;
+  }
+
+  /* -------------------------------------------------------------- quiz -- */
+
+  function startQuiz(deckId, mode) {
+    const deck = S.byId("decks", deckId);
+    if (!deck || deck.cards.length < (mode === "choice" ? 4 : 1)) {
+      UI.toast("Not enough cards", mode === "choice"
+        ? "Multiple choice needs at least 4 cards to build options."
+        : "Add a card first.", "warn");
+      return;
+    }
+    quiz = {
+      deckId, mode,
+      queue: deck.cards.map((c) => c.id).sort(() => Math.random() - 0.5),
+      i: 0, answered: null, correct: 0, wrong: 0, choices: null
+    };
+    buildChoices();
+    App.router.refresh();
+  }
+
+  // Three plausible distractors from the same deck, plus the right answer.
+  function buildChoices() {
+    if (!quiz || quiz.mode !== "choice") return;
+    const deck = S.byId("decks", quiz.deckId);
+    const card = deck.cards.find((c) => c.id === quiz.queue[quiz.i]);
+    if (!card) return;
+    const others = deck.cards
+      .filter((c) => c.id !== card.id && c.back !== card.back)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3)
+      .map((c) => c.back);
+    quiz.choices = [card.back, ...others].sort(() => Math.random() - 0.5);
+  }
+
+  // Forgiving comparison — case, punctuation, and articles shouldn't fail you.
+  function normalize(s) {
+    return String(s || "").toLowerCase().trim()
+      .replace(/[.,;:!?'"()\-–—]/g, "")
+      .replace(/\b(the|a|an)\b/g, "")
+      .replace(/\s+/g, " ");
+  }
+
+  function answerQuiz(value) {
+    const deck = S.byId("decks", quiz.deckId);
+    const card = deck.cards.find((c) => c.id === quiz.queue[quiz.i]);
+    if (!card || quiz.answered) return;
+
+    const right = normalize(value) === normalize(card.back);
+    quiz.answered = { value, right, expected: card.back };
+    if (right) quiz.correct++; else quiz.wrong++;
+
+    // A quiz answer moves the Leitner box too — it's a real recall test.
+    card.box = right ? U.clamp((card.box || 1) + 1, 1, 5) : 1;
+    card.next = U.dateKey(U.addDays(new Date(), INTERVALS[card.box]));
+    card.lastReviewed = U.today();
+    S.commit((db) => { db.streak.xp += right ? 4 : 1; });
+    App.router.refresh();
+  }
+
+  function nextQuiz() {
+    quiz.i++;
+    quiz.answered = null;
+    if (quiz.i >= quiz.queue.length) {
+      const { correct, wrong } = quiz;
+      const pct = Math.round((correct / (correct + wrong || 1)) * 100);
+      UI.toast(`Quiz complete — ${pct}%`, `${correct} right · ${wrong} wrong`, pct >= 80 ? "ok" : "warn");
+      quiz = null;
+    } else {
+      buildChoices();
+    }
+    App.router.refresh();
+  }
+
+  function quizHTML() {
+    const deck = S.byId("decks", quiz.deckId);
+    const card = deck.cards.find((c) => c.id === quiz.queue[quiz.i]);
+    if (!card) { quiz = null; return render(); }
+    const pct = (quiz.i / quiz.queue.length) * 100;
+    const a = quiz.answered;
+
+    return `<div class="page-inner" style="max-width:680px">
+      <div class="page-head">
+        <div>
+          <h1>${U.esc(deck.name)}</h1>
+          <div class="sub">Question ${quiz.i + 1} of ${quiz.queue.length} ·
+            ${quiz.correct} right · ${quiz.wrong} wrong</div>
+        </div>
+        <button class="btn" data-quit-quiz>✕ End quiz</button>
+      </div>
+
+      <div class="bar mb-16"><i style="width:${U.round(pct, 1)}%"></i></div>
+
+      <div class="card mb-16">
+        <div class="card-body center" style="padding:32px 24px">
+          <div class="tiny dim mb-8" style="letter-spacing:.08em;text-transform:uppercase">Question</div>
+          <div style="font-size:1.3rem;font-weight:650;line-height:1.4">${U.esc(card.front)}</div>
+        </div>
+      </div>
+
+      ${quiz.mode === "choice" ? `
+        <div class="col gap-8">
+          ${quiz.choices.map((choice, n) => {
+            let cls = "btn btn-lg btn-block", style = "justify-content:flex-start;text-align:left;height:auto;padding:14px 16px";
+            if (a) {
+              if (normalize(choice) === normalize(a.expected)) style += ";border-color:var(--ok);background:var(--ok-bg);color:var(--ok)";
+              else if (choice === a.value) style += ";border-color:var(--danger);background:var(--danger-bg);color:var(--danger)";
+              else style += ";opacity:.55";
+            }
+            return `<button class="${cls}" style="${style}" data-choice="${U.esc(choice)}" ${a ? "disabled" : ""}>
+              <span class="kbd" style="margin-right:10px">${n + 1}</span>${U.esc(choice)}
+            </button>`;
+          }).join("")}
+        </div>
+      ` : `
+        <div class="card">
+          <div class="card-body">
+            <div class="field">
+              <label>Your answer</label>
+              <input class="input" id="quizInput" ${a ? "disabled" : ""} autocomplete="off"
+                     value="${a ? U.esc(a.value) : ""}" placeholder="Type it out…"
+                     style="${a ? (a.right ? "border-color:var(--ok)" : "border-color:var(--danger)") : ""}" />
+            </div>
+            ${!a ? `<button class="btn btn-primary mt-12" data-submit-typed>Check answer</button>` : ""}
+          </div>
+        </div>
+      `}
+
+      ${a ? `<div class="card mt-16" style="border-left:3px solid var(--${a.right ? "ok" : "danger"})">
+        <div class="card-body">
+          <div class="bold" style="color:var(--${a.right ? "ok" : "danger"})">
+            ${a.right ? "✓ Correct" : "✕ Not quite"}
+          </div>
+          ${!a.right ? `<div class="small mt-4">Answer: <strong>${U.esc(a.expected)}</strong></div>` : ""}
+          <button class="btn btn-primary mt-12" data-next-quiz>
+            ${quiz.i + 1 >= quiz.queue.length ? "Finish" : "Next question →"}
+          </button>
+        </div>
+      </div>` : ""}
     </div>`;
   }
 
@@ -207,6 +348,7 @@ App.views.flashcards = (function () {
   /* ------------------------------------------------------------ render -- */
 
   function render() {
+    if (quiz) return quizHTML();
     if (study) return studyHTML();
 
     const decks = S.db.decks;
@@ -269,7 +411,9 @@ App.views.flashcards = (function () {
 
             <div class="row gap-6 wrap">
               <button class="btn btn-sm btn-primary" data-study="${d.id}">▶ Study ${due ? `(${due})` : "all"}</button>
-              <button class="btn btn-sm" data-study-all="${d.id}">Cram all</button>
+              <button class="btn btn-sm" data-quiz="${d.id}">🎯 Quiz</button>
+              <button class="btn btn-sm" data-typed="${d.id}">⌨ Type</button>
+              <button class="btn btn-sm" data-study-all="${d.id}">Cram</button>
               <button class="btn btn-sm" data-cards="${d.id}">Cards</button>
               <button class="btn btn-sm" data-edit-deck="${d.id}">Rename</button>
               <button class="btn btn-sm" data-del-deck="${d.id}">Delete</button>
@@ -284,6 +428,22 @@ App.views.flashcards = (function () {
   }
 
   function mount(root) {
+    if (quiz) {
+      U.on(root, "click", "[data-choice]", (_e, el) => answerQuiz(el.dataset.choice));
+      U.on(root, "click", "[data-next-quiz]", nextQuiz);
+      U.on(root, "click", "[data-quit-quiz]", () => { quiz = null; App.router.refresh(); });
+      const input = root.querySelector("#quizInput");
+      const submit = () => { if (input && input.value.trim()) answerQuiz(input.value); };
+      if (input) {
+        input.focus();
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") { e.preventDefault(); quiz.answered ? nextQuiz() : submit(); }
+        });
+      }
+      U.on(root, "click", "[data-submit-typed]", submit);
+      return;
+    }
+
     if (study) {
       const card = root.querySelector("#fcard");
       if (card) {
@@ -297,6 +457,8 @@ App.views.flashcards = (function () {
     }
 
     U.on(root, "click", "[data-new-deck]", () => deckForm(null));
+    U.on(root, "click", "[data-quiz]", (_e, el) => startQuiz(el.dataset.quiz, "choice"));
+    U.on(root, "click", "[data-typed]", (_e, el) => startQuiz(el.dataset.typed, "typed"));
     U.on(root, "click", "[data-study]", (_e, el) => startStudy(el.dataset.study, false));
     U.on(root, "click", "[data-study-all]", (_e, el) => startStudy(el.dataset.studyAll, true));
     U.on(root, "click", "[data-cards]", (_e, el) => cardManager(el.dataset.cards));
@@ -312,7 +474,17 @@ App.views.flashcards = (function () {
   }
 
   // Space flips, 1/2 grade — only while a study session is open.
+  // In quiz mode, number keys pick an option and Enter advances.
   function onKey(e) {
+    if (quiz) {
+      if (e.key === "Escape") { quiz = null; App.router.refresh(); return true; }
+      if (quiz.answered && (e.key === "Enter" || e.key === " ")) { nextQuiz(); return true; }
+      if (!quiz.answered && quiz.mode === "choice" && /^[1-4]$/.test(e.key)) {
+        const pick = quiz.choices[Number(e.key) - 1];
+        if (pick) { answerQuiz(pick); return true; }
+      }
+      return false;
+    }
     if (!study) return false;
     if (e.key === " " || e.key === "Enter") {
       study.flipped = !study.flipped; App.router.refresh(); return true;
