@@ -573,6 +573,15 @@ App.views.settings = (function () {
   function aboutTab() {
     return `
       <div class="card mb-16">
+        <div class="card-head"><h3>Getting started</h3></div>
+        <div class="card-body">
+          <p class="small muted mb-12">The setup wizard walks through adding a class, your bell
+            schedule, and one assignment — the fastest way to make the rest of the app feel like yours.</p>
+          <button class="btn" data-run-onboarding>🎓 Run setup wizard</button>
+        </div>
+      </div>
+
+      <div class="card mb-16">
         <div class="card-head"><h3>Keyboard shortcuts</h3></div>
         <div class="card-body">
           <div class="grid g-2">
@@ -874,6 +883,7 @@ App.views.settings = (function () {
 
   function mount(root) {
     U.on(root, "click", "[data-tab]", (_e, el) => { tab = el.dataset.tab; App.router.refresh(); });
+    U.on(root, "click", "[data-run-onboarding]", () => App.runOnboarding());
 
     /* --- account */
     U.on(root, "click", "[data-signup]", () => authForm("signup"));

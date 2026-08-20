@@ -572,6 +572,47 @@
     }).join("");
   }
 
+  /* --------------------------------------------------- U49 first-run setup -- */
+  // Walks a new student through the three things that make the rest of the
+  // app useful — one class, the bell schedule, one assignment — instead of
+  // dropping them on a dashboard full of someone else's demo data. Each
+  // step reuses the real form (classForm, periodsEditor, homework.form),
+  // just chained by an onDone callback rather than built from scratch.
+
+  function runOnboarding() {
+    UI.modal({
+      title: "Welcome to Scholar",
+      sub: "Let's set up your classes, bell schedule, and first assignment — about a minute.",
+      footer: `<button type="button" class="btn" data-skip>Skip for now</button>
+               <button type="button" class="btn btn-primary" data-next>Get started →</button>`,
+      body: `<div class="center" style="padding:16px 0">
+        <div style="font-size:2.6rem;margin-bottom:10px">🎓</div>
+        <p class="muted">You can stop at any step — Settings has a link to pick this back up.</p>
+      </div>`,
+      onMount(root) {
+        root.querySelector("[data-skip]").addEventListener("click", () => { UI.closeModal(); finishOnboarding(); });
+        root.querySelector("[data-next]").addEventListener("click", () => {
+          UI.closeModal();
+          setTimeout(() => App.views.classes.classForm(null, onboardStep2), 60);
+        });
+      }
+    });
+  }
+  function onboardStep2() {
+    UI.toast("Nice, one class added", "Next: your bell schedule.", "ok");
+    setTimeout(() => App.views.classes.periodsEditor(onboardStep3), 300);
+  }
+  function onboardStep3() {
+    UI.toast("Bell schedule set", "Last step: add your first assignment.", "ok");
+    setTimeout(() => App.views.homework.form(null, finishOnboarding), 300);
+  }
+  function finishOnboarding() {
+    S.commit((db) => { db.settings.onboarded = true; });
+    UI.toast("You're set up 🎉", "Explore the dashboard whenever you're ready.", "ok");
+    router.go("dashboard");
+  }
+  App.runOnboarding = runOnboarding;
+
   /* ------------------------------------------------- U27 pull to refresh -- */
   // Touch-only: the expected gesture for re-syncing on a phone. Only arms
   // when the page is already scrolled to the top, so it never fights a
@@ -742,6 +783,10 @@
     const startPath = location.hash.slice(1) || S.db.ui.view || "dashboard";
     const startId = startPath.split("/")[0];
     router.go(App.views[startId] ? startPath : "dashboard");
+
+    // U49 — a genuinely fresh dataset (onboarded explicitly false) gets the
+    // setup wizard instead of a dashboard full of someone else's data.
+    if (S.settings.onboarded === false) setTimeout(runOnboarding, 400);
 
     // F064 — a group invite link (?join=CODE) drops you straight into the
     // join flow instead of making you type the code by hand.

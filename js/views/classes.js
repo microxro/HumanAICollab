@@ -10,7 +10,7 @@ App.views.classes = (function () {
 
   /* ------------------------------------------------------------- forms -- */
 
-  function classForm(cl) {
+  function classForm(cl, onDone) {
     const c = cl || {};
     return UI.modal({
       title: cl ? "Edit class" : "Add a class",
@@ -83,6 +83,7 @@ App.views.classes = (function () {
           S.insert("classes", patch);
           UI.toast("Class added", patch.name, "ok");
         }
+        if (onDone) setTimeout(onDone, 60);   // U49 onboarding wizard step chain
       }
     });
   }
@@ -150,7 +151,7 @@ App.views.classes = (function () {
     });
   }
 
-  function periodsEditor() {
+  function periodsEditor(onDone) {
     const rows = () => S.db.periods.map((p) => `
       <div class="row gap-8" data-period="${p.id}" style="margin-bottom:8px">
         <input class="input grow" value="${U.esc(p.name)}" data-p-name aria-label="Period name" />
@@ -195,6 +196,7 @@ App.views.classes = (function () {
         })).sort((a, b) => U.toMin(a.start) - U.toMin(b.start));
         S.commit((db) => { db.periods = next; });
         UI.toast("Bell schedule saved");
+        if (onDone) setTimeout(onDone, 60);   // U49 onboarding wizard step chain
       }
     });
   }
@@ -552,5 +554,5 @@ App.views.classes = (function () {
     U.on(root, "click", "[data-class]", (_e, el) => detail(el.dataset.class));
   }
 
-  return { render, mount, detail, classForm, title: "Classes" };
+  return { render, mount, detail, classForm, periodsEditor, title: "Classes" };
 })();

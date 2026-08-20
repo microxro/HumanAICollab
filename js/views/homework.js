@@ -75,7 +75,7 @@ App.views.homework = (function () {
 
   /* -------------------------------------------------------------- form -- */
 
-  function form(as) {
+  function form(as, onDone) {
     const a = as || {};
     const cls = S.cls(a.classId) || S.db.classes[0];
 
@@ -249,6 +249,7 @@ App.views.homework = (function () {
         }
         else { S.insert("assignments", Object.assign({ assigned: U.today(), actualMinutes: 0 }, patch));
                UI.toast("Assignment added", `${patch.title} · due ${U.relDate(patch.due)}`, "ok"); }
+        if (onDone) setTimeout(onDone, 60);   // U49 onboarding wizard step chain
       }
     });
   }
