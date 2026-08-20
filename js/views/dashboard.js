@@ -39,7 +39,7 @@ App.views.dashboard = (function () {
         </div>
         <div class="row gap-16" style="flex-shrink:0">
           <div class="center">
-            <div style="font-size:1.5rem;font-weight:720" class="nums">${U.round(S.gpa(), 2)}</div>
+            <div style="font-size:1.5rem;font-weight:720" class="nums">${S.settings.wellbeing.hideGPA ? "—" : U.round(S.gpa(), 2)}</div>
             <div class="tiny" style="opacity:.85">GPA</div>
           </div>
           <div class="center">
@@ -58,8 +58,9 @@ App.views.dashboard = (function () {
    */
   function warningsHTML() {
     const list = App.planner.warnings(14).slice(0, 3);
-    if (!list.length) return "";
-    const worst = list[0].level;
+    const changes = S.detectChanges();   // F086
+    if (!list.length && !changes.length) return "";
+    const worst = list[0] ? list[0].level : "warn";
     return `<div class="card" style="border-left:3px solid var(--${worst === "high" ? "danger" : "warn"})">
       <div class="card-head" style="padding:12px 16px">
         <h3>${worst === "high" ? "⚠️" : "🟡"} Heads up</h3>
@@ -72,6 +73,13 @@ App.views.dashboard = (function () {
             <div class="meta">${U.esc(w.detail)}</div>
           </span>
           <span class="badge ${w.level === "high" ? "danger" : "warn"}">${U.esc(U.relDate(w.date))}</span>
+        </div>`).join("")}
+        ${changes.map((c) => `<div class="list-item" style="padding:9px 16px">
+          <span class="grow">
+            <div class="title">${U.esc(c.className)} ${c.delta > 0 ? "improved" : "dropped"}</div>
+            <div class="meta">${c.delta > 0 ? "+" : ""}${c.delta} points over the last few graded items</div>
+          </span>
+          <span class="badge ${c.delta < 0 ? "danger" : "ok"}">${c.delta > 0 ? "▲" : "▼"} ${Math.abs(c.delta)}</span>
         </div>`).join("")}
       </div>
     </div>`;
@@ -99,8 +107,8 @@ App.views.dashboard = (function () {
       <div class="stat">
         <div class="stat-ico">🎯</div>
         <div class="stat-label">Term GPA</div>
-        <div class="stat-value">${U.round(S.gpa(), 2)}</div>
-        <div class="stat-foot">${S.settings.gpaWeighted ? "Weighted" : "Unweighted"} · ${U.plural(S.db.classes.length, "class", "classes")}</div>
+        <div class="stat-value">${S.settings.wellbeing.hideGPA ? "—" : U.round(S.gpa(), 2)}</div>
+        <div class="stat-foot">${S.settings.wellbeing.hideGPA ? "Hidden in Settings" : `${S.settings.gpaWeighted ? "Weighted" : "Unweighted"} · ${U.plural(S.db.classes.length, "class", "classes")}`}</div>
       </div>
       <div class="stat">
         <div class="stat-ico">⏱️</div>

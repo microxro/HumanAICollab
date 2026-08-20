@@ -130,6 +130,159 @@ App.views.goals = (function () {
     });
   }
 
+  /* ---------------------------------------------------- F073-080 wellbeing */
+
+  function moodCheckIn() {
+    UI.modal({
+      title: "How are you doing?",
+      sub: "30 seconds — the value is in the trend, not any one day",
+      size: "narrow",
+      footer: "",
+      body: `<div class="field mb-16">
+          <label>Mood</label>
+          <div class="row gap-8" id="moodRow">
+            ${["😞", "😕", "😐", "🙂", "😄"].map((e, i) => `<button type="button" class="btn btn-lg" data-mood="${i + 1}">${e}</button>`).join("")}
+          </div>
+        </div>
+        <div class="field">
+          <label>Energy</label>
+          <div class="row gap-8" id="energyRow">
+            ${["🪫", "🔋", "🔋", "⚡", "⚡"].map((e, i) => `<button type="button" class="btn btn-lg" data-energy="${i + 1}">${e}${i + 1}</button>`).join("")}
+          </div>
+        </div>`,
+      onMount(root) {
+        let mood = null, energy = null;
+        const tryDone = () => {
+          if (mood == null || energy == null) return;
+          S.logMood(mood, energy);
+          UI.closeModal();
+          UI.toast("Logged", "Thanks for checking in.", "ok");
+        };
+        U.on(root, "click", "[data-mood]", (_e, el) => {
+          mood = Number(el.dataset.mood);
+          U.$$("[data-mood]", root).forEach((b) => b.classList.toggle("btn-primary", b === el));
+          tryDone();
+        });
+        U.on(root, "click", "[data-energy]", (_e, el) => {
+          energy = Number(el.dataset.energy);
+          U.$$("[data-energy]", root).forEach((b) => b.classList.toggle("btn-primary", b === el));
+          tryDone();
+        });
+      }
+    });
+  }
+
+  function sleepLogForm() {
+    UI.modal({
+      title: "Log last night's sleep",
+      okLabel: "Save",
+      body: `<div class="form-grid">
+        <div class="field"><label>Bedtime</label>
+          <input class="input" type="time" name="bed" value="22:30" /></div>
+        <div class="field"><label>Wake time</label>
+          <input class="input" type="time" name="wake" value="6:45" /></div>
+      </div>`,
+      onSubmit(d) {
+        const hours = S.logSleep(d.bed, d.wake);
+        UI.toast("Sleep logged", `${hours}h`, "ok");
+      }
+    });
+  }
+
+  function journalForm() {
+    UI.modal({
+      title: "Reflection journal",
+      sub: "Private — never shared with a parent",
+      okLabel: "Save entry",
+      body: `<textarea class="textarea" name="text" rows="6" placeholder="How's this week going? What's working, what isn't…"></textarea>`,
+      onSubmit(d) {
+        if (!d.text.trim()) return false;
+        S.addJournalEntry(d.text.trim());
+        UI.toast("Saved to journal", "", "ok");
+      }
+    });
+  }
+
+  function journalHistory() {
+    const entries = S.journalEntries();
+    UI.modal({
+      title: "Journal history",
+      size: "wide",
+      footer: `<button type="button" class="btn btn-primary" data-close>Close</button>`,
+      body: entries.length ? entries.map((j) => `
+        <div class="mb-12"><div class="tiny dim mb-2">${U.esc(U.fmtDate(j.date, "long"))}</div>
+        <p class="small" style="white-space:pre-wrap">${U.esc(j.text)}</p></div><div class="divider"></div>`).join("")
+        : `<p class="dim small">No entries yet.</p>`
+    });
+  }
+
+  function wellbeingHTML() {
+    const risk = S.burnoutRisk();
+    const relief = S.workloadRelief();
+    const usage = S.usageBySection();
+    const sleep = S.avgSleep(7);
+    const mood7 = S.moodTrend(7).filter((m) => m.mood != null);
+    const totalUsage = usage.studying + usage.other;
+    const riskColor = risk.level === "high" ? "var(--danger)" : risk.level === "medium" ? "var(--warn)" : "var(--ok)";
+
+    return `<div class="grid g-main mt-16">
+      <div class="card">
+        <div class="card-head">
+          <div><h3>Wellbeing</h3><div class="sub">Thirty seconds a day, tracked privately</div></div>
+          <button class="btn btn-sm btn-primary" data-mood-checkin>Check in</button>
+        </div>
+        <div class="card-body">
+          <div class="row gap-16 wrap mb-16">
+            <div class="row gap-12">
+              <span class="badge" style="border:2px solid ${riskColor};color:${riskColor}">Burnout risk: ${U.titleCase(risk.level)}</span>
+            </div>
+            <div class="vdiv"></div>
+            <div><div class="tiny dim">Avg sleep (7d)</div>
+              <div class="bold">${sleep != null ? sleep + "h" : "—"}</div></div>
+            <div class="vdiv"></div>
+            <div><div class="tiny dim">Mood check-ins (7d)</div>
+              <div class="bold">${mood7.length}</div></div>
+          </div>
+
+          ${relief.length ? `<h4 class="mb-8">If this week is too much</h4>
+            <div class="list mb-12" style="border:1px solid var(--border);border-radius:var(--radius)">
+              ${relief.map((a) => `<div class="list-item"><span class="grow"><div class="title">${U.esc(a.title)}</div>
+                <div class="meta">${U.esc(S.className(a.classId))} · lowest cost to move or drop</div></span>${UI.dueBadge(a.due)}</div>`).join("")}
+            </div>` : ""}
+
+          <div class="row gap-8 wrap">
+            <button class="btn btn-sm" data-log-sleep>😴 Log sleep</button>
+            <button class="btn btn-sm" data-journal>📓 Write in journal</button>
+            <button class="btn btn-sm" data-journal-history>View journal (${S.journalEntries().length})</button>
+            <button class="btn btn-sm" data-go="settings">⚙ Hide GPA</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Where your time goes today</h3><span class="sub">App usage by section</span></div>
+        <div class="card-body">
+          ${totalUsage ? `
+            <div class="bar mb-8" style="height:10px">
+              <i style="width:${U.round((usage.studying / totalUsage) * 100, 1)}%"></i>
+            </div>
+            <div class="row gap-16 small muted mb-16">
+              <span>📚 Studying: ${U.fmtDur(usage.studying)}</span>
+              <span>💬 Other: ${U.fmtDur(usage.other)}</span>
+            </div>` : `<p class="dim small mb-16">No app usage logged yet today.</p>`}
+          <div class="divider"></div>
+          <h4 class="mb-8">Support resources</h4>
+          <p class="tiny dim mb-8">Available offline, never behind a login.</p>
+          <div class="col gap-6 small">
+            <div>🏫 School counselor: see Contacts for your assigned counselor</div>
+            <div>☎️ 988 Suicide &amp; Crisis Lifeline — call or text 988</div>
+            <div>💬 Crisis Text Line — text HOME to 741741</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
   /* ------------------------------------------------------------ render -- */
 
   function render() {
@@ -256,6 +409,8 @@ App.views.goals = (function () {
           : `<div class="card-body"><p class="dim small">Perfect attendance — nothing recorded. 🎉</p></div>`}
         </div>
       </div>
+
+      ${wellbeingHTML()}
     </div>`;
   }
 
@@ -266,6 +421,10 @@ App.views.goals = (function () {
     U.on(root, "click", "[data-edit-habit]", (e, el) => { e.stopPropagation(); habitForm(S.byId("habits", el.dataset.editHabit)); });
     U.on(root, "click", "[data-new-att]", attendanceForm);
     U.on(root, "click", "[data-del-att]", (_e, el) => S.remove("attendance", el.dataset.delAtt));
+    U.on(root, "click", "[data-mood-checkin]", moodCheckIn);
+    U.on(root, "click", "[data-log-sleep]", sleepLogForm);
+    U.on(root, "click", "[data-journal]", journalForm);
+    U.on(root, "click", "[data-journal-history]", journalHistory);
 
     U.on(root, "click", "[data-habit]", (_e, el) => {
       const h = S.byId("habits", el.dataset.habit);
