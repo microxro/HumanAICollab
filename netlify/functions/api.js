@@ -276,6 +276,129 @@ async function unlink(user, otherId) {
   return ok({ unlinked: otherId });
 }
 
+/* ---------------------------------------------------------------- peers -- */
+// F053 — real friend requests, replacing locally-stored classmates that the
+// other person never agreed to. Mirrors the parent/child `links` pattern:
+// each profile keeps its own view of the relationship (`peers`), so an
+// accept/decline is a two-write, symmetric update rather than a shared row.
+
+async function requestFriend(req, user) {
+  const b = await body(req);
+  const email = normalizeEmail(b.email || "");
+  if (!validEmail(email)) return fail(400, "Enter a valid email address.");
+  if (email === user.email) return fail(400, "You can't friend yourself.");
+
+  const key = await emailKey(email);
+  const rec = await readJSON("users", key);
+  if (!rec) return fail(404, "No Scholar account with that email.");
+  const target = await readJSON("profiles", rec.id);
+  if (!target) return fail(404, "No Scholar account with that email.");
+
+  user.peers = user.peers || [];
+  target.peers = target.peers || [];
+  if (user.peers.some((p) => p.id === target.id)) return fail(409, "You're already connected or a request is pending.");
+
+  user.peers.push({ id: target.id, name: target.name, status: "pending-out", since: Date.now() });
+  target.peers.push({ id: user.id, name: user.name, status: "pending-in", since: Date.now() });
+  await writeJSON("profiles", user.id, user);
+  await writeJSON("profiles", target.id, target);
+  return ok({ requested: { id: target.id, name: target.name } });
+}
+
+async function respondFriend(req, user) {
+  const b = await body(req);
+  const otherId = String(b.id || "");
+  const accept = !!b.accept;
+  user.peers = user.peers || [];
+  const mine = user.peers.find((p) => p.id === otherId && p.status === "pending-in");
+  if (!mine) return fail(404, "No pending request from that person.");
+
+  const other = await readJSON("profiles", otherId);
+  if (!accept) {
+    user.peers = user.peers.filter((p) => p.id !== otherId);
+    if (other) { other.peers = (other.peers || []).filter((p) => p.id !== user.id); await writeJSON("profiles", otherId, other); }
+    await writeJSON("profiles", user.id, user);
+    return ok({ declined: otherId });
+  }
+
+  mine.status = "accepted";
+  await writeJSON("profiles", user.id, user);
+  if (other) {
+    other.peers = other.peers || [];
+    const theirs = other.peers.find((p) => p.id === user.id);
+    if (theirs) theirs.status = "accepted";
+    await writeJSON("profiles", otherId, other);
+  }
+  return ok({ accepted: otherId });
+}
+
+async function listFriends(user) {
+  return ok({ peers: user.peers || [] });
+}
+
+async function removeFriend(user, otherId) {
+  user.peers = (user.peers || []).filter((p) => p.id !== otherId);
+  await writeJSON("profiles", user.id, user);
+  const other = await readJSON("profiles", otherId);
+  if (other) { other.peers = (other.peers || []).filter((p) => p.id !== user.id); await writeJSON("profiles", otherId, other); }
+  return ok({ removed: otherId });
+}
+
+/* ------------------------------------------------------ guardian check-ins */
+// F068 — a parent asks, the student taps once to confirm they're okay.
+// F071 — a short reminder from a guardian the student sees in-app.
+
+async function requestCheckin(req, user) {
+  const b = await body(req);
+  const studentId = String(b.studentId || "");
+  const linked = (user.links || []).some((l) => l.id === studentId && l.role === "child");
+  if (!linked) return fail(403, "You aren't linked to that student.");
+
+  const list = await readJSON("checkins", studentId, []);
+  list.unshift({ id: randomId(8), fromId: user.id, fromName: user.name, at: Date.now(), respondedAt: null });
+  await writeJSON("checkins", studentId, list.slice(0, 30));
+  return ok({ requested: true });
+}
+
+async function listCheckins(user) {
+  const list = await readJSON("checkins", user.id, []);
+  return ok({ checkins: list });
+}
+
+async function respondCheckin(req, user) {
+  const b = await body(req);
+  const list = await readJSON("checkins", user.id, []);
+  const item = list.find((c) => c.id === b.id);
+  if (!item) return fail(404, "That check-in request is gone.");
+  item.respondedAt = Date.now();
+  await writeJSON("checkins", user.id, list);
+  return ok({ responded: true });
+}
+
+async function sendGuardianNote(req, user) {
+  const b = await body(req);
+  const studentId = String(b.studentId || "");
+  const text = String(b.text || "").trim().slice(0, 500);
+  if (!text) return fail(400, "Write something first.");
+  const linked = (user.links || []).some((l) => l.id === studentId && l.role === "child");
+  if (!linked) return fail(403, "You aren't linked to that student.");
+
+  const list = await readJSON("guardianNotes", studentId, []);
+  list.unshift({ id: randomId(8), fromId: user.id, fromName: user.name, text, at: Date.now(), read: false });
+  await writeJSON("guardianNotes", studentId, list.slice(0, 50));
+  return ok({ sent: true });
+}
+
+async function listGuardianNotes(user) {
+  const list = await readJSON("guardianNotes", user.id, []);
+  // Marking as read on fetch — the student just opened the list.
+  if (list.some((n) => !n.read)) {
+    list.forEach((n) => { n.read = true; });
+    await writeJSON("guardianNotes", user.id, list);
+  }
+  return ok({ notes: list });
+}
+
 /* ------------------------------------------------------------- location -- */
 
 async function pushLocation(req, user) {
@@ -511,6 +634,24 @@ export default async (req) => {
     if (parts[0] === "location") {
       if (!parts[1] && method === "POST") return await pushLocation(req, user);
       if (parts[1] && method === "GET") return await readLocation(user, parts[1]);
+    }
+
+    if (parts[0] === "peers") {
+      if (parts[1] === "request" && method === "POST") return await requestFriend(req, user);
+      if (parts[1] === "respond" && method === "POST") return await respondFriend(req, user);
+      if (!parts[1] && method === "GET") return await listFriends(user);
+      if (parts[1] && method === "DELETE") return await removeFriend(user, parts[1]);
+    }
+
+    if (parts[0] === "checkin") {
+      if (parts[1] === "request" && method === "POST") return await requestCheckin(req, user);
+      if (parts[1] === "respond" && method === "POST") return await respondCheckin(req, user);
+      if (!parts[1] && method === "GET") return await listCheckins(user);
+    }
+
+    if (parts[0] === "guardian-notes") {
+      if (!parts[1] && method === "GET") return await listGuardianNotes(user);
+      if (!parts[1] && method === "POST") return await sendGuardianNote(req, user);
     }
 
     if (parts[0] === "groups") {

@@ -56,13 +56,13 @@ App.views.groups = (function () {
     });
   }
 
-  function joinForm() {
+  function joinForm(prefillCode) {
     UI.modal({
       title: "Join a group",
       okLabel: "Join",
       body: `<div class="field">
           <label>Join code</label>
-          <input class="input mono" name="code" required maxlength="8" placeholder="ABC123"
+          <input class="input mono" name="code" required maxlength="8" placeholder="ABC123" value="${U.esc(prefillCode || "")}"
                  style="text-transform:uppercase;letter-spacing:.15em;font-size:1.1rem;text-align:center" />
         </div>`,
       onSubmit(d) {
@@ -172,6 +172,7 @@ App.views.groups = (function () {
         </div>
         <div class="page-actions">
           <button class="btn" data-back>← All groups</button>
+          <button class="btn" data-invite-link="${g.code}" title="Share a joinable link, not just the code">🔗 Invite link</button>
           <button class="btn" data-share-deck="${g.id}">Share a deck</button>
           <button class="btn btn-primary" data-post="${g.id}">+ Post assignment</button>
         </div>
@@ -269,10 +270,20 @@ App.views.groups = (function () {
 
   function mount(root) {
     U.on(root, "click", "[data-create]", createForm);
-    U.on(root, "click", "[data-join]", joinForm);
+    U.on(root, "click", "[data-join]", () => joinForm());
     U.on(root, "click", "[data-open]", (_e, el) => openDetail(el.dataset.open));
     U.on(root, "click", "[data-back]", () => { openGroup = null; App.router.refresh(); });
     U.on(root, "click", "[data-share-deck]", (_e, el) => shareDeckForm(el.dataset.shareDeck));
+    U.on(root, "click", "[data-invite-link]", (_e, el) => {
+      const url = `${location.origin}${location.pathname}?join=${encodeURIComponent(el.dataset.inviteLink)}`;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url)
+          .then(() => UI.toast("Invite link copied", url, "ok"))
+          .catch(() => UI.toast("Invite link", url));
+      } else {
+        UI.toast("Invite link", url);
+      }
+    });
     U.on(root, "click", "[data-post]", (_e, el) => postForm(el.dataset.post));
     U.on(root, "click", "[data-import]", (_e, el) => importDeck(openGroup.id, el.dataset.import));
     U.on(root, "click", "[data-confirm]", (_e, el) => {
@@ -302,5 +313,5 @@ App.views.groups = (function () {
 
   function unmount() { openGroup = null; groups = null; }
 
-  return { render, mount, unmount, title: "Groups" };
+  return { render, mount, unmount, joinForm, title: "Groups" };
 })();

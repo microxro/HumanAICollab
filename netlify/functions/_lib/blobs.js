@@ -9,11 +9,13 @@
      locations  userId   → last known status (small, frequently overwritten)
      groups     groupId  → { id, code, name, ownerId, members[], decks[], feed[] }
      codes      code     → groupId  (join-code lookup)
+     checkins       studentId → [{ id, fromId, fromName, at, respondedAt }]
+     guardianNotes  studentId → [{ id, fromId, fromName, text, at, read }]
    ========================================================================== */
 
 import { getStore } from "@netlify/blobs";
 
-const STORES = ["users", "profiles", "state", "links", "locations", "groups", "codes"];
+const STORES = ["users", "profiles", "state", "links", "locations", "groups", "codes", "checkins", "guardianNotes"];
 
 function store(name) {
   if (!STORES.includes(name)) throw new Error("Unknown store: " + name);

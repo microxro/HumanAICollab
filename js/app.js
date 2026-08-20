@@ -562,6 +562,17 @@
     const start = location.hash.slice(1) || S.db.ui.view || "dashboard";
     router.go(App.views[start] ? start : "dashboard");
 
+    // F064 — a group invite link (?join=CODE) drops you straight into the
+    // join flow instead of making you type the code by hand.
+    const joinCode = new URL(location.href).searchParams.get("join");
+    if (joinCode) {
+      history.replaceState(null, "", location.pathname + location.hash);
+      setTimeout(() => {
+        router.go("groups");
+        setTimeout(() => App.views.groups.joinForm && App.views.groups.joinForm(joinCode), 80);
+      }, 60);
+    }
+
     // Profile chip
     const p = S.profile;
     document.getElementById("profileChip").innerHTML = `

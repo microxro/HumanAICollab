@@ -291,6 +291,110 @@ App.views.sharing = (function () {
     </div>`;
   }
 
+  /* --------------------------------------------------------- F053 real -- */
+  // Real, server-backed friend requests — accept/decline, unlike the local
+  // classmate list above which the other person never agreed to.
+
+  let realFriends = null;
+
+  function loadRealFriends() {
+    if (!App.sync.isSignedIn()) return;
+    App.sync.listFriends().then((list) => { realFriends = list; App.router.refresh(); }).catch(() => {});
+  }
+
+  function realFriendsCard() {
+    if (!App.sync.isSignedIn()) {
+      return `<div class="card">
+        <div class="card-head"><h3>Real friend requests</h3></div>
+        <div class="card-body">
+          <p class="small muted mb-12">Sign in to send and accept real friend requests — unlike the classmate
+          list below, these need the other person's consent.</p>
+          <button class="btn btn-primary" data-go="settings">Sign in</button>
+        </div>
+      </div>`;
+    }
+    const list = realFriends || [];
+    const incoming = list.filter((p) => p.status === "pending-in");
+    const accepted = list.filter((p) => p.status === "accepted");
+    const outgoing = list.filter((p) => p.status === "pending-out");
+
+    return `<div class="card">
+      <div class="card-head">
+        <div><h3>Real friend requests</h3><div class="sub">Accept or decline — server-backed, two-way</div></div>
+        <button class="btn btn-sm" data-add-real-friend>+ Add</button>
+      </div>
+      <div class="card-body">
+        ${incoming.length ? `<h4 class="mb-8">Waiting on you</h4>
+          <div class="list mb-12">${incoming.map((p) => `<div class="list-item">
+            ${UI.avatar(p.name, "#94a3b8")}
+            <span class="grow">${U.esc(p.name)}</span>
+            <button class="btn btn-sm btn-primary" data-friend-accept="${p.id}">Accept</button>
+            <button class="btn btn-sm" data-friend-decline="${p.id}">Decline</button>
+          </div>`).join("")}</div>` : ""}
+        ${accepted.length ? `<h4 class="mb-8">Friends</h4>
+          <div class="list mb-12">${accepted.map((p) => `<div class="list-item">
+            ${UI.avatar(p.name, "#4f46e5")}
+            <span class="grow">${U.esc(p.name)}</span>
+            <button class="icon-btn btn-sm" data-friend-remove="${p.id}" aria-label="Remove">✕</button>
+          </div>`).join("")}</div>` : ""}
+        ${outgoing.length ? `<h4 class="mb-8">Sent, waiting on them</h4>
+          <div class="list">${outgoing.map((p) => `<div class="list-item">
+            ${UI.avatar(p.name, "#94a3b8")}
+            <span class="grow">${U.esc(p.name)}</span><span class="badge">Pending</span>
+          </div>`).join("")}</div>` : ""}
+        ${!list.length ? `<p class="dim small">No requests yet — add a friend by their Scholar account email.</p>` : ""}
+      </div>
+    </div>`;
+  }
+
+  /* ------------------------------------------------- F068/F071 guardian -- */
+
+  let checkins = null, guardianNotes = null;
+
+  function loadGuardianInbox() {
+    if (!App.sync.isSignedIn()) return;
+    Promise.all([App.sync.listCheckins(), App.sync.listGuardianNotes()])
+      .then(([c, n]) => { checkins = c; guardianNotes = n; App.router.refresh(); })
+      .catch(() => {});
+  }
+
+  function guardianInboxCard() {
+    if (!App.sync.isSignedIn()) return "";
+    const pending = (checkins || []).filter((c) => !c.respondedAt);
+    const notes = guardianNotes || [];
+    if (!pending.length && !notes.length) return "";
+
+    return `<div class="card">
+      <div class="card-head"><h3>From your guardians</h3></div>
+      <div class="card-body col gap-12">
+        ${pending.map((c) => `<div class="row gap-8" style="align-items:center;background:var(--warn-bg);padding:10px 12px;border-radius:var(--radius-sm)">
+          <span class="grow small">${U.esc(c.fromName)} asked you to check in ${U.esc(U.relDate(U.dateKey(new Date(c.at))))}</span>
+          <button class="btn btn-sm btn-primary" data-checkin-respond="${c.id}">I'm okay 👍</button>
+        </div>`).join("")}
+        ${notes.slice(0, 5).map((n) => `<div class="list-item">
+          <span style="font-size:1.1rem">📝</span>
+          <span class="grow"><div class="small">${U.esc(n.text)}</div>
+            <div class="tiny dim">${U.esc(n.fromName)} · ${U.esc(U.relDate(U.dateKey(new Date(n.at))))}</div></span>
+        </div>`).join("")}
+      </div>
+    </div>`;
+  }
+
+  function realFriendForm() {
+    UI.prompt({
+      title: "Send a friend request",
+      label: "Their Scholar account email",
+      placeholder: "friend@school.edu",
+      okLabel: "Send request",
+      onSubmit(email) {
+        App.sync.requestFriend(email).then(() => {
+          UI.toast("Request sent", email, "ok");
+          loadRealFriends();
+        }).catch((e) => UI.toast("Couldn't send request", e.message, "danger"));
+      }
+    });
+  }
+
   function peerForm() {
     UI.modal({
       title: "Add a classmate",
@@ -382,6 +486,8 @@ App.views.sharing = (function () {
 
         <div class="col gap-16">
           ${parentPreview()}
+          ${guardianInboxCard()}
+          ${realFriendsCard()}
           ${peerSection()}
         </div>
       </div>
@@ -389,6 +495,24 @@ App.views.sharing = (function () {
   }
 
   function mount(root) {
+    if (App.sync.isSignedIn() && realFriends == null) loadRealFriends();
+    if (App.sync.isSignedIn() && checkins == null) loadGuardianInbox();
+
+    U.on(root, "click", "[data-checkin-respond]", (_e, el) => {
+      App.sync.respondCheckin(el.dataset.checkinRespond).then(() => { UI.toast("Sent", "Your guardian will see you're okay.", "ok"); loadGuardianInbox(); });
+    });
+
+    U.on(root, "click", "[data-add-real-friend]", realFriendForm);
+    U.on(root, "click", "[data-friend-accept]", (_e, el) => {
+      App.sync.respondFriend(el.dataset.friendAccept, true).then(() => { UI.toast("Friend added", "", "ok"); loadRealFriends(); });
+    });
+    U.on(root, "click", "[data-friend-decline]", (_e, el) => {
+      App.sync.respondFriend(el.dataset.friendDecline, false).then(() => { UI.toast("Declined"); loadRealFriends(); });
+    });
+    U.on(root, "click", "[data-friend-remove]", (_e, el) => {
+      App.sync.removeFriend(el.dataset.friendRemove).then(() => { UI.toast("Removed", "", "warn"); loadRealFriends(); });
+    });
+
     U.on(root, "change", "[data-toggle]", (_e, el) => {
       const key = el.dataset.toggle;
       S.commit((db) => { db.settings[key] = el.checked; });
@@ -478,7 +602,7 @@ App.views.sharing = (function () {
     unsub = App.geo.on(repaint);
   }
 
-  function unmount() { if (unsub) { unsub(); unsub = null; } }
+  function unmount() { if (unsub) { unsub(); unsub = null; } realFriends = null; checkins = null; guardianNotes = null; }
 
   return { render, mount, unmount, title: "Sharing" };
 })();

@@ -306,7 +306,9 @@ App.sync = (function () {
         : null,
       upcoming: S.dueSoon(7).slice(0, 6).map((a) => ({
         title: a.title, className: S.className(a.classId), due: a.due
-      }))
+      })),
+      // F065 — notify only when something meaningful changed, not on every push.
+      gradeAlerts: st.shareGrades ? S.detectChanges() : []
     };
 
     return call("/location", {
@@ -318,6 +320,23 @@ App.sync = (function () {
   async function readLocation(studentId) {
     return (await call("/location/" + encodeURIComponent(studentId))).location;
   }
+
+  /* -------------------------------------------------------------- peers -- */
+  // F053 real friend requests.
+
+  async function requestFriend(email) { return call("/peers/request", { method: "POST", body: { email } }); }
+  async function respondFriend(id, accept) { return call("/peers/respond", { method: "POST", body: { id, accept } }); }
+  async function listFriends() { return (await call("/peers")).peers || []; }
+  async function removeFriend(id) { return call("/peers/" + encodeURIComponent(id), { method: "DELETE" }); }
+
+  /* --------------------------------------------------- guardian check-ins */
+  // F068 check-in requests, F071 notes from a guardian.
+
+  async function requestCheckin(studentId) { return call("/checkin/request", { method: "POST", body: { studentId } }); }
+  async function listCheckins() { return (await call("/checkin")).checkins || []; }
+  async function respondCheckin(id) { return call("/checkin/respond", { method: "POST", body: { id } }); }
+  async function sendGuardianNote(studentId, text) { return call("/guardian-notes", { method: "POST", body: { studentId, text } }); }
+  async function listGuardianNotes() { return (await call("/guardian-notes")).notes || []; }
 
   /* ------------------------------------------------------------ groups -- */
 
@@ -351,6 +370,8 @@ App.sync = (function () {
     push, pull, pullAndMerge, queue,
     createLinkCode, redeemLinkCode, children, parents, unlink,
     pushLocation, readLocation,
+    requestFriend, respondFriend, listFriends, removeFriend,
+    requestCheckin, listCheckins, respondCheckin, sendGuardianNote, listGuardianNotes,
     listGroups, createGroup, joinGroup, getGroup,
     shareDeck, getSharedDeck, postFeed, confirmFeed, leaveGroup
   };

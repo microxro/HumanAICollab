@@ -82,10 +82,17 @@ App.views.parent = (function () {
             </div>
           </div>
         </div>
-        <button class="btn btn-sm" data-unlink="${k.id}">Unlink</button>
+        <div class="row gap-6">
+          <button class="btn btn-sm" data-checkin="${k.id}" title="Ask them to confirm they're okay">🔔 Check in</button>
+          <button class="btn btn-sm" data-note="${k.id}" title="Leave a note they'll see in-app">✎ Note</button>
+          <button class="btn btn-sm" data-unlink="${k.id}">Unlink</button>
+        </div>
       </div>
 
       <div class="card-body col gap-16">
+        ${sum.gradeAlerts && sum.gradeAlerts.length ? `<div class="conflict-banner">
+          ${sum.gradeAlerts.map((g) => `📉 <span>${U.esc(g.className)} ${g.delta > 0 ? "improved" : "dropped"} ${g.delta > 0 ? "+" : ""}${g.delta} points recently.</span>`).join("<br>")}
+        </div>` : ""}
         ${st ? `
           <div class="hero" style="padding:18px 20px">
             <div class="between wrap gap-12">
@@ -209,6 +216,24 @@ App.views.parent = (function () {
   function mount(root) {
     U.on(root, "click", "[data-link]", linkForm);
     U.on(root, "click", "[data-refresh]", () => refresh());
+    U.on(root, "click", "[data-checkin]", (_e, el) => {
+      App.sync.requestCheckin(el.dataset.checkin)
+        .then(() => UI.toast("Check-in requested", "They'll see it next time they open the app.", "ok"))
+        .catch((e) => UI.toast("Couldn't request", e.message, "danger"));
+    });
+    U.on(root, "click", "[data-note]", (_e, el) => {
+      const id = el.dataset.note;
+      UI.prompt({
+        title: "Leave a note", label: "They'll see this in-app",
+        placeholder: "Don't forget your dentist appointment at 4!",
+        okLabel: "Send",
+        onSubmit(text) {
+          App.sync.sendGuardianNote(id, text)
+            .then(() => UI.toast("Note sent", "", "ok"))
+            .catch((e) => UI.toast("Couldn't send", e.message, "danger"));
+        }
+      });
+    });
     U.on(root, "click", "[data-unlink]", (_e, el) => {
       UI.confirm({
         title: "Unlink this student?",
