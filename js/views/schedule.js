@@ -140,7 +140,7 @@ App.views.schedule = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Schedule</h1>
+          <h1>${App.i18n.t("schedule", "Schedule")}</h1>
           <div class="sub">${U.fmtDur(totalClassMin)} of class + ${U.fmtDur(totalActMin)} of activities per week</div>
         </div>
         <div class="page-actions">

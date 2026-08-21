@@ -635,7 +635,7 @@ Ribosome: makes proteins
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Notes</h1>
+          <h1>${App.i18n.t("notes", "Notes")}</h1>
           <div class="sub">${U.plural(S.db.notes.length, "note")} ·
             ${S.db.notes.filter((n) => n.pinned).length} pinned</div>
         </div>

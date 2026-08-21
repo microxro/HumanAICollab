@@ -768,7 +768,7 @@ App.views.settings = (function () {
 
     return `<div class="page-inner" style="max-width:900px">
       <div class="page-head">
-        <div><h1>Settings</h1><div class="sub">Account, preferences, and your data</div></div>
+        <div><h1>${App.i18n.t("settings", "Settings")}</h1><div class="sub">Account, preferences, and your data</div></div>
       </div>
       <div class="tabs mb-16">
         ${TABS.map((t) => `<button class="tab ${tab === t.id ? "active" : ""}" data-tab="${t.id}">${t.label}</button>`).join("")}

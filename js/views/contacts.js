@@ -188,7 +188,7 @@ App.views.contacts = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Contacts</h1>
+          <h1>${App.i18n.t("contacts", "Contacts")}</h1>
           <div class="sub">${U.plural(S.db.teachers.length, "teacher")} ·
             office hours and one-tap email</div>
         </div>

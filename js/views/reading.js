@@ -144,7 +144,7 @@ App.views.reading = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Reading</h1>
+          <h1>${App.i18n.t("reading", "Reading")}</h1>
           <div class="sub">${U.plural(active.length, "book")} in progress ·
             ${done.length} finished this term</div>
         </div>

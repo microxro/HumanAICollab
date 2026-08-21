@@ -186,7 +186,7 @@ App.views.activities = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Activities</h1>
+          <h1>${App.i18n.t("activities", "Activities")}</h1>
           <div class="sub">${U.plural(acts.length, "activity", "activities")} ·
             ${U.round(weeklyLoad, 1)}h scheduled per week</div>
         </div>

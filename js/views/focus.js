@@ -165,7 +165,7 @@ App.views.focus = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Focus</h1>
+          <h1>${App.i18n.t("focus", "Focus timer")}</h1>
           <div class="sub">${U.fmtDur(week)} studied this week ·
             ${U.round(U.clamp((week / goalMin) * 100, 0, 999))}% of your ${U.fmtDur(goalMin)} goal</div>
         </div>

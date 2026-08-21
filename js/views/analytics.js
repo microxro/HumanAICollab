@@ -80,7 +80,7 @@ App.views.analytics = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Analytics</h1>
+          <h1>${App.i18n.t("analytics", "Analytics")}</h1>
           <div class="sub">Patterns across your grades, workload, and study time</div>
         </div>
         <div class="page-actions">

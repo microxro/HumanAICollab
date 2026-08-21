@@ -342,7 +342,7 @@ App.views.goals = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Goals &amp; habits</h1>
+          <h1>${App.i18n.t("goals", "Goals")}</h1>
           <div class="sub">${U.plural(goals.filter((g) => !g.done).length, "active goal")} ·
             ${U.plural(habits.length, "habit")} tracked</div>
         </div>

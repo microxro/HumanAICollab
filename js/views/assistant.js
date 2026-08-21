@@ -39,7 +39,7 @@ App.views.assistant = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Assistant</h1>
+          <h1>${App.i18n.t("assistant", "Assistant")}</h1>
           <div class="sub">Ask about your schedule, or tell it to add things — private to you, and it always confirms first.</div>
         </div>
         <div class="page-actions">

@@ -555,7 +555,7 @@ App.views.grades = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Grade book</h1>
+          <h1>${App.i18n.t("grades", "Grades")}</h1>
           <div class="sub">${U.plural(gradedRows.length, "class", "classes")} with grades ·
             ${U.plural(S.db.assignments.filter((a) => a.graded).length, "scored item")}</div>
         </div>

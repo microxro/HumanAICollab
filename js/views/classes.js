@@ -526,7 +526,7 @@ App.views.classes = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Classes</h1>
+          <h1>${App.i18n.t("classes", "Classes")}</h1>
           <div class="sub">${U.plural(classes.length, "class", "classes")} ·
             ${U.sum(classes, (c) => c.credits || 0)} credits this term</div>
         </div>

@@ -486,7 +486,7 @@ App.views.sharing = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Sharing &amp; privacy</h1>
+          <h1>${App.i18n.t("sharing", "Sharing")}</h1>
           <div class="sub">You control exactly what parents and classmates can see</div>
         </div>
       </div>

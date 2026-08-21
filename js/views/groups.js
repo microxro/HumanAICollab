@@ -154,7 +154,7 @@ App.views.groups = (function () {
 
   function signedOut() {
     return `<div class="page-inner">
-      <div class="page-head"><div><h1>Study groups</h1>
+      <div class="page-head"><div><h1>${App.i18n.t("groups", "Study groups")}</h1>
         <div class="sub">Share decks and crowdsource what the homework actually was</div></div></div>
       ${UI.emptyState("groupsSignIn", "Sign in to use study groups",
         "Groups are the one feature that needs an account, because they sync between people. Everything else in Scholar works offline.",
@@ -260,7 +260,7 @@ App.views.groups = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Study groups</h1>
+          <h1>${App.i18n.t("groups", "Study groups")}</h1>
           <div class="sub">Shared flashcards and a crowdsourced "what's the homework?" feed</div>
         </div>
         <div class="page-actions">

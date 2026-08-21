@@ -178,7 +178,7 @@ App.views.planner = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Study planner</h1>
+          <h1>${App.i18n.t("planner", "Planner")}</h1>
           <div class="sub">
             ${U.fmtDur(st.scheduled)} scheduled across ${horizon} days ·
             ${U.round(st.utilization * 100)}% of your free time

@@ -836,7 +836,7 @@ App.views.flashcards = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Flashcards</h1>
+          <h1>${App.i18n.t("flashcards", "Flashcards")}</h1>
           <div class="sub">${U.plural(totalCards, "card")} across ${U.plural(decks.length, "deck")} ·
             <strong>${totalDue} due today</strong>
             ${avgQ != null ? ` · avg focus ${U.round(avgQ, 1)}/5` : ""}

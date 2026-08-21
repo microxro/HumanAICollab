@@ -876,7 +876,7 @@ App.views.homework = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Homework</h1>
+          <h1>${App.i18n.t("homework", "Homework")}</h1>
           <div class="sub">${U.plural(open.length, "open item")} ·
             ${late.length ? `<span style="color:var(--danger)">${late.length} overdue</span> · ` : ""}
             about ${U.fmtDur(estLeft)} of work due this week</div>

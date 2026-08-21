@@ -210,7 +210,7 @@ App.views.parent = (function () {
   function render() {
     if (!App.sync.isSignedIn()) {
       return `<div class="page-inner">
-        <div class="page-head"><div><h1>Parent portal</h1>
+        <div class="page-head"><div><h1>${App.i18n.t("parent", "Parent portal")}</h1>
           <div class="sub">See where your student is and how school is going</div></div></div>
         ${UI.emptyState("parentSignIn", "Sign in to your parent account",
           "Create an account with the Parent role, then link to your student with the code they generate.",
@@ -223,7 +223,7 @@ App.views.parent = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Parent portal</h1>
+          <h1>${App.i18n.t("parent", "Parent portal")}</h1>
           <div class="sub">${kids ? U.plural(kids.length, "linked student") : "Loading…"} ·
             updates while their app is open</div>
         </div>

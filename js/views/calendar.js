@@ -443,7 +443,7 @@ App.views.calendar = (function () {
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Calendar</h1>
+          <h1>${App.i18n.t("calendar", "Calendar")}</h1>
           <div class="sub">${U.plural(monthEvents, "event")} in ${monthLabel} ·
             classes, deadlines, activities, and study blocks in one place</div>
         </div>

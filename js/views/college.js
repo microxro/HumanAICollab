@@ -269,7 +269,7 @@ ${S.profile.grade || ""}${S.profile.school ? " · " + S.profile.school : ""}`);
     return `<div class="page-inner">
       <div class="page-head">
         <div>
-          <h1>Applications</h1>
+          <h1>${App.i18n.t("college", "Applications")}</h1>
           <div class="sub">${U.plural(schools.length, "school")} ·
             ${U.plural(scholarships.length, "scholarship")} ·
             ${doneEssays}/${totalEssays} essays finished</div>
