@@ -256,7 +256,22 @@ App.views.settings = (function () {
         <div class="card-body" style="padding-top:4px">
           ${toggleRow("Dark mode", "Switch between the light and dark palette", st.theme === "dark", `data-pref="theme"`)}
           ${toggleRow("Week starts on Monday", "Affects the calendar and weekly totals", st.weekStartsMonday, `data-pref="weekStartsMonday"`)}
-          ${toggleRow("Weighted GPA", "AP, Honors, and IB classes get a +1.0 bump, capped at 5.0", st.gpaWeighted, `data-pref="gpaWeighted"`)}
+          ${toggleRow("Weighted GPA", "Harder classes earn extra grade points — set the amounts below", st.gpaWeighted, `data-pref="gpaWeighted"`)}
+          ${st.gpaWeighted ? `
+          <div style="padding:8px 0 12px;border-bottom:1px solid var(--border)">
+            <div class="tiny dim mb-8">Default boost by class type. Any class can override this in its own settings.</div>
+            <div class="row gap-8 wrap">
+              <label class="tiny dim" style="display:flex;flex-direction:column;gap:4px">AP / IB
+                <input class="input input-sm" type="number" step="0.5" min="0" max="2" style="width:92px"
+                       data-gpa-scale="ap" value="${(st.gpaScale || {}).ap != null ? st.gpaScale.ap : 1}" /></label>
+              <label class="tiny dim" style="display:flex;flex-direction:column;gap:4px">Honors
+                <input class="input input-sm" type="number" step="0.5" min="0" max="2" style="width:92px"
+                       data-gpa-scale="honors" value="${(st.gpaScale || {}).honors != null ? st.gpaScale.honors : 1}" /></label>
+              <label class="tiny dim" style="display:flex;flex-direction:column;gap:4px">Scale maximum
+                <input class="input input-sm" type="number" step="0.1" min="4" max="6" style="width:92px"
+                       data-gpa-scale="max" value="${(st.gpaScale || {}).max != null ? st.gpaScale.max : 5}" /></label>
+            </div>
+          </div>` : ""}
           <div class="between" style="padding:12px 0">
             <div><div class="bold small">"Due soon" window</div>
               <div class="tiny dim">How many days ahead counts as due soon</div></div>
@@ -1074,6 +1089,8 @@ App.views.settings = (function () {
       } else {
         S.commit((db) => { db.settings[key] = el.checked; });
         if (key === "dyslexicFont" || key === "trueBlack" || key === "highContrast") App.applyShellPrefs();
+        // Turning weighted GPA on reveals the per-type boost fields below it.
+        if (key === "gpaWeighted") App.router.refresh();
       }
     });
     U.on(root, "change", "[data-pref-num]", (_e, el) => {
@@ -1116,6 +1133,17 @@ App.views.settings = (function () {
       S.commit((db) => { db.settings.cvdPreview = e.target.value; });
       App.applyShellPrefs();
     });
+    U.on(root, "change", "[data-gpa-scale]", (_e, el) => {
+      const key = el.dataset.gpaScale;
+      const val = Number(el.value);
+      if (!isFinite(val)) return;
+      S.commit((db) => {
+        if (!db.settings.gpaScale) db.settings.gpaScale = { ap: 1, honors: 1, max: 5 };
+        db.settings.gpaScale[key] = val;
+      });
+      UI.toast("GPA scale updated", "", "ok");
+    });
+
     const emptyStyleSel = root.querySelector("#emptyStyleSel");
     if (emptyStyleSel) emptyStyleSel.addEventListener("change", (e) => {
       S.commit((db) => { db.settings.emptyStateStyle = e.target.value; });

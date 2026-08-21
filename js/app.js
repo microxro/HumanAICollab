@@ -554,6 +554,52 @@
     }
   }
 
+  /* ------------------------------------------------------- add chooser -- */
+  // The "+" used to jump straight into a new assignment, which is only ever
+  // right by accident. Ask what they're adding instead — and offer the AI
+  // path alongside the manual forms, since that's often the faster answer.
+
+  const ADD_OPTIONS = [
+    { id: "assignment", icon: "✎", label: "Assignment", sub: "Homework, an essay, a test", go: () => App.views.homework.form(null) },
+    { id: "class", icon: "▣", label: "Class", sub: "A course on your timetable", go: () => App.views.classes.classForm(null) },
+    { id: "activity", icon: "◇", label: "Activity", sub: "Practice, a club, a job", go: () => App.views.activities.form(null) },
+    { id: "event", icon: "▤", label: "Event", sub: "A one-off on the calendar", go: () => App.views.calendar.eventForm && App.views.calendar.eventForm(null) },
+    { id: "note", icon: "✐", label: "Note", sub: "Something to write down", go: () => App.views.notes.form(null) },
+    { id: "ai", icon: "✦", label: "Add with AI", sub: "Describe it, or upload a photo", go: () => App.aiAdd.open({ scope: "activities" }) }
+  ];
+
+  function openAddChooser() {
+    const available = ADD_OPTIONS.filter((o) => {
+      // Don't offer a path whose form isn't reachable (calendar's event form
+      // is optional depending on the view module's exports).
+      if (o.id === "event") return !!(App.views.calendar && App.views.calendar.eventForm);
+      return true;
+    });
+
+    UI.modal({
+      title: "What do you want to add?",
+      size: "wide",
+      footer: `<button type="button" class="btn" data-close>Cancel</button>`,
+      body: `<div class="add-grid">
+        ${available.map((o) => `
+          <button type="button" class="add-choice" data-add-choice="${o.id}">
+            <span class="add-choice-ico" aria-hidden="true">${o.icon}</span>
+            <span class="add-choice-label">${U.esc(o.label)}</span>
+            <span class="add-choice-sub">${U.esc(o.sub)}</span>
+          </button>`).join("")}
+      </div>`,
+      onMount(root) {
+        U.on(root, "click", "[data-add-choice]", (_e, el) => {
+          const opt = ADD_OPTIONS.find((o) => o.id === el.dataset.addChoice);
+          UI.closeModal();
+          // Let the chooser finish closing before the real form opens, so the
+          // modal machinery isn't tearing down and rebuilding in one frame.
+          if (opt) setTimeout(() => opt.go(), 60);
+        });
+      }
+    });
+  }
+
   /* ------------------------------------------------- U05 mobile tabbar -- */
   // A CSS-hidden no-op on desktop; on narrow screens it's the primary way
   // to move between the five most-used screens without opening the drawer.
@@ -720,8 +766,8 @@
     document.getElementById("sidebarCollapseBtn").addEventListener("click", toggleSidebar);
     document.getElementById("notifBtn").addEventListener("click", openNotifPanel);
     document.getElementById("searchBtn").addEventListener("click", openPalette);
-    document.getElementById("addBtn").addEventListener("click", () => App.views.homework.form(null));
-    document.getElementById("fabAdd").addEventListener("click", () => App.views.homework.form(null)); // U06
+    document.getElementById("addBtn").addEventListener("click", openAddChooser);
+    document.getElementById("fabAdd").addEventListener("click", openAddChooser); // U06
     document.getElementById("hamburger").addEventListener("click", openSidebar);
     document.getElementById("scrim").addEventListener("click", closeSidebar);
     U.on(document.getElementById("mobileTabbar"), "click", "[data-view]", (_e, el) => router.go(el.dataset.view)); // U05

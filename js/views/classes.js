@@ -45,6 +45,17 @@ App.views.classes = (function () {
           <input class="input" type="number" name="credits" step="0.5" min="0" value="${c.credits != null ? c.credits : 1}" />
         </div>
         <div class="field">
+          <label>Weighted GPA boost
+            ${UI.helpHint("On a weighted GPA, how many extra grade points this class earns — schools differ, so set what yours actually uses. Leave on Automatic to guess from the class name (AP/IB and Honors get +1.0).")}</label>
+          <select class="select" name="gpaBoost">
+            <option value="" ${c.gpaBoost == null || c.gpaBoost === "" ? "selected" : ""}>Automatic (from name)</option>
+            ${[0, 0.5, 1, 1.5, 2].map((v) => `
+              <option value="${v}" ${Number(c.gpaBoost) === v && c.gpaBoost !== "" && c.gpaBoost != null ? "selected" : ""}>
+                ${v === 0 ? "None (+0.0)" : "+" + v.toFixed(1)}
+              </option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
           <label>Meets on</label>
           ${UI.dayPicker("days", c.days || ["Mon", "Tue", "Wed", "Thu", "Fri"])}
         </div>
@@ -76,7 +87,10 @@ App.views.classes = (function () {
           credits: Number(d.credits) || 0, color: d.color,
           days: d.days ? d.days.split(",").filter(Boolean) : [],
           timezone: d.timezone || null,
-          icon: d.icon || null   // U15 — null means "guess from name" (see U.guessSubjectIcon)
+          icon: d.icon || null,  // U15 — null means "guess from name" (see U.guessSubjectIcon)
+          // "" (Automatic) is stored as null so gpaBoostFor() falls back to
+          // name-sniffing; an explicit 0 must survive as a real zero.
+          gpaBoost: d.gpaBoost === "" || d.gpaBoost == null ? null : Number(d.gpaBoost)
         };
         if (cl) {
           S.update("classes", cl.id, patch);

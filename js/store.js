@@ -817,8 +817,26 @@ App.store = (function () {
     return (weighted / used) * 100 + (rules.curve || 0);
   }
 
+  /**
+   * How much of a GPA bump a class gets on a weighted scale.
+   *
+   * An explicit per-class `gpaBoost` always wins — schools differ wildly on
+   * this (some give Honors +0.5 and AP +1.0, some cap at 4.3, some weight
+   * nothing), so guessing from the class name can only ever be a starting
+   * point. When no explicit value is set we fall back to the old name-sniffing
+   * so existing data keeps behaving exactly as it did.
+   */
+  function gpaBoostFor(c) {
+    if (c.gpaBoost != null && c.gpaBoost !== "") return Number(c.gpaBoost) || 0;
+    const d = db.settings.gpaScale || {};
+    if (/\bAP\b|\bIB\b/i.test(c.name)) return d.ap != null ? Number(d.ap) : 1;
+    if (/honors|honours/i.test(c.name)) return d.honors != null ? Number(d.honors) : 1;
+    return 0;
+  }
+
   function gpa(weighted, termId) {
     const w = weighted == null ? db.settings.gpaWeighted : weighted;
+    const cap = Number((db.settings.gpaScale || {}).max) || 5;
     const rows = termClasses(termId)
       .map((c) => ({ c, pct: classGrade(c.id) }))
       .filter((r) => r.pct != null);
@@ -826,7 +844,7 @@ App.store = (function () {
     let pts = 0, credits = 0;
     rows.forEach(({ c, pct }) => {
       let g = U.pctToGpa(pct);
-      if (w && /\bAP\b|Honors|IB\b/i.test(c.name)) g = Math.min(5, g + 1);
+      if (w) g = Math.min(cap, g + gpaBoostFor(c));
       pts += g * (c.credits || 1);
       credits += c.credits || 1;
     });
@@ -1080,7 +1098,7 @@ App.store = (function () {
     scheduleFor, liveStatus,
     openAssignments, dueSoon, overdue, missingWork, assignmentsFor, progressOf, adjustedEstimate,
     classGrade, categoryBreakdown, neededOnRemaining, simulateAll,
-    gpa, cumulativeGpa, gradeTrend, gradeForecast,
+    gpa, gpaBoostFor, cumulativeGpa, gradeTrend, gradeForecast,
     studyByDay, studyThisWeek, serviceHours, attendanceRate,
     habitStreak, goalProgress, readingPace, runTemplates,
     touchStreak, addUsage,

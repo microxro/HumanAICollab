@@ -281,5 +281,5 @@ App.views.activities = (function () {
     U.on(root, "click", "[data-log]", (e, el) => { e.stopPropagation(); logHours(el.dataset.log); });
   }
 
-  return { render, mount, detail, title: "Activities" };
+  return { render, mount, detail, form, title: "Activities" };
 })();

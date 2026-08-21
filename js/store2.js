@@ -58,6 +58,8 @@
     if (!s.dashboardLayout) s.dashboardLayout = ["hero", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]; // F083
     if (!s.locale) s.locale = "en";                                     // F099
     if (!s.wellbeing) s.wellbeing = { hideGPA: false, breakEveryMin: 50, breakLenMin: 8 };
+    // Custom GPA weighting — defaults reproduce the old hardcoded +1.0/cap-5.
+    if (!s.gpaScale) s.gpaScale = { ap: 1, honors: 1, max: 5 };
     if (!s.retention) s.retention = { studyDays: 365, usageDays: 180, autoArchiveDays: 30 };
     if (!s.bellVariant) s.bellVariant = {}; // { "YYYY-MM-DD": "assembly"|"early"|"delayed"|"exam" }
     if (!s.bellVariants) {
