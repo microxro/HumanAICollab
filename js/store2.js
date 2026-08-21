@@ -49,8 +49,8 @@
 
     // ---- new top-level collections
     const coll = {
-      rubrics: [], gradeHistory: [], regrades: [], savedFilters: [],
-      journal: [], vocabLists: [], conceptMaps: [], apExams: [],
+      rubrics: [], gradeHistory: [], regrades: [], savedFilters: [],   // F082
+      journal: [], vocabLists: [], conceptMaps: [], apExams: [],   // F078
       graduationReqs: [], apiTokens: [], webhooks: [], focusWindows: [],
       guardianNotes: [], checkIns: [], emergencyContacts: [], notifications: [],
       assistantChat: [],  // [{role: "user"|"assistant", text, at}] — the private assistant's thread
@@ -68,7 +68,7 @@
     need(db, "navVisits", {});      // { navId: count } — powers U02 auto-float-to-top
     need(db, "recentViews", []);    // U03 — most-recent-first nav ids
     need(db, "moodLog", {});        // { "YYYY-MM-DD": {mood, energy} }
-    need(db, "sleepLog", {});       // { "YYYY-MM-DD": {bed, wake, hours} }
+    need(db, "sleepLog", {});       // { "YYYY-MM-DD": {bed, wake, hours} } F050
     need(db, "sessionRatings", []); // [{id, sessionId, quality, at}]
     need(db, "changeAlerts", []);   // dismissed/seen change-detection alerts
     need(db, "streak", { count: 0, last: null });
@@ -90,7 +90,7 @@
     need(s, "emptyStateStyle", "drawn"); // U16 — "drawn" or "emoji"
     need(s, "dashboardLayout", ["hero", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]); // F083
     need(s, "locale", "en");            // F099
-    need(s, "wellbeing", { hideGPA: false, breakEveryMin: 50, breakLenMin: 8 });
+    need(s, "wellbeing", { hideGPA: false, breakEveryMin: 50, breakLenMin: 8 });   // F080
     // Custom GPA weighting — defaults reproduce the old hardcoded +1.0/cap-5.
     need(s, "gpaScale", { ap: 1, honors: 1, max: 5 });
     need(s, "retention", { studyDays: 365, usageDays: 180, autoArchiveDays: 30 });
@@ -150,7 +150,7 @@
     db.assignments.forEach((a) => {
       if (!a || typeof a !== "object") return;
       if (!a.dependsOn) a.dependsOn = [];        // F014
-      if (a.actualStart === undefined) a.actualStart = null;   // F017 start/stop timer
+      if (a.actualStart === undefined) a.actualStart = null;   // F017 start/stop timer F016
       if (a.timeLog === undefined) a.timeLog = []; // [{start,end,minutes}]
       if (a.submissionMethod === undefined) a.submissionMethod = null; // F020
       if (a.submitted === undefined) a.submitted = false;
@@ -546,7 +546,7 @@
     const rows = S.db.sessionRatings;
     return rows.length ? U.avg(rows, (r) => r.quality) : null;
   };
-  // Best study hour-of-day, from rated sessions joined to their study session's time-of-day.
+  // Best study hour-of-day, from rated sessions joined to their study session's time-of-day. (F087)
   S.bestStudyHour = function () {
     const rows = S.db.sessionRatings.filter((r) => r.quality >= 4);
     if (rows.length < 3) return null;
@@ -696,7 +696,7 @@
     return U.sortBy(week, (a) => (a.points || 0)).slice(0, 3);
   };
 
-  S.usageBySection = function () {
+  S.usageBySection = function () {   // F077
     // Approximate breakdown from time actually logged against assignments vs. general app time.
     const today = U.today();
     const assignmentMin = U.sum(S.db.assignments, (a) => U.sum((a.timeLog || []).filter((t) => U.dateKey(new Date(t.start)) === today), (t) => t.minutes));
@@ -740,7 +740,7 @@
     return out;
   };
 
-  S.termComparison = function () {
+  S.termComparison = function () {   // F088
     return S.db.terms.filter((t) => !t.parentId).map((t) => ({
       term: t.name,
       gpa: t.current ? U.round(S.gpa(null, t.id), 2) : t.gpa,
@@ -748,7 +748,7 @@
     })).filter((r) => r.gpa != null);
   };
 
-  S.exportTableCSV = function (rows, columns, filename) {
+  S.exportTableCSV = function (rows, columns, filename) {   // F089
     const esc = (v) => { const s = String(v == null ? "" : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const head = columns.map((c) => esc(c.label)).join(",");
     const body = rows.map((r) => columns.map((c) => esc(typeof c.get === "function" ? c.get(r) : r[c.key])).join(",")).join("\n");

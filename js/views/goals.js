@@ -265,7 +265,7 @@ App.views.goals = (function () {
 
   function wellbeingHTML() {
     const risk = S.burnoutRisk();
-    const relief = S.workloadRelief();
+    const relief = S.workloadRelief();   // F076
     const usage = S.usageBySection();
     const sleep = S.avgSleep(7);
     const mood7 = S.moodTrend(7).filter((m) => m.mood != null);
@@ -318,7 +318,7 @@ App.views.goals = (function () {
               <span>💬 Other: ${U.fmtDur(usage.other)}</span>
             </div>` : `<p class="dim small mb-16">No app usage logged yet today.</p>`}
           <div class="divider"></div>
-          <h4 class="mb-8">Support resources</h4>
+          <h4 class="mb-8">Support resources</h4>   <!-- F079 — offline, never behind a login -->
           <p class="tiny dim mb-8">Available offline, never behind a login.</p>
           <div class="col gap-6 small">
             <div>🏫 School counselor: see Contacts for your assigned counselor</div>

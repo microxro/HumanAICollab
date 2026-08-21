@@ -68,7 +68,7 @@ App.views.settings = (function () {
         ${isSignup ? `<div class="field full"><label>I am a…</label>
           <select class="select" name="role">
             <option value="student">Student</option>
-            <option value="parent">Parent / guardian</option>
+            <option value="parent">Parent / guardian</option>   // F067
             <option value="teacher">Teacher</option>
           </select>
           <span class="hint">A parent account sees a linked student's status. A teacher account posts assignments

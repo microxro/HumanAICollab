@@ -68,7 +68,7 @@ App.views.homework = (function () {
       priority: (a) => ({ high: 0, med: 1, low: 2 }[a.priority] ?? 1),
       cls: (a) => S.className(a.classId),
       points: (a) => -a.points,
-      effort: (a) => -(a.estMinutes || 0)
+      effort: (a) => -(a.estMinutes || 0)   // F025
     };
     return U.sortBy(rows, sorters[filter.sort] || sorters.due);
   }
@@ -326,7 +326,7 @@ App.views.homework = (function () {
       sub: `${c ? c.name : "General"} · ${a.type}${a.assignee ? " · " + a.assignee : ""}`,
       size: "wide",
       footer: `<button type="button" class="btn left" data-edit>Edit</button>
-               <button type="button" class="btn" data-dup title="Duplicate this assignment">⎘ Duplicate</button>
+               <button type="button" class="btn" data-dup title="Duplicate this assignment">⎘ Duplicate</button>   <!-- F024 -->
                <button type="button" class="icon-btn" data-copy-link title="Copy link to this assignment" aria-label="Copy link">🔗</button>
                ${a.status !== "done" ? `<button type="button" class="btn" data-snooze title="Hide from open lists until a later date">${a.snoozeUntil ? "😴 Snoozed" : "😴 Snooze"}</button>` : ""}
                <button type="button" class="btn" data-close>Close</button>

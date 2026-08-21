@@ -238,7 +238,7 @@ App.views.analytics = (function () {
         </div>
 
         <div class="card">
-          <div class="card-head"><h3>Term over term</h3><span class="sub">Your own past terms, not other students</span></div>
+          <div class="card-head"><h3>Term over term</h3><!-- F088 --><span class="sub">Your own past terms, not other students</span></div>
           <div class="card-body">
             ${(() => {
               const rows = S.termComparison();

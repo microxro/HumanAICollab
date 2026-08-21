@@ -256,7 +256,7 @@ App.views.grades = (function () {
         S.update("classes", classId, {
           rules: { dropLowest, curve: Number(d.curve) || 0, catFloor, catCap },
           gradingMode: d.gradingMode, standardsScale: Number(d.standardsScale) || 4,
-          percentileInput: optNum(d.percentileInput),
+          percentileInput: optNum(d.percentileInput),   // F006 — class percentile estimate
           examWeight: Number(d.examWeight) || 0,
           passFail: !!d.passFail, auditOnly: !!d.auditOnly,
           latePenalty: optNum(d.latePerDay) == null ? null : { perDay: optNum(d.latePerDay) || 0, max: optNum(d.lateMax) == null ? 100 : optNum(d.lateMax) }

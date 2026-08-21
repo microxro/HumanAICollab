@@ -1,5 +1,5 @@
 /* ==========================================================================
-   app.js — router, navigation, command palette, keyboard shortcuts, boot
+   app.js — router, navigation, command palette, keyboard shortcuts, boot   // F096
    ========================================================================== */
 
 (function () {

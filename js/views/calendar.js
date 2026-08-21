@@ -101,7 +101,7 @@ App.views.calendar = (function () {
             <option value="2">Every 2 weeks</option>
           </select></div>
         <div class="field"><label>Until</label>
-          <input class="input" type="date" name="repeatUntil" value="${U.dateKey(U.addDays(new Date(), 84))}" /></div>` : ""}
+          <input class="input" type="date" name="repeatUntil" value="${U.dateKey(U.addDays(new Date(), 84))}" /></div>` : ""}   // F048
       </div>`,
       onMount(root) {
         const del = root.querySelector("[data-del]");
