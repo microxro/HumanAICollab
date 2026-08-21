@@ -1105,10 +1105,14 @@ App.store = (function () {
   /* ------------------------------------------------------------ habits -- */
 
   function habitStreak(habit) {
+    // A habit record without a `log` used to throw here, and the Goals view
+    // maps over every habit during render — so one malformed record took the
+    // whole page down rather than showing a zero streak for itself.
+    const log = (habit && habit.log) || {};
     let n = 0;
     for (let i = 0; i < 400; i++) {
       const key = U.dateKey(U.addDays(new Date(), -i));
-      if (habit.log[key]) n++;
+      if (log[key]) n++;
       else if (i > 0) break;
     }
     return n;

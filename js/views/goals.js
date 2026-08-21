@@ -94,11 +94,16 @@ App.views.goals = (function () {
   function habitWeek(h) {
     const start = U.startOfWeek(new Date(), S.settings.weekStartsMonday);
     const today = U.today();
+    // ensureV3 backfills h.log at boot, but a record can also arrive mid-
+    // session from a sync pull, and this render maps over every habit — so
+    // one without a log took the whole Goals view down instead of showing
+    // itself as a blank week.
+    const log = (h && h.log) || {};
     return Array.from({ length: 7 }, (_, i) => {
       const d = U.addDays(start, i);
       const iso = U.dateKey(d);
       const future = iso > today;
-      return `<button class="habit-day ${h.log[iso] ? "on" : ""} ${future ? "future" : ""}"
+      return `<button class="habit-day ${log[iso] ? "on" : ""} ${future ? "future" : ""}"
                       data-habit="${h.id}" data-date="${iso}"
                       title="${U.esc(U.fmtDate(iso, "day"))}">${U.DOW_SHORT[d.getDay()][0]}</button>`;
     }).join("");
@@ -480,6 +485,8 @@ App.views.goals = (function () {
       const h = S.byId("habits", el.dataset.habit);
       if (!h) return;
       const iso = el.dataset.date;
+      // Toggling would create the property on undefined and throw.
+      if (!h.log || typeof h.log !== "object") h.log = {};
       if (h.log[iso]) delete h.log[iso];
       else h.log[iso] = true;
       S.commit();

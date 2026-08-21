@@ -165,6 +165,25 @@
 
     db.terms.forEach((t) => { if (t && t.parentId === undefined) t.parentId = null; }); // F007
 
+    // Habits are dereferenced as h.log[dateKey] during the Goals render, and
+    // goals as g.current in the progress bar. Backfill both so a record from
+    // an older build, or a hand-edited import, can't take the view down.
+    if (Array.isArray(db.habits)) {
+      db.habits.forEach((h) => {
+        if (!h || typeof h !== "object") return;
+        if (!h.log || typeof h.log !== "object" || Array.isArray(h.log)) { h.log = {}; dirty = true; }
+        if (typeof h.name !== "string") { h.name = String(h.name == null ? "Habit" : h.name); dirty = true; }
+      });
+    }
+    if (Array.isArray(db.goals)) {
+      db.goals.forEach((g) => {
+        if (!g || typeof g !== "object") return;
+        if (!Number.isFinite(Number(g.current))) { g.current = 0; dirty = true; }
+        if (!Number.isFinite(Number(g.target))) { g.target = 1; dirty = true; }
+        if (typeof g.title !== "string") { g.title = String(g.title == null ? "Goal" : g.title); dirty = true; }
+      });
+    }
+
     if (!db.schemaV3) { db.schemaV3 = true; dirty = true; }
     // Only write when we actually filled something in. Without this, running
     // on every boot would mean a full JSON.stringify + save + repaint on a
