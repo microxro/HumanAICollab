@@ -526,6 +526,7 @@ App.views.settings = (function () {
             <button class="btn" data-import-school>📥 Import from Canvas / Classroom</button>
             <button class="btn" data-export-ics>📅 Export calendar</button>
             <button class="btn" data-print>🖨 Print</button>
+            <button class="btn" data-load-demo title="Fill the app with an example student's schedule, for trying things out">✨ Load sample data</button>
           </div>
           <p class="hint mt-12">
             Everything lives in this browser unless you're signed in. Clearing your browser data erases it —
@@ -1154,6 +1155,19 @@ App.views.settings = (function () {
       UI.toast("Backup downloaded", "Keep it somewhere safe.", "ok");
     });
     U.on(root, "click", "[data-import]", importDialog);
+    U.on(root, "click", "[data-load-demo]", () => {
+      UI.confirm({
+        title: "Load sample data?",
+        message: "This replaces everything currently in the app with an example student's classes, grades, and assignments — handy for trying features out. Export a backup first if you've already entered real data.",
+        okLabel: "Load sample data",
+        danger: true,
+        onConfirm() {
+          S.loadDemo();
+          UI.toast("Sample data loaded", "Clear everything in Danger zone to start fresh.", "ok");
+          App.router.go("dashboard");
+        }
+      });
+    });
     U.on(root, "click", "[data-import-school]", schoolImportDialog);
     U.on(root, "click", "[data-export-ics]", () => {
       App.ics.download();

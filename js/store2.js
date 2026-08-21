@@ -53,7 +53,7 @@
     if (s.dyslexicFont === undefined) s.dyslexicFont = false;            // U11
     if (s.trueBlack === undefined) s.trueBlack = false;                  // U13
     if (!s.collapsedNavGroups) s.collapsedNavGroups = [];                 // U07
-    if (s.onboarded === undefined) s.onboarded = true;                   // U49 (seed data ships pre-onboarded)
+    if (s.onboarded === undefined) s.onboarded = true;                   // U49 — only for data predating the flag; a fresh seed sets it false explicitly
     if (!s.emptyStateStyle) s.emptyStateStyle = "drawn";                  // U16 — "drawn" or "emoji"
     if (!s.dashboardLayout) s.dashboardLayout = ["hero", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]; // F083
     if (!s.locale) s.locale = "en";                                     // F099
@@ -786,6 +786,13 @@
   S.revokeApiToken = function (id) { S.remove("apiTokens", id); };
 
   S.addWebhook = function (url, events) { return S.insert("webhooks", { url, events, createdAt: Date.now() }); };
+
+  // Exposed so importJSON()/replaceAll() in store.js can re-run it after a
+  // wholesale data swap. Those only run the older v1/v2 migrate(), so a backup
+  // written before any v3 field existed would otherwise leave db.navVisits (and
+  // friends) undefined — and the very next paint() throws in trackNavVisit(),
+  // breaking every subsequent navigation until a manual reload.
+  S.ensureV3 = ensureV3;
 
   ensureV3();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) ensureV3(); });

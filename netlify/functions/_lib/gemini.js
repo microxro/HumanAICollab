@@ -11,7 +11,7 @@
    "not set up" error instead of a 500.
    ========================================================================== */
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-3.7-flash";
 
 function configured() {
   return !!process.env.GEMINI_API_KEY;

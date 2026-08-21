@@ -13,6 +13,8 @@ App.sync = (function () {
   const TOKEN_KEY = "scholar.token.v1";
   const VERSION_KEY = "scholar.syncver.v1";
   const PUSH_DEBOUNCE_MS = 4000;
+  const FOREGROUND_PULL_MS = 60000;   // throttle for pull-on-foreground (below)
+  let lastPullAt = 0;
 
   const state = {
     token: localStorage.getItem(TOKEN_KEY) || null,
@@ -390,15 +392,36 @@ App.sync = (function () {
     // Flush pending changes when the tab goes away or connectivity returns.
     window.addEventListener("online", () => { if (isSignedIn()) push(false); });
     document.addEventListener("visibilitychange", () => {
-      if (document.hidden && isSignedIn()) push(false);
+      if (document.hidden) { if (isSignedIn()) push(false); return; }
+      // Coming back to the foreground: pull anything another device changed
+      // while we were away. Without this, push is automatic but a pull only
+      // ever happened at sign-in or on a manual pull-to-refresh — so edits
+      // made elsewhere silently never showed up.
+      refresh();
     });
     setInterval(() => { if (isSignedIn() && state.status === "error") push(false); }, 60000);
+    // A long-lived tab that never backgrounds still needs to see other devices.
+    setInterval(refresh, FOREGROUND_PULL_MS);
+  }
+
+  /**
+   * Pull the server copy if we're signed in, idle, and haven't just done so.
+   * Throttled so tab-switching in a burst doesn't fire a request each time,
+   * and skipped while a write is in flight so it can't race a push.
+   */
+  function refresh() {
+    if (!isSignedIn()) return;
+    if (state.inflight || state.timer) return;         // a push is queued/running
+    if (state.status === "syncing" || state.status === "conflict") return;
+    if (Date.now() - lastPullAt < FOREGROUND_PULL_MS) return;
+    lastPullAt = Date.now();
+    pullAndMerge().catch(() => { /* offline is not an error worth shouting about */ });
   }
 
   return {
     init, info, isSignedIn, on,
     signUp, signIn, signOut, restore, forgotPassword, resetPassword,
-    push, pull, pullAndMerge, queue,
+    push, pull, pullAndMerge, queue, refresh,
     createLinkCode, redeemLinkCode, children, parents, unlink,
     pushLocation, readLocation,
     requestFriend, respondFriend, listFriends, removeFriend,

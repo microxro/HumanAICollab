@@ -32,7 +32,7 @@ App.views.dashboard = (function () {
         <div style="min-width:0">
           <div class="hero-eyebrow row gap-6">
             ${live.current ? `<i class="live-dot"></i>` : ""}
-            ${greet}, ${U.esc(p.name.split(" ")[0])}
+            ${p.name ? `${greet}, ${U.esc(p.name.split(" ")[0])}` : greet}
           </div>
           <div class="hero-title">${U.esc(main)}</div>
           <div class="hero-sub" id="heroSub">${U.esc(sub)}</div>

@@ -47,7 +47,36 @@ App.store = (function () {
 
   /* ================================================================ seed */
 
+  /**
+   * A brand-new install starts genuinely empty — no invented classes, no fake
+   * grades, no "Alex Kim". `settings.onboarded` is false so the first-run
+   * wizard walks the student through their own classes and bell schedule
+   * instead of dropping them into someone else's demo data.
+   *
+   * One term exists because classes and assignments are always filed under a
+   * term; everything else is an empty collection.
+   */
   function seed() {
+    const base = demoSeed();
+    const start = U.dateKey(U.addDays(new Date(), -30));
+    const end = U.dateKey(U.addDays(new Date(), 120));
+
+    return Object.assign(base, {
+      profile: { name: "", school: "", grade: "", color: PALETTE[0], email: "", parentName: "", parentEmail: "" },
+      settings: Object.assign({}, base.settings, { onboarded: false }),
+      terms: [{ id: U.uid("tm"), name: "This Term", start, end, current: true }],
+      teachers: [], periods: [], classes: [], assignments: [], templates: [],
+      events: [], activities: [], decks: [], notes: [], goals: [], habits: [],
+      reading: [], collegeApps: [], studySessions: [], attendance: [],
+      attachments: [], trash: [], groups: [], peers: [],
+      usage: {},
+      streak: { count: 0, last: null, xp: 0 },
+      ui: { view: "dashboard", lastSeen: Date.now() }
+    });
+  }
+
+  /** The old demo dataset — opt-in only, via Settings → Data → Load sample data. */
+  function demoSeed() {
     const d = (n) => U.dateKey(U.addDays(new Date(), n));
     const t = U.today();
 
@@ -999,16 +1028,29 @@ App.store = (function () {
       throw new Error("That doesn't look like a Scholar backup file.");
     }
     db = migrate(parsed);
+    // migrate() only knows about v1/v2 fields. Backfill v3 before anything
+    // renders, or the paint() that commit() triggers will throw on a field
+    // this backup predates.
+    if (App.store && App.store.ensureV3) App.store.ensureV3();
     commit();
   }
 
   function replaceAll(next) {
     db = migrate(next);
+    if (App.store && App.store.ensureV3) App.store.ensureV3();
     save();
     emit();
   }
 
   function reset() { db = seed(); commit(); }
+
+  /** Opt-in sample data, for demoing the app without entering a real schedule. */
+  function loadDemo() {
+    db = migrate(demoSeed());
+    if (App.store && App.store.ensureV3) App.store.ensureV3();
+    db.settings.onboarded = true;
+    commit();
+  }
 
   function wipe() {
     db = seed();
@@ -1042,6 +1084,6 @@ App.store = (function () {
     studyByDay, studyThisWeek, serviceHours, attendanceRate,
     habitStreak, goalProgress, readingPace, runTemplates,
     touchStreak, addUsage,
-    exportJSON, importJSON, reset, wipe
+    exportJSON, importJSON, reset, wipe, loadDemo
   };
 })();
