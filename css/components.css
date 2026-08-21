@@ -535,6 +535,96 @@
 .empty .e-sub { font-size: .81rem; margin-top: 4px; max-width: 330px; }
 .empty .btn { margin-top: 14px; }
 
+/* --------------------------------------------- U39 project timeline -- */
+
+.tl { display: flex; flex-direction: column; gap: 2px; }
+.tl-row {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.tl-row:hover:not(.tl-head) { background: var(--surface-2); }
+.tl-head { cursor: default; padding-bottom: 10px; }
+.tl-child .tl-label { padding-left: 12px; }
+
+.tl-label {
+  font-size: .84rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-label .tiny { display: block; font-weight: 500; }
+
+.tl-track {
+  position: relative;
+  height: 22px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+.tl-head .tl-track { height: 18px; }
+
+.tl-mark {
+  position: absolute; top: 0; bottom: -9999px;
+  border-left: 1px dashed var(--border);
+  font-size: .68rem;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.tl-mark > span { position: absolute; top: 0; left: 3px; }
+
+.tl-today {
+  position: absolute; top: 0; bottom: -9999px;
+  border-left: 2px solid var(--brand-600);
+  z-index: 1;
+}
+
+.tl-bar {
+  position: absolute; top: 3px; bottom: 3px;
+  border-radius: 999px;
+  min-width: 6px;
+  opacity: .88;
+  overflow: hidden;
+}
+.tl-row:hover .tl-bar { opacity: 1; }
+.tl-bar.is-done { opacity: .4; }
+.tl-bar.is-overdue { box-shadow: 0 0 0 2px var(--danger); }
+/* Lighter wash showing how much of the item's checklist is finished. */
+.tl-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: rgba(255, 255, 255, .45);
+}
+
+@media (max-width: 640px) {
+  .tl-row { grid-template-columns: 120px 1fr; gap: 8px; }
+  .tl-label { font-size: .78rem; }
+}
+
+/* ------------------------------------------------- U14 class covers -- */
+
+.class-cover {
+  height: 92px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background-color: var(--cover-tint, var(--surface-2));
+  background-size: cover;
+  background-position: center;
+  position: relative;
+}
+/* A soft tint in the class colour keeps card text legible over any photo. */
+.class-cover::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, transparent 45%, rgba(0, 0, 0, .18) 100%);
+}
+.class-cover-missing { height: 4px; }
+.class-cover-missing::after { content: none; }
+
 /* ------------------------------------------------------- add chooser -- */
 
 .add-grid {

@@ -620,6 +620,8 @@
 .week-col.is-today { background: var(--brand-50); }
 [data-theme="dark"] .week-col.is-today { background: rgba(79, 70, 229, .07); }
 .week-col.drop { background: var(--brand-100); }
+/* U30 — month cells are drop targets too, so a drag can start anywhere. */
+.cal-day.drop { background: var(--brand-100); outline: 2px solid var(--brand-500); outline-offset: -2px; }
 
 .week-line {
   position: absolute; left: 0; right: 0;

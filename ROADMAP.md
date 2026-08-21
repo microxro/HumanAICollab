@@ -25,7 +25,7 @@ before being committed. A handful of bugs were caught this way and fixed
 before shipping (see commit history for specifics), rather than only
 checked for syntax.
 
-**Functionality — 86 of 100 shipped.** F001–F045 and F048–F052 (grading,
+**Functionality — 93 of 100 shipped.** F001–F045 and F048–F052 (grading,
 assignments, study tools, scheduling), F053, F064, F065, F067, F068, F071,
 F072 (friend requests, invite links, grade-drop alerts, check-ins, guardian
 notes, emergency contacts), F073–F092 (wellbeing and insight, all of it),
@@ -43,20 +43,25 @@ scheduled function, built entirely from the same privacy-filtered summary
 each student's device already pushes for the parent portal — so it can't
 leak anything a student didn't already agree to share).
 
-**Not attempted — 14 items**, still genuinely blocked on infrastructure
-this sandbox doesn't have or deprioritized as large, narrow-value backend
-surface: F047 (two-way calendar sync — needs a deployed backend to verify
-against), F054–F056, F057, F059, F061–F063 (deeper group features — task
-assignment, common free period, peer tutoring, attributed notes,
-challenges — each needs new cross-member data sharing beyond what groups
-currently sync), F095 (inbound email parsing needs a different provider
-than the outbound one F066/F098 use — deprioritized on its own), F093,
-F094, F097 (real OAuth credentials for Google/Canvas — none exist in this
-environment), F100 (a public API + webhooks is its own project: token
-issuance, a documented read surface, delivery retries — sized **L** for a
-reason).
+**Not attempted — 6 items**, all genuinely blocked on credentials or
+third-party infrastructure this environment doesn't have: F047 (two-way
+calendar sync — needs a deployed backend to verify against), F059 (teacher
+accounts — effectively a second product surface), F093, F094 (real OAuth
+credentials for Google Classroom / Canvas), F095 (inbound email parsing
+needs a different provider than the outbound one F066/F098 use), F100 (a
+public API + webhooks is its own project: token issuance, a documented read
+surface, delivery retries — sized **L** for a reason).
 
-**Interface — 47 of 50 shipped**, all with zero visual redesign — every new
+A later pass cleared the seven group-collaboration items that had been
+listed here as blocked: F054–F057 and F061–F063 (shared project calendar,
+task assignment, accountability partners, common free period, peer tutoring,
+attributed shared notes, cooperative challenges). All seven hang off the
+existing group blob, so membership stays the single access check. The
+availability feature shares only *busy* blocks, never schedules, so a group
+can find an overlap without anyone's class names or grades becoming visible
+to classmates.
+
+**Interface — 50 of 50 shipped**, all with zero visual redesign — every new
 token or component layers onto the existing design system rather than
 replacing it. The first pass shipped U01–U03, U07, U09–U11, U13, U26, U29,
 U32, U38, U42, U45, U46, U48. A later pass added the rest: U04–U06, U08
@@ -86,11 +91,15 @@ inline SVG so they pick up the accent color and both themes for free; a
 settings toggle lets each person choose between the drawn set and the
 original emoji, defaulting to drawn for new and existing users alike).
 
-**Not attempted — 3 items**: U14 (class cover images — real asset work,
-deliberately left for a design decision rather than guessed at), and U30,
-U39 (drag assignments onto any calendar view from anywhere, and a
-Gantt-style project timeline — both sized **L**, each closer to its own
-feature than an afternoon's addition).
+**All 50 interface items are now shipped.** The last three landed in a
+later pass: U14 (class cover images, stored in IndexedDB alongside
+attachments rather than the synced JSON, so a photo can't blow past the
+sync payload limit — a missing blob falls back to the colour bar), U30
+(the drag payload moved onto `dataTransfer`, so a drag can start in one
+component and finish in another; month cells are drop targets too, not just
+the week grid), and U39 (a Gantt-style timeline mode on Homework, with
+checkpoints nested under their parent project — the case a flat list
+flattens worst).
 
 **Beyond the backlog — 3 AI features**, none of the 150 items above: natural-
 language schedule add, photo/schedule-image extraction, and a private data

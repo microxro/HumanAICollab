@@ -843,6 +843,97 @@ App.views.homework = (function () {
     }).join("")}${hasMore ? `<div class="list-sentinel" data-sentinel></div>` : ""}</div>`;
   }
 
+  /**
+   * U39 — a Gantt-style track. A flat list hides how multi-week work overlaps;
+   * this lays each item as a bar from when it was assigned to when it's due,
+   * so a crunch is visible as bars stacking up in the same column.
+   *
+   * Parent/child projects (F018 checkpoints) nest under their parent, which is
+   * the case a list flattens worst.
+   */
+  function timelineHTML(rows) {
+    const items = rows.filter((a) => a.due);
+    if (!items.length) {
+      return `<div class="card"><div class="card-body">${UI.emptyState("homework",
+        "Nothing to lay out", "Add something with a due date and it'll show up here.")}</div></div>`;
+    }
+
+    // Window: today (or the earliest start, whichever is earlier) to the last
+    // due date, capped so one far-future item can't squash everything else.
+    const today = U.today();
+    const starts = items.map((a) => (a.assigned && a.assigned < a.due ? a.assigned : a.due));
+    let from = starts.reduce((m, d) => (d < m ? d : m), today);
+    let to = items.reduce((m, a) => (a.due > m ? a.due : m), today);
+    const MAX_DAYS = 90;
+    if (U.diffDays(to, from) > MAX_DAYS) to = U.dateKey(U.addDays(U.parseDate(from), MAX_DAYS));
+    const span = Math.max(1, U.diffDays(to, from));
+
+    const pct = (iso) => U.clamp((U.diffDays(iso, from) / span) * 100, 0, 100);
+
+    // Week gridlines give the bars something to be read against.
+    const marks = [];
+    for (let d = 0; d <= span; d += 7) {
+      const iso = U.dateKey(U.addDays(U.parseDate(from), d));
+      marks.push({ left: (d / span) * 100, label: U.fmtDate(iso) });
+    }
+
+    // Children directly after their parent; everything else by due date.
+    const parents = items.filter((a) => !a.parentId);
+    const ordered = [];
+    U.sortBy(parents, (a) => a.due).forEach((p) => {
+      ordered.push(p);
+      U.sortBy(items.filter((c) => c.parentId === p.id), (c) => c.due).forEach((c) => ordered.push(c));
+    });
+    // Orphans (a child whose parent is filtered out) still deserve a row.
+    items.forEach((a) => { if (!ordered.includes(a)) ordered.push(a); });
+
+    const row = (a) => {
+      const c = S.cls(a.classId);
+      const color = c ? c.color : "#64748b";
+      const startIso = a.assigned && a.assigned < a.due ? a.assigned : a.due;
+      const left = pct(startIso);
+      const right = pct(a.due);
+      const width = Math.max(1.5, right - left);
+      const overdue = a.status !== "done" && a.due < today;
+      // progressOf() returns a 0–1 ratio, not a percentage.
+      const prog = S.progressOf ? S.progressOf(a) * 100 : null;
+
+      return `<div class="tl-row ${a.parentId ? "tl-child" : ""}" data-open="${a.id}">
+        <div class="tl-label" title="${U.esc(a.title)}">
+          ${a.parentId ? `<span class="dim">↳</span> ` : ""}${U.esc(a.title)}
+          <span class="tiny dim">${U.esc(c ? c.name : "")}</span>
+        </div>
+        <div class="tl-track">
+          <div class="tl-bar ${a.status === "done" ? "is-done" : ""} ${overdue ? "is-overdue" : ""}"
+               style="left:${left}%;width:${width}%;background:${U.esc(color)}"
+               title="${U.esc(a.title)} — ${startIso === a.due ? "due " : U.fmtDate(startIso) + " → "}${U.fmtDate(a.due)}">
+            ${prog != null && a.status !== "done" ? `<span class="tl-fill" style="width:${U.clamp(prog, 0, 100)}%"></span>` : ""}
+          </div>
+        </div>
+      </div>`;
+    };
+
+    return `<div class="card">
+      <div class="card-head">
+        <div><h3>Timeline</h3><div class="sub">${U.fmtDate(from)} → ${U.fmtDate(to)}${U.diffDays(to, from) >= MAX_DAYS ? " (capped)" : ""}</div></div>
+        <span class="badge">${U.plural(ordered.length, "item")}</span>
+      </div>
+      <div class="card-body scroll-x">
+        <div class="tl" style="min-width:640px">
+          <div class="tl-row tl-head">
+            <div class="tl-label"></div>
+            <div class="tl-track">
+              ${marks.map((m) => `<span class="tl-mark" style="left:${m.left}%"><span>${U.esc(m.label)}</span></span>`).join("")}
+              ${U.diffDays(today, from) >= 0 && U.diffDays(to, today) >= 0
+                ? `<span class="tl-today" style="left:${pct(today)}%" title="Today"></span>` : ""}
+            </div>
+          </div>
+          ${ordered.map(row).join("")}
+        </div>
+      </div>
+    </div>`;
+  }
+
   function boardHTML(rows) {
     return `<div class="board">${COLUMNS.map((col) => {
       const items = rows.filter((a) => (a.status || "todo") === col.id);
@@ -885,6 +976,7 @@ App.views.homework = (function () {
           <div class="segmented">
             <button class="${mode === "list" ? "active" : ""}" data-mode="list">List</button>
             <button class="${mode === "board" ? "active" : ""}" data-mode="board">Board</button>
+            <button class="${mode === "timeline" ? "active" : ""}" data-mode="timeline" title="Multi-week projects as bars across a calendar">Timeline</button>
           </div>
           ${mode === "list" ? `<button class="btn ${selectMode ? "active" : ""}" data-select-mode>${selectMode ? "Done selecting" : "Select"}</button>` : ""}
           <button class="btn btn-primary" data-add>+ Add assignment</button>
@@ -949,7 +1041,9 @@ App.views.homework = (function () {
         </div>
       </div></div>
 
-      ${mode === "list" ? `<div class="card">${listHTML(rows)}</div>` : boardHTML(rows)}
+      ${mode === "list" ? `<div class="card">${listHTML(rows)}</div>`
+        : mode === "timeline" ? timelineHTML(rows)
+        : boardHTML(rows)}
     </div>`;
   }
 

@@ -386,8 +386,9 @@ App.views.calendar = (function () {
           return `<div class="week-allday-col" data-day="${iso}">
             ${allDay.map((e) => `<span class="cal-pill" style="background:#64748b">${U.esc(e.title)}</span>`).join("")}
             ${due.map((a) => `<span class="cal-pill" data-open-hw="${a.id}"
+                draggable="true" data-plan="${a.id}"
                 style="background:${U.esc(S.classColor(a.classId))};${a.status === "done" ? "opacity:.45;text-decoration:line-through" : ""}"
-                title="${U.esc(a.title)}">📌 ${U.esc(a.title)}</span>`).join("")}
+                title="${U.esc(a.title)} — drag onto another day to plan study time">📌 ${U.esc(a.title)}</span>`).join("")}
           </div>`;
         }).join("")}
       </div>
@@ -496,24 +497,34 @@ App.views.calendar = (function () {
       App.views.classes.detail(el.dataset.class);
     });
 
-    // Drag a planned study block to another day in the week view.
-    let dragging = null;
+    // U30 — the payload rides on dataTransfer rather than a module-local
+    // variable, so a drag can start in one component (week grid, month cell,
+    // agenda row, due-soon list) and finish in another. A local variable only
+    // worked inside the week grid and was wiped by any repaint mid-drag.
+    const DRAG_TYPE = "text/scholar-assignment";
+    let dragging = null;   // kept only for the drag-image opacity reset
+
     U.on(root, "dragstart", "[data-plan]", (e, el) => {
       dragging = el.dataset.plan;
       el.style.opacity = ".4";
       e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData(DRAG_TYPE, el.dataset.plan);
+      e.dataTransfer.setData("text/plain", el.dataset.plan);
     });
-    U.on(root, "dragend", "[data-plan]", (_e, el) => { el.style.opacity = ""; });
-    U.on(root, "dragover", "[data-drop-day]", (e, el) => { e.preventDefault(); el.classList.add("drop"); });
-    U.on(root, "dragleave", "[data-drop-day]", (_e, el) => el.classList.remove("drop"));
-    U.on(root, "drop", "[data-drop-day]", (e, el) => {
+    U.on(root, "dragend", "[data-plan]", (_e, el) => { el.style.opacity = ""; dragging = null; });
+
+    const dropTargets = "[data-drop-day], .cal-day[data-day]";
+    U.on(root, "dragover", dropTargets, (e, el) => { e.preventDefault(); el.classList.add("drop"); });
+    U.on(root, "dragleave", dropTargets, (_e, el) => el.classList.remove("drop"));
+    U.on(root, "drop", dropTargets, (e, el) => {
       e.preventDefault();
       el.classList.remove("drop");
-      if (!dragging) return;
-      const a = S.byId("assignments", dragging);
-      const target = el.dataset.dropDay;
+      const id = e.dataTransfer.getData(DRAG_TYPE) || e.dataTransfer.getData("text/plain") || dragging;
+      if (!id) return;
+      const a = S.byId("assignments", id);
+      const target = el.dataset.dropDay || el.dataset.day;
       dragging = null;
-      if (!a) return;
+      if (!a || !target) return;
       if (U.diffDays(target, a.due) > 0) {
         UI.toast("That's after the deadline", `"${a.title}" is due ${U.relDate(a.due)}.`, "warn");
         return;

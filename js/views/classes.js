@@ -12,6 +12,8 @@ App.views.classes = (function () {
 
   function classForm(cl, onDone) {
     const c = cl || {};
+    let coverPending = null;    // U14 — a File chosen but not yet saved
+    let coverRemoved = false;
     return UI.modal({
       title: cl ? "Edit class" : "Add a class",
       size: "wide",
@@ -71,6 +73,14 @@ App.views.classes = (function () {
           ${UI.colorPicker("color", c.color || S.PALETTE[0])}
         </div>
         <div class="field full">
+          <label>Cover image <span class="hint">optional — shown on the class card</span></label>
+          <div class="row gap-8 wrap" style="align-items:center">
+            <input class="input grow" type="file" accept="image/*" id="coverFile" style="min-width:180px" />
+            ${c.cover ? `<button type="button" class="btn btn-sm" id="removeCover">Remove current</button>` : ""}
+          </div>
+          <div id="coverPreview" class="mt-8"></div>
+        </div>
+        <div class="field full">
           <label>Subject icon <span class="hint">a second way to tell classes apart besides color</span></label>
           <select class="select" name="icon">
             <option value="">Guess from the class name (${U.esc(U.subjectIconChar(U.guessSubjectIcon(c.name || "")))})</option>
@@ -78,7 +88,46 @@ App.views.classes = (function () {
           </select>
         </div>
       </div>`,
-      onMount(root) { UI.bindSwatches(root); UI.bindDays(root); },
+      onMount(root) {
+        UI.bindSwatches(root);
+        UI.bindDays(root);
+
+        // U14 — cover images live in IndexedDB (same store as attachments),
+        // not in the synced JSON blob, so a photo can't blow past the sync
+        // payload limit. The class record only carries the key.
+        const fileInput = root.querySelector("#coverFile");
+        const preview = root.querySelector("#coverPreview");
+        const showPreview = (src) => {
+          preview.innerHTML = src
+            ? `<img src="${src}" alt="" style="width:100%;max-height:140px;object-fit:cover;border-radius:var(--radius-sm)" />`
+            : "";
+        };
+        if (c.cover) App.idb.dataUrl(c.cover).then(showPreview).catch(() => {});
+
+        fileInput.addEventListener("change", () => {
+          const f = fileInput.files[0];
+          if (!f) { showPreview(""); coverPending = null; return; }
+          if (f.size > 4 * 1024 * 1024) {
+            UI.toast("That image is too large", "Pick one under 4 MB.", "warn");
+            fileInput.value = "";
+            return;
+          }
+          coverPending = f;
+          const fr = new FileReader();
+          fr.onload = () => showPreview(String(fr.result));
+          fr.readAsDataURL(f);
+        });
+
+        const rm = root.querySelector("#removeCover");
+        if (rm) rm.addEventListener("click", () => {
+          coverRemoved = true;
+          coverPending = null;
+          fileInput.value = "";
+          showPreview("");
+          rm.remove();
+          UI.toast("Cover removed", "Save to confirm.", "warn");
+        });
+      },
       onSubmit(d) {
         if (!d.name.trim()) return false;
         const patch = {
@@ -92,20 +141,42 @@ App.views.classes = (function () {
           // name-sniffing; an explicit 0 must survive as a real zero.
           gpaBoost: d.gpaBoost === "" || d.gpaBoost == null ? null : Number(d.gpaBoost)
         };
-        if (cl) {
-          S.update("classes", cl.id, patch);
-          UI.toast("Class updated", patch.name);
-        } else {
-          patch.categories = [
-            { id: U.uid("cat"), name: "Tests", weight: 40 },
-            { id: U.uid("cat"), name: "Homework", weight: 30 },
-            { id: U.uid("cat"), name: "Quizzes", weight: 20 },
-            { id: U.uid("cat"), name: "Participation", weight: 10 }
-          ];
-          S.insert("classes", patch);
-          UI.toast("Class added", patch.name, "ok");
+        // U14 — resolve the cover before saving so the record never points at
+        // a key that isn't in IndexedDB yet.
+        if (coverRemoved && c.cover) {
+          App.idb.del(c.cover).catch(() => {});
+          patch.cover = null;
         }
-        if (onDone) setTimeout(onDone, 60);   // U49 onboarding wizard step chain
+
+        const finish = () => {
+          if (cl) {
+            S.update("classes", cl.id, patch);
+            UI.toast("Class updated", patch.name);
+          } else {
+            patch.categories = [
+              { id: U.uid("cat"), name: "Tests", weight: 40 },
+              { id: U.uid("cat"), name: "Homework", weight: 30 },
+              { id: U.uid("cat"), name: "Quizzes", weight: 20 },
+              { id: U.uid("cat"), name: "Participation", weight: 10 }
+            ];
+            S.insert("classes", patch);
+            UI.toast("Class added", patch.name, "ok");
+          }
+          if (onDone) setTimeout(onDone, 60);   // U49 onboarding wizard step chain
+        };
+
+        if (coverPending) {
+          const key = U.uid("cover");
+          App.idb.put(key, coverPending)
+            .then(() => {
+              if (c.cover) App.idb.del(c.cover).catch(() => {});
+              patch.cover = key;
+            })
+            .catch(() => UI.toast("Couldn't save the cover", "The rest of the class was saved.", "warn"))
+            .then(finish);
+        } else {
+          finish();
+        }
       }
     });
   }
@@ -547,7 +618,10 @@ App.views.classes = (function () {
         const doneRatio = work.length ? (work.filter((a) => a.status === "done").length / work.length) * 100 : 0;
         const iconChar = U.subjectIconChar(c.icon || U.guessSubjectIcon(c.name));
         return `<div class="card card-link" data-class="${c.id}">
-          <div style="height:4px;background:${U.esc(c.color)};border-radius:var(--radius) var(--radius) 0 0"></div>
+          ${c.cover
+            ? `<div class="class-cover" data-cover="${U.esc(c.cover)}"
+                    style="--cover-tint:${U.esc(c.color)}"></div>`
+            : `<div style="height:4px;background:${U.esc(c.color)};border-radius:var(--radius) var(--radius) 0 0"></div>`}
           <div class="card-body">
             <div class="between mb-8">
               <div class="row gap-8" style="min-width:0">
@@ -584,6 +658,20 @@ App.views.classes = (function () {
   function mount(root) {
     U.on(root, "click", "[data-add]", () => classForm(null));
     U.on(root, "click", "[data-periods]", () => periodsEditor());
+    // U14 — covers live in IndexedDB, so they're fetched after render rather
+    // than inlined. A missing or unreadable blob just leaves the colour bar.
+    U.$$("[data-cover]", root).forEach((el) => {
+      App.idb.dataUrl(el.dataset.cover)
+        .then((src) => {
+          // dataUrl() resolves null rather than rejecting when the blob is
+          // gone (cleared site data, a different device). Fall back to the
+          // plain colour bar instead of leaving an empty tinted banner.
+          if (src) el.style.backgroundImage = `url("${src}")`;
+          else el.classList.add("class-cover-missing");
+        })
+        .catch(() => { el.classList.add("class-cover-missing"); });
+    });
+
     U.on(root, "click", "[data-class]", (_e, el) => detail(el.dataset.class));
   }
 
