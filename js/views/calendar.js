@@ -37,7 +37,15 @@ App.views.calendar = (function () {
       }));
     }
 
-    return out.sort((a, b) => (U.toMin(a.start) || 9999) - (U.toMin(b.start) || 9999));
+    // `U.toMin("00:00")` is 0, which is falsy — so a midnight item took the
+    // 9999 fallback and sorted *after* everything later in the day. Only a
+    // genuinely missing start time should sort last, and store.js sorts the
+    // same records the other way, so the two views disagreed.
+    const at = (t) => {
+      const m = U.toMin(t);
+      return (t && Number.isFinite(m)) ? m : 9999;
+    };
+    return out.sort((a, b) => at(a.start) - at(b.start));
   }
 
   /* ------------------------------------------------------------- forms -- */

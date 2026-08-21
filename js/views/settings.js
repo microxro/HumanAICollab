@@ -649,9 +649,20 @@ App.views.settings = (function () {
   }
 
   /** Renders the AI service diagnostic into #aiStatus. */
-  function renderAiStatus(root, probe) {
+  // Last health result, so a repaint doesn't re-request. Probes are never
+  // cached — the whole point of a probe is to try it again for real.
+  let aiStatusCache = { at: 0, html: null };
+  const AI_STATUS_TTL = 60000;
+
+  function renderAiStatus(root, probe, allowCache) {
     const box = root.querySelector("#aiStatus");
     if (!box) return;
+
+    if (allowCache && !probe && aiStatusCache.html && Date.now() - aiStatusCache.at < AI_STATUS_TTL) {
+      box.innerHTML = aiStatusCache.html;
+      return;
+    }
+
     box.innerHTML = `<span class="dim">${probe ? "Testing a real request…" : "Checking…"}</span>`;
 
     App.assistant.checkHealth(probe).then((h) => {
@@ -699,6 +710,7 @@ App.views.settings = (function () {
       }
 
       box.innerHTML = rows.join("");
+      if (!probe) aiStatusCache = { at: Date.now(), html: box.innerHTML };
     }).catch((e) => {
       box.innerHTML = `<div class="small" style="color:var(--danger)">${U.esc(e.message)}</div>`;
     });
@@ -1255,7 +1267,11 @@ App.views.settings = (function () {
       U.download(`scholar-backup-${U.today()}.json`, S.exportJSON());
       UI.toast("Backup downloaded", "Keep it somewhere safe.", "ok");
     });
-    if (root.querySelector("#aiStatus")) renderAiStatus(root, false);
+    // Every commit repaints the page, and mount() re-runs — so toggling any
+    // setting on this tab fired a fresh network request. Cache the last
+    // non-probe result briefly; the explicit "Check again" button below
+    // bypasses it.
+    if (root.querySelector("#aiStatus")) renderAiStatus(root, false, true);
     U.on(root, "click", "[data-ai-check]", () => renderAiStatus(root, false));
     U.on(root, "click", "[data-ai-probe]", () => renderAiStatus(root, true));
 

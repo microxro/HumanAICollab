@@ -63,18 +63,44 @@ App.views.focus = (function () {
     paint();
   }
 
-  function complete() {
+  /**
+   * @param {boolean} skipped true when the person pressed ⏭ rather than
+   *   letting the block run out.
+   *
+   * Skipping used to call complete() unchanged, which logged a full block at
+   * cfg().focus minutes and awarded the XP regardless of elapsed time — so
+   * Start then immediately Skip banked a 25-minute study session, repeatable
+   * as fast as you can click. Only the time actually spent is credited now,
+   * and a block under a minute isn't recorded at all.
+   */
+  function complete(skipped) {
     pause();
     const finished = timer.phase;
 
+    const planned = cfg().focus;
+    const elapsedMin = skipped
+      ? Math.floor((phaseSeconds("focus") - timer.remaining) / 60)
+      : planned;
+
+    if (finished === "focus" && elapsedMin < 1) {
+      // Skipped almost immediately: nothing worth recording, and saying
+      // "Break over" here would be plainly wrong.
+      timer.phase = "focus";
+      timer.remaining = phaseSeconds("focus");
+      UI.toast("Skipped", "Nothing logged — that block was under a minute.");
+      App.router.refresh();
+      return;
+    }
+
     if (finished === "focus") {
-      // Log the completed focus block as a real study session.
+      // Log the focus block as a real study session, for the time spent.
       S.commit((db) => {
         db.studySessions.push({
           id: U.uid("ss"), classId: timer.classId || null,
-          date: U.today(), minutes: cfg().focus, kind: "focus"
+          date: U.today(), minutes: elapsedMin, kind: "focus"
         });
-        db.streak.xp += 25;
+        // XP in proportion, so a skipped block can't out-earn a finished one.
+        db.streak.xp += Math.max(1, Math.round(25 * (elapsedMin / Math.max(1, planned))));
       });
       const next = timer.round % cfg().rounds === 0 ? "long" : "short";
       timer.round += 1;
@@ -82,8 +108,9 @@ App.views.focus = (function () {
       timer.remaining = phaseSeconds(next);
       // F075 — a break nudge is still shown (you need to know time's up),
       // but the audible ping is skipped during quiet hours.
-      UI.toast("Focus block complete! 🎉",
-        `${cfg().focus} minutes logged${timer.classId ? " to " + S.className(timer.classId) : ""}. Time for a ${next === "long" ? "long" : "short"} break.`, "ok");
+      UI.toast(skipped ? "Block ended early" : "Focus block complete! 🎉",
+        `${elapsedMin} minute${elapsedMin === 1 ? "" : "s"} logged${timer.classId ? " to " + S.className(timer.classId) : ""}. ` +
+        `Time for a ${next === "long" ? "long" : "short"} break.`, "ok");
       if (!App.notify.inQuietHours()) ping();
     } else {
       timer.phase = "focus";
@@ -305,16 +332,21 @@ App.views.focus = (function () {
             <option value="">— General —</option>${UI.classOptions(null)}
           </select></div>
         <div class="field"><label>Date</label>
-          <input class="input" type="date" name="date" value="${U.today()}" /></div>
+          <input class="input" type="date" name="date" value="${U.today()}" required /></div>
         <div class="field"><label>Minutes</label>
-          <input class="input" type="number" name="minutes" min="1" value="30" /></div>
+          <input class="input" type="number" name="minutes" min="1" max="1440" step="1" value="30" required /></div>
       </div>`,
       onSubmit(d) {
+        // Constraint validation catches the empty and out-of-range cases now
+        // that modal forms are no longer `novalidate`; this is the belt to
+        // that braces, since a 0-minute session skews every study statistic.
+        const minutes = Math.round(Number(d.minutes));
+        if (!Number.isFinite(minutes) || minutes < 1) return false;
         S.insert("studySessions", {
           classId: d.classId || null, date: d.date,
-          minutes: Number(d.minutes) || 0, kind: "manual"
+          minutes: Math.min(1440, minutes), kind: "manual"
         });
-        UI.toast("Session logged", `${d.minutes} minutes`, "ok");
+        UI.toast("Session logged", `${minutes} minutes`, "ok");
       }
     });
   }
@@ -323,7 +355,7 @@ App.views.focus = (function () {
     paint();
     root.querySelector("#timerToggle").addEventListener("click", () => (timer.running ? pause() : start()));
     U.on(root, "click", "[data-reset]", reset);
-    U.on(root, "click", "[data-skip]", () => complete());
+    U.on(root, "click", "[data-skip]", () => complete(true));
     U.on(root, "click", "[data-phase]", (_e, el) => setPhase(el.dataset.phase));
     U.on(root, "click", "[data-settings]", settingsForm);
     U.on(root, "click", "[data-log]", logForm);

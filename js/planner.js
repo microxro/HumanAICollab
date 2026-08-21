@@ -17,7 +17,22 @@ App.planner = (function () {
    * and derive a correction factor. Uses the median ratio so one disastrous
    * essay doesn't skew everything, and needs at least 4 samples to speak up.
    */
+  // calibration() re-scans, maps and sorts every assignment. It is reached
+  // from correctedEstimate() (once per assignment), from warnings(), and —
+  // via the planner nav badge — from renderNav(), which runs inside *every*
+  // paint(). With a few hundred assignments, typing in the homework search
+  // box cost seconds per keystroke. The result only changes when the data
+  // does, so cache it against the store's revision.
+  let calCache = { rev: -1, value: null };
+
   function calibration() {
+    if (calCache.rev === S.rev() && calCache.value) return calCache.value;
+    const value = computeCalibration();
+    calCache = { rev: S.rev(), value };
+    return value;
+  }
+
+  function computeCalibration() {
     const samples = S.db.assignments
       .filter((a) => a.status === "done" && a.actualMinutes > 0 && a.estMinutes > 0)
       .map((a) => ({ ratio: a.actualMinutes / a.estMinutes, type: a.type, a }));

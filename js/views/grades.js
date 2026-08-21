@@ -3,6 +3,22 @@
    ========================================================================== */
 
 App.views.grades = (function () {
+  /**
+   * An optional number field: null when the user left it blank.
+   *
+   * The call sites here tested only `d.x === ""`, but ui.js already turns an
+   * empty <input type="number"> into null before the handler sees it — so the
+   * test never matched and Number(null) wrote 0. Leaving "Actual score" blank
+   * therefore recorded a real zero: the row rendered "Actual 0", and because
+   * the Edit affordance is gated on `actualScore != null`, it disappeared for
+   * good with no way to correct the entry.
+   */
+  function optNum(v) {
+    if (v === "" || v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
   const U = App.utils, S = App.store, UI = App.ui, C = App.charts;
 
   let selected = null;      // classId for the trend chart, null = all
@@ -231,10 +247,10 @@ App.views.grades = (function () {
         S.update("classes", classId, {
           rules: { dropLowest, curve: Number(d.curve) || 0, catFloor, catCap },
           gradingMode: d.gradingMode, standardsScale: Number(d.standardsScale) || 4,
-          percentileInput: d.percentileInput === "" ? null : Number(d.percentileInput),
+          percentileInput: optNum(d.percentileInput),
           examWeight: Number(d.examWeight) || 0,
           passFail: !!d.passFail, auditOnly: !!d.auditOnly,
-          latePenalty: d.latePerDay === "" ? null : { perDay: Number(d.latePerDay) || 0, max: d.lateMax === "" ? 100 : Number(d.lateMax) }
+          latePenalty: optNum(d.latePerDay) == null ? null : { perDay: optNum(d.latePerDay) || 0, max: optNum(d.lateMax) == null ? 100 : optNum(d.lateMax) }
         });
         UI.toast("Rules saved", c.name);
       }
@@ -327,10 +343,17 @@ App.views.grades = (function () {
             needEl.textContent = "Not reachable";
             note.textContent = `Even a perfect ${pts}/${pts} wouldn't get you to ${target}% on this assignment alone.`;
           } else {
-            needEl.textContent = `${U.round(need, 1)} / ${pts}  (${U.round((need / pts) * 100, 1)}%)`;
+            // pts is user input and can legitimately be 0 ("ungraded
+            // practice"), which made this render "0 / 0  (NaN%)".
+            const pctOfPts = pts > 0 ? (need / pts) * 100 : null;
+            needEl.textContent = pctOfPts == null
+              ? `${U.round(need, 1)} points`
+              : `${U.round(need, 1)} / ${pts}  (${U.round(pctOfPts, 1)}%)`;
             note.textContent = need <= 0
               ? `You're already at or above ${target}% — this assignment can't drop you below it.`
-              : `That's a ${U.pctToLetter((need / pts) * 100)} on this assignment.`;
+              : pctOfPts == null
+                ? "Give the assignment a points value to see this as a percentage."
+                : `That's a ${U.pctToLetter(pctOfPts)} on this assignment.`;
           }
         };
         ["#wiCat", "#wiPoints", "#wiEarned", "#wiTarget"].forEach((sel) => {
@@ -474,8 +497,8 @@ App.views.grades = (function () {
         if (!d.name.trim()) return false;
         const patch = {
           name: d.name.trim(), examDate: d.examDate,
-          predictedScore: d.predictedScore === "" ? null : Number(d.predictedScore),
-          actualScore: d.actualScore === "" ? null : Number(d.actualScore)
+          predictedScore: optNum(d.predictedScore),
+          actualScore: optNum(d.actualScore)
         };
         if (exam) S.update("apExams", exam.id, patch);
         else S.insert("apExams", patch);

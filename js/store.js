@@ -533,8 +533,15 @@ App.store = (function () {
     [...listeners].forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
   }
 
+  // Bumped on every mutation. Derived values that are expensive to compute
+  // and read many times per paint (planner calibration, study aggregates) key
+  // their caches on this rather than recomputing per call.
+  let revision = 0;
+  function rev() { return revision; }
+
   function commit(fn) {
     if (fn) fn(db);
+    revision++;
     db.ui.dirty = Date.now();
     save();
     emit();
@@ -633,9 +640,21 @@ App.store = (function () {
     if (sc.skipWeekends && (dow === 0 || dow === 6)) return null;
     if (isHoliday(iso)) return null;
 
+    // A blank or malformed anchor made U.parseDate return null, and
+    // `new Date(null)` is the epoch — so the day loop below walked from 1970,
+    // roughly 20,000 iterations, each one calling isHoliday() which scans
+    // every event. attendanceRate() calls this 21 times and the week view 7,
+    // so clearing the cycle-anchor date froze the dashboard for seconds on
+    // every single repaint.
     const anchor = U.parseDate(sc.anchor);
     const target = U.parseDate(iso);
+    if (!anchor || !target) return null;
     if (target < anchor) return null;
+
+    // A rotating cycle that somehow spans years is a data problem, not
+    // something to grind through on the render path.
+    const MAX_DAYS = 800;
+    if (U.diffDays(iso, U.dateKey(anchor)) > MAX_DAYS) return null;
 
     let count = 0;
     for (let d = new Date(anchor); d <= target; d.setDate(d.getDate() + 1)) {
@@ -1152,6 +1171,7 @@ App.store = (function () {
   function replaceAll(next) {
     db = migrate(next);
     if (App.store && App.store.ensureV3) App.store.ensureV3();
+    revision++;
     save();
     emit();
   }
@@ -1187,7 +1207,7 @@ App.store = (function () {
     get settings() { return db.settings; },
     get profile() { return db.profile; },
     get account() { return db.account; },
-    commit, subscribe, save, replaceAll,
+    commit, subscribe, save, replaceAll, rev,
     corruptBackups, readCorruptBackup, discardCorruptBackup,
     all, byId, insert, update, remove, restore, purgeTrash,
     cls, teacher, period, classColor, className, currentTerm, termClasses,

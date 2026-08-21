@@ -231,11 +231,20 @@
     let pct = hasCatRules(c.rules) ? weightedFromCategories(classId) : orig.classGrade(classId);
     if (pct == null || !c.examWeight) return pct;
 
-    const finals = S.assignmentsFor(classId).filter((a) => a.graded && a.earned != null && /final|semester exam/i.test(a.type + a.title));
+    // `points > 0` matters: the filter checked that a score exists but not
+    // that the assignment was worth anything, so a "Final Exam" entered as
+    // 0/0 divided by zero and rendered NaN as the class average — on the
+    // dashboard, in Classes, and in Grades at once.
+    const finals = S.assignmentsFor(classId).filter((a) =>
+      a.graded && a.earned != null && a.points > 0 && /final|semester exam/i.test(String(a.type || "") + String(a.title || "")));
     if (!finals.length) return pct;
-    const finalPct = U.sum(finals, (a) => a.earned) / U.sum(finals, (a) => a.points) * 100;
+    const totalPoints = U.sum(finals, (a) => a.points);
+    if (!totalPoints) return pct;
+    const finalPct = (U.sum(finals, (a) => a.earned) / totalPoints) * 100;
+    if (!Number.isFinite(finalPct)) return pct;
     const w = U.clamp(c.examWeight, 0, 100) / 100;
-    return pct * (1 - w) + finalPct * w;
+    const out = pct * (1 - w) + finalPct * w;
+    return Number.isFinite(out) ? out : pct;
   };
 
   // F001 — average proficiency (1..4) for a standards-graded class.

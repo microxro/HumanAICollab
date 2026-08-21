@@ -194,9 +194,21 @@ App.views.dashboard = (function () {
   }
 
   // F083 — each widget's markup, keyed by the id used in settings.dashboardLayout.
+  //
+  // These two aggregates scan the full history and were computed at the top of
+  // this function — which is called once per widget, so nine times per paint,
+  // for values only two widgets read. Cached against the store revision so a
+  // repaint with unchanged data costs nothing.
+  let aggCache = { rev: -1, weekStudy: null, trend: null };
+  function aggregates() {
+    if (aggCache.rev !== S.rev()) {
+      aggCache = { rev: S.rev(), weekStudy: S.studyByDay(28), trend: S.gradeTrend() };
+    }
+    return aggCache;
+  }
+
   function widget(id) {
-    const weekStudy = S.studyByDay(28);
-    const trend = S.gradeTrend();
+    const { weekStudy, trend } = aggregates();
     switch (id) {
       case "hero": return heroHTML();
       case "warnings": return warningsHTML();

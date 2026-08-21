@@ -357,8 +357,12 @@ App.ics = (function () {
         const parsed = App.nlp.findDate(r[iDue].trim()) ;
         if (parsed) date = parsed.date;
         else {
-          const d = new Date(r[iDue]);
-          if (!isNaN(d)) date = U.dateKey(d);
+          // `new Date("2026-09-14")` is parsed as midnight UTC, so dateKey()
+          // in any timezone west of UTC returned the previous day — every
+          // imported due date silently landed 24 hours early. U.parseDate
+          // exists precisely to read a date string in local time.
+          const d = U.parseDate(r[iDue].trim());
+          if (d) date = U.dateKey(d);
         }
       }
 

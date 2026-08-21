@@ -841,3 +841,30 @@ th.sortable:hover { color: var(--text); }
   color: var(--text-2);
   animation: pop .12s var(--ease);
 }
+
+/* --------------------------------------------------------- field errors -- */
+/* Modal forms used to carry `novalidate`, so a failed constraint produced
+   nothing at all — no message, no focus move, just a Save button that
+   appeared to do nothing. Validation is on now, and this is where the
+   message lands. */
+.field-error {
+  margin-top: 4px;
+  color: var(--danger);
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.field-error::before {
+  content: "⚠";
+  flex: none;
+  line-height: 1.35;
+}
+/* Not colour alone: the border weight changes too, so the state survives a
+   greyscale print and a colour-vision difference. */
+.input[aria-invalid="true"],
+.select[aria-invalid="true"],
+.textarea[aria-invalid="true"] {
+  border-color: var(--danger);
+  border-width: 2px;
+  outline-color: var(--danger);
+}

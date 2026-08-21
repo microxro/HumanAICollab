@@ -160,6 +160,40 @@ App.ui = (function () {
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
 
+  /* ------------------------------------------------- field-level errors -- */
+
+  function clearFieldErrors(scope) {
+    U.$$(".field-error", scope).forEach((n) => n.remove());
+    U.$$("[aria-invalid]", scope).forEach((n) => {
+      n.removeAttribute("aria-invalid");
+      n.removeAttribute("aria-describedby");
+    });
+  }
+
+  /** Puts a message next to the control and links it for screen readers. */
+  function showFieldError(el, message) {
+    const id = U.uid("err");
+    const note = document.createElement("div");
+    note.className = "field-error small";
+    note.id = id;
+    note.setAttribute("role", "alert");
+    note.textContent = message;
+    el.setAttribute("aria-invalid", "true");
+    el.setAttribute("aria-describedby", id);
+    (el.closest(".field") || el.parentNode).appendChild(note);
+    // Clear as soon as they start fixing it, rather than leaving a stale
+    // complaint under a field that is now correct.
+    const clear = () => {
+      note.remove();
+      el.removeAttribute("aria-invalid");
+      el.removeAttribute("aria-describedby");
+      el.removeEventListener("input", clear);
+      el.removeEventListener("change", clear);
+    };
+    el.addEventListener("input", clear);
+    el.addEventListener("change", clear);
+  }
+
   /**
    * modal({ title, body, size, footer, onMount, onSubmit })
    * `body` is an HTML string. If `onSubmit` is given the body is wrapped in a
@@ -204,8 +238,14 @@ App.ui = (function () {
       <div class="modal-foot">${footer}</div>`;
 
     const dialogAttrs = `role="dialog" aria-modal="true" aria-labelledby="${titleId}"`;
+    // `novalidate` used to be set here, which quietly disabled every
+    // `required`, `min`, `max`, `step` and `type="email"` attribute in the
+    // whole application — hundreds of them, all decorative. Negative credits
+    // zeroed the GPA, a 10000% category weight was accepted, and a blank
+    // required field just made Save do nothing at all. Constraint validation
+    // is on; the submit handler below reports the first offender.
     root.innerHTML = opts.onSubmit
-      ? `<form class="modal${size}" novalidate ${dialogAttrs}>${inner}</form>`
+      ? `<form class="modal${size}" ${dialogAttrs}>${inner}</form>`
       : `<div class="modal${size}" ${dialogAttrs}>${inner}</div>`;
 
     document.body.appendChild(root);
@@ -226,8 +266,33 @@ App.ui = (function () {
 
     const form = root.querySelector("form");
     if (form && opts.onSubmit) {
+      // `invalid` fires per control during constraint validation and does not
+      // bubble, so this listens in the capture phase. preventDefault()
+      // suppresses the browser's own bubble in favour of a message that sits
+      // next to the field, is styled like the rest of the app, and is wired
+      // to the control with aria-describedby so a screen reader reads it.
+      let firstInvalid = null;
+      form.addEventListener("invalid", (e) => {
+        e.preventDefault();
+        const el = e.target;
+        // A control inside a collapsed section can't be fixed by the person
+        // looking at the form; blocking Save on it with an unreachable
+        // message would be worse than the problem.
+        if (el.type === "hidden" || !el.getClientRects().length) return;
+        if (!firstInvalid) firstInvalid = el;
+        showFieldError(el, el.validationMessage || "Check this value.");
+      }, true);
+
       form.addEventListener("submit", (e) => {
         e.preventDefault();
+        clearFieldErrors(form);
+        firstInvalid = null;
+
+        if (!form.checkValidity()) {
+          if (firstInvalid) firstInvalid.focus();
+          return;                       // messages were rendered by the handler above
+        }
+
         const data = {};
         U.$$("[name]", form).forEach((el) => {
           if (el.type === "checkbox") data[el.name] = el.checked;
