@@ -29,6 +29,27 @@
      POST   /groups/:id/feed        post to the crowdsourced assignment feed
      POST   /groups/:id/leave       leave (owner leaving deletes the group)
 
+     Group collaboration (F054-F063) — all hang off the group blob, so
+     membership is the only access check needed:
+     POST   /groups/:id/tasks              (F055) add a task
+     POST   /groups/:id/tasks/:taskId      update status/assignee
+     DELETE /groups/:id/tasks/:taskId      remove (author or owner only)
+     POST   /groups/:id/availability       (F054/F057) push my busy blocks
+     POST   /groups/:id/partners           (F056) ask someone to partner
+     POST   /groups/:id/partners/:pairId   accept or decline
+     DELETE /groups/:id/partners/:pairId   end a partnership
+     POST   /groups/:id/tutoring           (F061) offer or request help
+     POST   /groups/:id/tutoring/:postId   respond to a post
+     DELETE /groups/:id/tutoring/:postId   remove (author or owner only)
+     POST   /groups/:id/notes              (F062) share a note, keeping credit
+     GET    /groups/:id/notes/:noteId      read one shared note
+     POST   /groups/:id/notes/:noteId/thanks
+     DELETE /groups/:id/notes/:noteId      remove (author or owner only)
+     POST   /groups/:id/challenges         (F063) create a cooperative goal
+     POST   /groups/:id/challenges/:chId/join
+     POST   /groups/:id/challenges/:chId/contribute
+     DELETE /groups/:id/challenges/:chId   leave a challenge
+
    Every authenticated route verifies the bearer token, and every read of
    another person's data checks an explicit link/membership first.
    ========================================================================== */
@@ -654,7 +675,7 @@ async function memberGroup(user, id) {
 }
 
 async function getGroup(user, id) {
-  const g = await memberGroup(user, id);
+  const g = ensureGroupCollections(await memberGroup(user, id));
   return ok({
     group: {
       ...slimGroup(g),
@@ -664,9 +685,316 @@ async function getGroup(user, id) {
         byName: d.byName, at: d.at
       })),
       // _raters (F060) is who-voted bookkeeping only — never leaves the server.
-      feed: g.feed.slice(-80).map(({ _raters, ...f }) => f)
+      feed: g.feed.slice(-80).map(({ _raters, ...f }) => f),
+      tasks: g.tasks,
+      availability: g.availability,
+      partners: g.partners,
+      tutoring: g.tutoring,
+      // Note bodies can be long; the list carries metadata only and the full
+      // text is fetched per-note on open.
+      sharedNotes: g.sharedNotes.map(({ body: _b, ...n }) => ({ ...n, thanks: n.thanks.length })),
+      challenges: g.challenges
     }
   });
+}
+
+/* ============================================ F054-F063 group collaboration ==
+   Everything below hangs off the existing group blob rather than new stores,
+   so membership is the single access check for all of it: memberGroup() has
+   already thrown 403 by the time any of these run. Each collection is capped
+   so one member can't balloon a shared blob past what Blobs will hold.
+   ============================================================================ */
+
+const GROUP_LIMITS = { tasks: 200, availability: 60, partners: 40, tutoring: 100, notes: 100, challenges: 20 };
+
+/** Lazily add collections to groups created before these features existed. */
+function ensureGroupCollections(g) {
+  if (!Array.isArray(g.tasks)) g.tasks = [];              // F055
+  if (!Array.isArray(g.availability)) g.availability = []; // F054/F057
+  if (!Array.isArray(g.partners)) g.partners = [];        // F056
+  if (!Array.isArray(g.tutoring)) g.tutoring = [];        // F061
+  if (!Array.isArray(g.sharedNotes)) g.sharedNotes = [];  // F062
+  if (!Array.isArray(g.challenges)) g.challenges = [];    // F063
+  return g;
+}
+
+/* --- F055 group task assignment --- */
+async function addGroupTask(req, user, id) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const b = await body(req);
+  const title = String(b.title || "").trim().slice(0, 120);
+  if (!title) return fail(400, "Give the task a title.");
+  if (g.tasks.length >= GROUP_LIMITS.tasks) return fail(409, "This group has too many tasks — finish or remove some first.");
+
+  // An assignee must actually be in the group; otherwise it's unassigned.
+  const assigneeId = g.members.some((m) => m.id === b.assigneeId) ? b.assigneeId : null;
+  const task = {
+    id: randomId(8), title,
+    detail: String(b.detail || "").slice(0, 500),
+    assigneeId,
+    assigneeName: assigneeId ? (g.members.find((m) => m.id === assigneeId) || {}).name : null,
+    due: String(b.due || "").slice(0, 10),
+    status: "todo",
+    byId: user.id, byName: user.name, at: Date.now()
+  };
+  g.tasks.push(task);
+  await writeJSON("groups", id, g);
+  return ok({ task });
+}
+
+async function updateGroupTask(req, user, id, taskId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const t = g.tasks.find((x) => x.id === taskId);
+  if (!t) return fail(404, "That task no longer exists.");
+  const b = await body(req);
+
+  if (b.status && ["todo", "doing", "done"].includes(b.status)) t.status = b.status;
+  if (b.assigneeId !== undefined) {
+    const ok2 = g.members.some((m) => m.id === b.assigneeId);
+    t.assigneeId = ok2 ? b.assigneeId : null;
+    t.assigneeName = ok2 ? (g.members.find((m) => m.id === b.assigneeId) || {}).name : null;
+  }
+  if (typeof b.title === "string" && b.title.trim()) t.title = b.title.trim().slice(0, 120);
+  if (typeof b.due === "string") t.due = b.due.slice(0, 10);
+  t.updatedAt = Date.now();
+  await writeJSON("groups", id, g);
+  return ok({ task: t });
+}
+
+async function deleteGroupTask(user, id, taskId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const t = g.tasks.find((x) => x.id === taskId);
+  if (!t) return fail(404, "That task no longer exists.");
+  // Only the creator or the group owner can remove someone's task.
+  if (t.byId !== user.id && g.ownerId !== user.id) return fail(403, "Only the person who added this, or the group owner, can remove it.");
+  g.tasks = g.tasks.filter((x) => x.id !== taskId);
+  await writeJSON("groups", id, g);
+  return ok({ removed: true });
+}
+
+/* --- F054 shared project calendar + F057 common free period ---
+   Each member pushes their own busy blocks; the server never derives them.
+   Storing busy (not full schedules) keeps class names and grades out of a
+   shared blob other students can read. */
+async function pushAvailability(req, user, id) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const b = await body(req);
+  const busy = Array.isArray(b.busy) ? b.busy.slice(0, 400) : [];
+
+  const clean = busy.map((x) => ({
+    day: String(x.day || "").slice(0, 3),
+    start: String(x.start || "").slice(0, 5),
+    end: String(x.end || "").slice(0, 5)
+  })).filter((x) => /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/.test(x.day) && /^\d\d:\d\d$/.test(x.start) && /^\d\d:\d\d$/.test(x.end));
+
+  g.availability = g.availability.filter((a) => a.id !== user.id);
+  if (g.availability.length >= GROUP_LIMITS.availability) g.availability.shift();
+  g.availability.push({ id: user.id, name: user.name, busy: clean, at: Date.now() });
+  await writeJSON("groups", id, g);
+  return ok({ shared: clean.length });
+}
+
+/* --- F056 accountability partners --- */
+async function requestPartner(req, user, id) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const b = await body(req);
+  const withId = String(b.withId || "");
+  if (withId === user.id) return fail(400, "Pick someone other than yourself.");
+  if (!g.members.some((m) => m.id === withId)) return fail(404, "That person isn't in this group.");
+  if (g.partners.length >= GROUP_LIMITS.partners) return fail(409, "Too many partner requests in this group.");
+
+  const existing = g.partners.find((p) =>
+    (p.aId === user.id && p.bId === withId) || (p.aId === withId && p.bId === user.id));
+  if (existing) return fail(409, existing.status === "accepted" ? "You're already partners." : "There's already a pending request.");
+
+  const other = g.members.find((m) => m.id === withId);
+  const pair = {
+    id: randomId(8),
+    aId: user.id, aName: user.name,
+    bId: withId, bName: other.name,
+    status: "pending", at: Date.now()
+  };
+  g.partners.push(pair);
+  await writeJSON("groups", id, g);
+  return ok({ partner: pair });
+}
+
+async function respondPartner(req, user, id, pairId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const pair = g.partners.find((p) => p.id === pairId);
+  if (!pair) return fail(404, "That request no longer exists.");
+  // Only the person who was asked can answer.
+  if (pair.bId !== user.id) return fail(403, "Only the person who was asked can answer this.");
+  const b = await body(req);
+  if (b.accept) { pair.status = "accepted"; pair.respondedAt = Date.now(); }
+  else { g.partners = g.partners.filter((p) => p.id !== pairId); }
+  await writeJSON("groups", id, g);
+  return ok({ status: b.accept ? "accepted" : "declined" });
+}
+
+async function endPartner(user, id, pairId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const pair = g.partners.find((p) => p.id === pairId);
+  if (!pair) return fail(404, "That partnership no longer exists.");
+  if (pair.aId !== user.id && pair.bId !== user.id) return fail(403, "That isn't your partnership.");
+  g.partners = g.partners.filter((p) => p.id !== pairId);
+  await writeJSON("groups", id, g);
+  return ok({ ended: true });
+}
+
+/* --- F061 peer tutoring board --- */
+async function postTutoring(req, user, id) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const b = await body(req);
+  const subject = String(b.subject || "").trim().slice(0, 60);
+  if (!subject) return fail(400, "What subject?");
+  if (g.tutoring.length >= GROUP_LIMITS.tutoring) g.tutoring.shift();
+
+  const post = {
+    id: randomId(8),
+    kind: b.kind === "offer" ? "offer" : "request",
+    subject,
+    detail: String(b.detail || "").slice(0, 400),
+    availability: String(b.availability || "").slice(0, 120),
+    byId: user.id, byName: user.name, at: Date.now(),
+    responders: []
+  };
+  g.tutoring.push(post);
+  await writeJSON("groups", id, g);
+  return ok({ post });
+}
+
+async function respondTutoring(user, id, postId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const post = g.tutoring.find((x) => x.id === postId);
+  if (!post) return fail(404, "That post no longer exists.");
+  if (post.byId === user.id) return fail(400, "That's your own post.");
+  if (!post.responders.some((r) => r.id === user.id)) {
+    post.responders.push({ id: user.id, name: user.name, at: Date.now() });
+    await writeJSON("groups", id, g);
+  }
+  return ok({ responders: post.responders.length });
+}
+
+async function removeTutoring(user, id, postId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const post = g.tutoring.find((x) => x.id === postId);
+  if (!post) return fail(404, "That post no longer exists.");
+  if (post.byId !== user.id && g.ownerId !== user.id) return fail(403, "Only the author or the group owner can remove this.");
+  g.tutoring = g.tutoring.filter((x) => x.id !== postId);
+  await writeJSON("groups", id, g);
+  return ok({ removed: true });
+}
+
+/* --- F062 shared notes with attribution --- */
+async function shareNote(req, user, id) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const b = await body(req);
+  const title = String(b.title || "").trim().slice(0, 120);
+  const noteBody = String(b.body || "").slice(0, 20000);
+  if (!title || !noteBody) return fail(400, "A shared note needs a title and some content.");
+  if (g.sharedNotes.length >= GROUP_LIMITS.notes) return fail(409, "This group already has 100 shared notes.");
+
+  const note = {
+    id: randomId(8), title, body: noteBody,
+    subject: String(b.subject || "").slice(0, 60),
+    byId: user.id, byName: user.name, at: Date.now(),
+    thanks: []   // attribution is the point: who wrote it stays attached
+  };
+  g.sharedNotes.push(note);
+  await writeJSON("groups", id, g);
+  return ok({ note: { ...note, body: undefined } });
+}
+
+async function thankNote(user, id, noteId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const note = g.sharedNotes.find((n) => n.id === noteId);
+  if (!note) return fail(404, "That note no longer exists.");
+  if (note.byId === user.id) return fail(400, "That's your own note.");
+  if (!note.thanks.includes(user.id)) {
+    note.thanks.push(user.id);
+    await writeJSON("groups", id, g);
+  }
+  return ok({ thanks: note.thanks.length });
+}
+
+async function getSharedNote(user, id, noteId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const note = g.sharedNotes.find((n) => n.id === noteId);
+  if (!note) return fail(404, "That note no longer exists.");
+  return ok({ note });
+}
+
+async function removeSharedNote(user, id, noteId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const note = g.sharedNotes.find((n) => n.id === noteId);
+  if (!note) return fail(404, "That note no longer exists.");
+  if (note.byId !== user.id && g.ownerId !== user.id) return fail(403, "Only the author or the group owner can remove this.");
+  g.sharedNotes = g.sharedNotes.filter((n) => n.id !== noteId);
+  await writeJSON("groups", id, g);
+  return ok({ removed: true });
+}
+
+/* --- F063 opt-in group challenges (cooperative, never a ranked leaderboard) --- */
+async function createChallenge(req, user, id) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const b = await body(req);
+  const title = String(b.title || "").trim().slice(0, 100);
+  const target = Number(b.target) || 0;
+  if (!title || target <= 0) return fail(400, "A challenge needs a title and a target.");
+  if (g.challenges.length >= GROUP_LIMITS.challenges) return fail(409, "This group already has 20 challenges.");
+
+  const ch = {
+    id: randomId(8), title,
+    metric: ["studyMinutes", "assignmentsDone", "custom"].includes(b.metric) ? b.metric : "studyMinutes",
+    target,
+    unit: String(b.unit || "minutes").slice(0, 20),
+    endsOn: String(b.endsOn || "").slice(0, 10),
+    byId: user.id, byName: user.name, at: Date.now(),
+    // Opt-in: joining is a separate act from the challenge existing.
+    participants: []
+  };
+  g.challenges.push(ch);
+  await writeJSON("groups", id, g);
+  return ok({ challenge: ch });
+}
+
+async function joinChallenge(user, id, chId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const ch = g.challenges.find((c) => c.id === chId);
+  if (!ch) return fail(404, "That challenge no longer exists.");
+  if (!ch.participants.some((p) => p.id === user.id)) {
+    ch.participants.push({ id: user.id, name: user.name, contributed: 0, at: Date.now() });
+    await writeJSON("groups", id, g);
+  }
+  return ok({ joined: true, participants: ch.participants.length });
+}
+
+async function contributeChallenge(req, user, id, chId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const ch = g.challenges.find((c) => c.id === chId);
+  if (!ch) return fail(404, "That challenge no longer exists.");
+  const p = ch.participants.find((x) => x.id === user.id);
+  if (!p) return fail(403, "Join the challenge first.");
+  const b = await body(req);
+  const amount = Number(b.amount);
+  if (!isFinite(amount) || amount < 0) return fail(400, "That isn't a valid amount.");
+  // Absolute, not additive — the client owns the running total, so a retried
+  // request can't double-count someone's study minutes.
+  p.contributed = Math.min(amount, 100000);
+  p.updatedAt = Date.now();
+  await writeJSON("groups", id, g);
+  const total = ch.participants.reduce((s, x) => s + (x.contributed || 0), 0);
+  return ok({ total, target: ch.target });
+}
+
+async function leaveChallenge(user, id, chId) {
+  const g = ensureGroupCollections(await memberGroup(user, id));
+  const ch = g.challenges.find((c) => c.id === chId);
+  if (!ch) return fail(404, "That challenge no longer exists.");
+  ch.participants = ch.participants.filter((p) => p.id !== user.id);
+  await writeJSON("groups", id, g);
+  return ok({ left: true });
 }
 
 async function shareDeck(req, user, id) {
@@ -885,6 +1213,31 @@ export default async (req) => {
       if (parts[1] && parts[2] === "feed" && parts[3] && parts[4] === "rate" && method === "POST") return await rateFeed(req, user, parts[1], parts[3]);
       if (parts[1] && parts[2] === "feed" && parts[3] && !parts[4] && method === "POST") return await confirmFeed(req, user, parts[1], parts[3]);
       if (parts[1] && parts[2] === "leave" && method === "POST") return await leaveGroup(user, parts[1]);
+
+      // F055 tasks
+      if (parts[1] && parts[2] === "tasks" && !parts[3] && method === "POST") return await addGroupTask(req, user, parts[1]);
+      if (parts[1] && parts[2] === "tasks" && parts[3] && method === "POST") return await updateGroupTask(req, user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "tasks" && parts[3] && method === "DELETE") return await deleteGroupTask(user, parts[1], parts[3]);
+      // F054/F057 availability
+      if (parts[1] && parts[2] === "availability" && method === "POST") return await pushAvailability(req, user, parts[1]);
+      // F056 accountability partners
+      if (parts[1] && parts[2] === "partners" && !parts[3] && method === "POST") return await requestPartner(req, user, parts[1]);
+      if (parts[1] && parts[2] === "partners" && parts[3] && method === "POST") return await respondPartner(req, user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "partners" && parts[3] && method === "DELETE") return await endPartner(user, parts[1], parts[3]);
+      // F061 peer tutoring
+      if (parts[1] && parts[2] === "tutoring" && !parts[3] && method === "POST") return await postTutoring(req, user, parts[1]);
+      if (parts[1] && parts[2] === "tutoring" && parts[3] && method === "POST") return await respondTutoring(user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "tutoring" && parts[3] && method === "DELETE") return await removeTutoring(user, parts[1], parts[3]);
+      // F062 shared notes
+      if (parts[1] && parts[2] === "notes" && !parts[3] && method === "POST") return await shareNote(req, user, parts[1]);
+      if (parts[1] && parts[2] === "notes" && parts[3] && !parts[4] && method === "GET") return await getSharedNote(user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "notes" && parts[3] && parts[4] === "thanks" && method === "POST") return await thankNote(user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "notes" && parts[3] && method === "DELETE") return await removeSharedNote(user, parts[1], parts[3]);
+      // F063 challenges
+      if (parts[1] && parts[2] === "challenges" && !parts[3] && method === "POST") return await createChallenge(req, user, parts[1]);
+      if (parts[1] && parts[2] === "challenges" && parts[3] && parts[4] === "join" && method === "POST") return await joinChallenge(user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "challenges" && parts[3] && parts[4] === "contribute" && method === "POST") return await contributeChallenge(req, user, parts[1], parts[3]);
+      if (parts[1] && parts[2] === "challenges" && parts[3] && method === "DELETE") return await leaveChallenge(user, parts[1], parts[3]);
     }
 
     return fail(404, "No such endpoint: " + method + " /" + path);

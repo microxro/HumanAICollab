@@ -383,6 +383,67 @@ App.sync = (function () {
   }
   async function leaveGroup(id) { return call(`/groups/${encodeURIComponent(id)}/leave`, { method: "POST" }); }
 
+  /* ------------------------------------- F054-F063 group collaboration -- */
+
+  const G = (id) => `/groups/${encodeURIComponent(id)}`;
+  const E = encodeURIComponent;
+
+  // F055 — task assignment
+  async function addGroupTask(id, task) { return call(`${G(id)}/tasks`, { method: "POST", body: task }); }
+  async function updateGroupTask(id, taskId, patch) { return call(`${G(id)}/tasks/${E(taskId)}`, { method: "POST", body: patch }); }
+  async function deleteGroupTask(id, taskId) { return call(`${G(id)}/tasks/${E(taskId)}`, { method: "DELETE" }); }
+
+  /**
+   * F054/F057 — share only *busy* blocks, never the schedule itself, so a
+   * group can find a common free period without anyone's class names, rooms
+   * or grades landing in a blob their classmates can read.
+   */
+  async function pushAvailability(id) {
+    const busy = [];
+    ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].forEach((day) => {
+      S.classesOn(day).forEach(({ period }) => {
+        if (period) busy.push({ day, start: period.start, end: period.end });
+      });
+      S.activitiesOn(day).forEach((a) => {
+        if (a.start && a.end) busy.push({ day, start: a.start, end: a.end });
+      });
+    });
+    return call(`${G(id)}/availability`, { method: "POST", body: { busy } });
+  }
+
+  // F056 — accountability partners
+  async function requestPartner(id, withId) { return call(`${G(id)}/partners`, { method: "POST", body: { withId } }); }
+  async function respondPartner(id, pairId, accept) { return call(`${G(id)}/partners/${E(pairId)}`, { method: "POST", body: { accept } }); }
+  async function endPartner(id, pairId) { return call(`${G(id)}/partners/${E(pairId)}`, { method: "DELETE" }); }
+
+  // F061 — peer tutoring board
+  async function postTutoring(id, post) { return call(`${G(id)}/tutoring`, { method: "POST", body: post }); }
+  async function respondTutoring(id, postId) { return call(`${G(id)}/tutoring/${E(postId)}`, { method: "POST" }); }
+  async function removeTutoring(id, postId) { return call(`${G(id)}/tutoring/${E(postId)}`, { method: "DELETE" }); }
+
+  // F062 — shared notes, attribution attached
+  async function shareNote(id, note) { return call(`${G(id)}/notes`, { method: "POST", body: note }); }
+  async function getSharedNote(id, noteId) { return call(`${G(id)}/notes/${E(noteId)}`); }
+  async function thankNote(id, noteId) { return call(`${G(id)}/notes/${E(noteId)}/thanks`, { method: "POST" }); }
+  async function removeSharedNote(id, noteId) { return call(`${G(id)}/notes/${E(noteId)}`, { method: "DELETE" }); }
+
+  // F063 — cooperative challenges
+  async function createChallenge(id, ch) { return call(`${G(id)}/challenges`, { method: "POST", body: ch }); }
+  async function joinChallenge(id, chId) { return call(`${G(id)}/challenges/${E(chId)}/join`, { method: "POST" }); }
+  async function leaveChallenge(id, chId) { return call(`${G(id)}/challenges/${E(chId)}`, { method: "DELETE" }); }
+
+  /**
+   * Report my running total for a challenge. Computed locally from real data
+   * (study minutes this week, assignments completed) and sent as an absolute
+   * value, so a retry can never double-count.
+   */
+  async function contributeChallenge(id, chId, metric) {
+    let amount = 0;
+    if (metric === "studyMinutes") amount = S.studyThisWeek();
+    else if (metric === "assignmentsDone") amount = S.db.assignments.filter((a) => a.status === "done").length;
+    return call(`${G(id)}/challenges/${E(chId)}/contribute`, { method: "POST", body: { amount } });
+  }
+
   /* -------------------------------------------------------------- init -- */
 
   function init() {
@@ -429,6 +490,12 @@ App.sync = (function () {
     proposeFocusWindow, listFocusWindows, respondFocusWindow, endFocusWindow,
     pushIcsFeed, icsFeedUrl,
     listGroups, createGroup, joinGroup, getGroup,
-    shareDeck, getSharedDeck, postFeed, confirmFeed, commentFeed, rateFeed, leaveGroup
+    shareDeck, getSharedDeck, postFeed, confirmFeed, commentFeed, rateFeed, leaveGroup,
+    addGroupTask, updateGroupTask, deleteGroupTask,
+    pushAvailability,
+    requestPartner, respondPartner, endPartner,
+    postTutoring, respondTutoring, removeTutoring,
+    shareNote, getSharedNote, thankNote, removeSharedNote,
+    createChallenge, joinChallenge, contributeChallenge, leaveChallenge
   };
 })();
