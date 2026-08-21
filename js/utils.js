@@ -22,16 +22,27 @@ App.utils = (function () {
 
   /* ------------------------------------------------------------ dates -- */
 
-  // Parse "YYYY-MM-DD" as a LOCAL date (avoids the UTC shift of new Date(str)).
+  /**
+   * Parse "YYYY-MM-DD" as a LOCAL date (avoids the UTC shift of new Date(str)).
+   *
+   * Returns null for anything unusable. It used to return null for a falsy
+   * input but an *Invalid Date* for garbage like "not-a-date" — two different
+   * failure shapes from one function, so callers guarded for one and were
+   * caught by the other. One shape now: null, always.
+   */
   function parseDate(iso) {
     if (!iso) return null;
-    const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
-    return new Date(y, m - 1, d);
+    if (iso instanceof Date) return Number.isNaN(iso.getTime()) ? null : iso;
+    const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+    const dt = new Date(y, m - 1, d);
+    return Number.isNaN(dt.getTime()) ? null : dt;
   }
 
   // Local "YYYY-MM-DD" key for a Date.
   function dateKey(d) {
     const dt = d instanceof Date ? d : parseDate(d);
+    if (!dt || Number.isNaN(dt.getTime())) return "";
     const y = dt.getFullYear();
     const m = String(dt.getMonth() + 1).padStart(2, "0");
     const day = String(dt.getDate()).padStart(2, "0");
@@ -62,6 +73,7 @@ App.utils = (function () {
 
   function dowName(iso, long) {
     const d = parseDate(iso);
+    if (!d) return "";
     return (long ? DOW_LONG : DOW_SHORT)[d.getDay()];
   }
 

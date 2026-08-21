@@ -66,8 +66,18 @@ async function auditView(view, theme) {
     App.applyTheme();
   }, theme);
   await page.evaluate((v) => App.router.go(v), view);
-  await page.waitForTimeout(280);
+
+  // Wait for the view to actually be on screen rather than guessing at a
+  // duration. A fixed timeout made this suite fail intermittently under
+  // load, and a flaky suite is worse than no suite: it trains you to re-run
+  // instead of to look.
+  await page.waitForFunction((v) => {
+    const root = document.querySelector("#page .view-root");
+    return !!root && root.children.length > 0 && location.hash.includes(v);
+  }, view, { timeout: 10000 });
+
   await page.addScriptTag({ content: AXE });
+  await page.waitForFunction(() => !!window.axe, null, { timeout: 10000 });
   const res = await page.evaluate((rules) => window.axe.run(document, rules), RULES);
   const serious = res.violations.filter((v) => v.impact === "critical" || v.impact === "serious");
   for (const v of serious) {

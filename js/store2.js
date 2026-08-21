@@ -216,7 +216,9 @@
       usedWeight += cat.weight;
     });
     if (!usedWeight) return null;
-    return U.clamp(weighted / usedWeight + (rules.curve || 0), 0, 150);
+    const curve = Number.isFinite(Number(rules.curve)) ? Number(rules.curve) : 0;
+    const out = U.clamp(weighted / usedWeight + curve, 0, 150);
+    return Number.isFinite(out) ? out : null;
   }
   function hasCatRules(rules) {
     return rules && ((rules.catFloor && Object.keys(rules.catFloor).length) || (rules.catCap && Object.keys(rules.catCap).length));

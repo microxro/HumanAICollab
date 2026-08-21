@@ -160,7 +160,13 @@ App.planner = (function () {
 
     // Earliest deadline first, high priority breaking ties.
     items.sort((x, y) => {
-      if (x.a.due !== y.a.due) return x.a.due.localeCompare(y.a.due);
+      // Same guard as store.byDue: an assignment with no due date must sort
+      // last rather than throw out of the planner.
+      if (x.a.due !== y.a.due) {
+        if (!x.a.due) return 1;
+        if (!y.a.due) return -1;
+        return String(x.a.due).localeCompare(String(y.a.due));
+      }
       return (PRIORITY_RANK[x.a.priority] ?? 1) - (PRIORITY_RANK[y.a.priority] ?? 1);
     });
 

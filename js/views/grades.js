@@ -65,14 +65,23 @@ App.views.grades = (function () {
 
   function recentTableRow(a, cfg) {
     const c = S.cls(a.classId);
-    const p = a.points ? (a.earned / a.points) * 100 : null;
+    // Defence in depth. migrate() coerces scores at the store boundary, so a
+    // real import or sync can no longer carry NaN, Infinity or "abc" — but a
+    // score cell is not the place to find out something upstream slipped, and
+    // "Infinity/Infinity · NaN%" is precisely what a tester screenshots.
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const pts = num(a.points), earned = num(a.earned);
+    const p = pts && earned != null ? (earned / pts) * 100 : null;
+    const scoreCell = pts == null && earned == null
+      ? "—"
+      : `${earned == null ? "—" : U.esc(U.round(earned, 2))}/${pts == null ? "—" : U.esc(U.round(pts, 2))}`;
     return `<tr>
       <td><div class="bold">${U.esc(a.title)}</div><div class="tiny dim">${U.esc(a.type)}</div></td>
       ${cfg.cols.cls ? `<td class="small muted"><span class="row gap-6">
         <i class="dot-badge" style="background:${U.esc(c ? c.color : "#888")}"></i>${U.esc(c ? c.name : "—")}</span></td>` : ""}
       ${cfg.cols.due ? `<td class="small muted nowrap">${U.esc(U.fmtDate(a.due))}</td>` : ""}
-      ${cfg.cols.score ? `<td class="right nums">${a.earned}/${a.points}</td>` : ""}
-      ${cfg.cols.pct ? `<td class="right">${UI.gradePill(p)}</td>` : ""}
+      ${cfg.cols.score ? `<td class="right nums">${scoreCell}</td>` : ""}
+      ${cfg.cols.pct ? `<td class="right">${UI.gradePill(Number.isFinite(p) ? p : null)}</td>` : ""}
       <td class="right"><button class="btn btn-sm" data-score="${a.id}">Edit</button></td>
     </tr>`;
   }

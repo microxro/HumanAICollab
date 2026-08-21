@@ -760,8 +760,14 @@ App.ui = (function () {
   }
 
   function gradePill(pct, big) {
-    if (pct == null) return `<span class="grade-pill${big ? " lg" : ""}">—</span>`;
-    return `<span class="grade-pill ${U.gradeClass(pct)}${big ? " lg" : ""}">${U.round(pct, 1)}</span>`;
+    // A non-finite percentage renders as an em dash, not as "NaN". This is
+    // the one component every grade display goes through, so guarding it
+    // here covers the dashboard, Classes, Grades and Analytics at once.
+    if (pct == null || !Number.isFinite(Number(pct))) {
+      return `<span class="grade-pill${big ? " lg" : ""}">—</span>`;
+    }
+    const n = Number(pct);
+    return `<span class="grade-pill ${U.gradeClass(n)}${big ? " lg" : ""}">${U.round(n, 1)}</span>`;
   }
 
   function priorityBadge(p) {

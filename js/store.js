@@ -439,6 +439,23 @@ App.store = (function () {
       if (a.actualMinutes == null) a.actualMinutes = 0;
       // Searching and sorting both call a.title.toLowerCase() unguarded.
       if (typeof a.title !== "string") a.title = String(a.title == null ? "Untitled" : a.title);
+
+      // Scores are arithmetic inputs, and NaN, Infinity and "abc" all
+      // propagate silently through an average and render as the grade. An
+      // unusable score is no score; coerce here, at the boundary, so no view
+      // has to defend itself and nothing bad is ever persisted.
+      const n = (v) => {
+        if (v == null || v === "") return null;
+        const x = Number(v);
+        return Number.isFinite(x) ? x : null;
+      };
+      a.points = n(a.points);
+      a.earned = n(a.earned);
+      // A negative or absurd points value isn't a score either.
+      if (a.points != null && (a.points < 0 || a.points > 1e7)) a.points = null;
+      if (a.earned != null && Math.abs(a.earned) > 1e9) a.earned = null;
+      // "Graded" with nothing to grade is just not graded.
+      if (a.graded && (a.points == null || a.earned == null)) a.graded = false;
     });
 
     return out;
@@ -783,14 +800,30 @@ App.store = (function () {
     const n = days == null ? db.settings.dueSoonDays : days;
     const t = U.today();
     return openAssignments()
-      .filter((a) => U.diffDays(a.due, t) <= n)
-      .sort((a, b) => a.due.localeCompare(b.due));
+      .filter((a) => a.due && U.diffDays(a.due, t) <= n)
+      .sort(byDue);
   }
 
   function overdue() {
     const t = U.today();
-    return openAssignments().filter((a) => U.diffDays(a.due, t) < 0)
-      .sort((a, b) => a.due.localeCompare(b.due));
+    return openAssignments().filter((a) => a.due && U.diffDays(a.due, t) < 0)
+      .sort(byDue);
+  }
+
+  /**
+   * Sort comparator for a due date that may be missing.
+   *
+   * `a.due.localeCompare(b.due)` threw on any record without one — and these
+   * selectors feed the nav badge, which renderNav() calls inside every
+   * paint(), so a single dateless assignment took the whole app down rather
+   * than just its own row. Undated work sorts last.
+   */
+  function byDue(a, b) {
+    const x = a && a.due, y = b && b.due;
+    if (!x && !y) return 0;
+    if (!x) return 1;
+    if (!y) return -1;
+    return String(x).localeCompare(String(y));
   }
 
   function missingWork() {
@@ -844,10 +877,24 @@ App.store = (function () {
     return ranked.slice(drop);
   }
 
+  /** A finite number, or null. Anything else must not reach an average. */
+  function num(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
   function classGrade(classId) {
     const c = cls(classId);
     if (!c) return null;
-    const graded = assignmentsFor(classId).filter((a) => a.graded && a.earned != null && a.points > 0);
+    // `a.points > 0` is false for NaN, but not for Infinity, and `earned`
+    // was never checked at all — so a record carrying NaN, Infinity or a
+    // non-numeric string propagated straight through the weighted average
+    // and rendered as the class grade on three screens at once.
+    const graded = assignmentsFor(classId).filter((a) => {
+      if (!a.graded) return false;
+      const p = num(a.points), e = num(a.earned);
+      return p != null && e != null && p > 0 && p < 1e7 && Math.abs(e) < 1e9;
+    });
     if (!graded.length) return null;
 
     const rules = c.rules || {};
@@ -869,7 +916,10 @@ App.store = (function () {
       pct = (weighted / usedWeight) * 100;
     }
     if (pct == null) return null;
-    return U.clamp(pct + (rules.curve || 0), 0, 150);
+    const curve = num(rules.curve) || 0;
+    const out = U.clamp(pct + curve, 0, 150);
+    // Last line of defence: a NaN here would render as the grade.
+    return Number.isFinite(out) ? out : null;
   }
 
   function categoryBreakdown(classId) {

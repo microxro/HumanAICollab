@@ -474,8 +474,9 @@ App.views.calendar = (function () {
     const label = mode === "week" ? weekLabel : monthLabel;
 
     const monthEvents = S.db.events.filter((e) => {
+      // An event whose date can't be parsed simply isn't in this month.
       const d = U.parseDate(e.date);
-      return d.getMonth() === cursor.getMonth() && d.getFullYear() === cursor.getFullYear();
+      return !!d && d.getMonth() === cursor.getMonth() && d.getFullYear() === cursor.getFullYear();
     }).length;
 
     return `<div class="page-inner">

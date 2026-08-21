@@ -64,6 +64,12 @@ App.charts = (function () {
    */
   function line(pts, opts) {
     const o = Object.assign({ w: 640, h: 190, min: null, max: null, unit: "%" }, opts);
+    // A point with no plottable value is not a point. Without this, a NaN
+    // reached U.round() and came out as "NaN" in the SVG path, the tooltip,
+    // the end label and the screen-reader data table — and a NaN in a path
+    // silently breaks the whole line, not just that segment.
+    pts = (Array.isArray(pts) ? pts : []).filter((p) => p && Number.isFinite(Number(p.pct)))
+      .map((p) => ({ ...p, pct: Number(p.pct) }));
     if (!pts.length) return emptyChart(o.h, "No graded work yet");
 
     const w = o.w, h = o.h;
@@ -227,6 +233,10 @@ App.charts = (function () {
    */
   function bars(rows, opts) {
     const o = Object.assign({ w: 640, h: 180, unit: "", labelEvery: 1, fmt: null }, opts);
+    // Same guard as line(): a non-finite value produces a NaN bar height,
+    // which renders nothing and prints "NaN" in the axis and alt table.
+    rows = (Array.isArray(rows) ? rows : []).filter((r) => r && Number.isFinite(Number(r.value)))
+      .map((r) => ({ ...r, value: Number(r.value) }));
     if (!rows.length) return emptyChart(o.h, "No data yet");
 
     const w = o.w, h = o.h;
