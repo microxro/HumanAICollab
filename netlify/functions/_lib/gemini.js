@@ -47,8 +47,22 @@ async function callGemini({ system, parts, responseSchema, maxOutputTokens }) {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     console.error("[gemini] request failed", res.status, text);
-    throw Object.assign(new Error("The AI service didn't respond — try again in a moment."),
-      { code: "provider-error", status: res.status });
+    // Surface what the provider actually said. Swallowing this behind a
+    // generic "try again" made a wrong key or a bad model name look identical
+    // to a transient blip, which is the difference between a two-minute fix
+    // and an unfixable mystery.
+    let detail = "";
+    try {
+      const parsed = JSON.parse(text);
+      detail = (parsed && parsed.error && parsed.error.message) || "";
+    } catch (e) {
+      detail = String(text || "").slice(0, 200);
+    }
+    const generic = res.status >= 500
+      ? "The AI service is having trouble — try again in a moment."
+      : "The AI service rejected that request.";
+    throw Object.assign(new Error(detail || generic),
+      { code: "provider-error", status: res.status, detail });
   }
 
   const data = await res.json();
@@ -86,4 +100,4 @@ async function generateJSON({ system, prompt, image, responseSchema }) {
   }
 }
 
-export { configured, generateText, generateJSON };
+export { configured, generateText, generateJSON, DEFAULT_MODEL };

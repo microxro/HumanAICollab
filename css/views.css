@@ -7,7 +7,10 @@
 .hero {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(125deg, var(--brand-700) 0%, var(--brand-500) 55%, #7c5cf0 100%);
+  /* All three stops ride the accent ramp — a hardcoded tail here used to keep
+     the hero purple no matter which accent was picked, which made the whole
+     setting look broken since this is the largest thing on the dashboard. */
+  background: linear-gradient(125deg, var(--brand-700) 0%, var(--brand-500) 55%, var(--brand-400) 100%);
   color: #fff;
   border-radius: var(--radius-lg);
   padding: 22px 24px;

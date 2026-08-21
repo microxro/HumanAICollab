@@ -605,15 +605,88 @@ App.views.settings = (function () {
         </div>
       </div>
 
+      <div class="card mb-16">
+        <div class="card-head">
+          <div><h3>AI service</h3><div class="sub">Powers Add with AI and the Assistant</div></div>
+        </div>
+        <div class="card-body">
+          <div id="aiStatus" class="small dim">Checking…</div>
+          <div class="row gap-8 wrap mt-12">
+            <button class="btn" data-ai-check>↻ Re-check</button>
+            <button class="btn btn-primary" data-ai-probe>⚡ Test connection</button>
+          </div>
+          <p class="hint mt-12">
+            Set <code>GEMINI_API_KEY</code> in your Netlify site's environment variables, then redeploy.
+            A key added without a redeploy won't be picked up.
+          </p>
+        </div>
+      </div>
+
       <div class="card" style="border-left:3px solid var(--danger)">
         <div class="card-head"><h3>Danger zone</h3></div>
         <div class="card-body">
           <div class="row gap-8 wrap">
-            <button class="btn" data-reseed>↺ Restore demo data</button>
+            <button class="btn" data-reseed>↺ Start over</button>
             <button class="btn btn-danger" data-wipe>🗑 Clear everything</button>
           </div>
         </div>
       </div>`;
+  }
+
+  /** Renders the AI service diagnostic into #aiStatus. */
+  function renderAiStatus(root, probe) {
+    const box = root.querySelector("#aiStatus");
+    if (!box) return;
+    box.innerHTML = `<span class="dim">${probe ? "Testing a real request…" : "Checking…"}</span>`;
+
+    App.assistant.checkHealth(probe).then((h) => {
+      const rows = [];
+      const badge = (okd, text) =>
+        `<span class="badge ${okd ? "ok" : "danger"}">${U.esc(text)}</span>`;
+
+      rows.push(`<div class="between" style="padding:6px 0">
+        <span class="small">API key</span>
+        ${h.keyPresent
+          ? badge(true, `Present (${h.keyLength} chars)`)
+          : badge(false, "Not set on this deploy")}
+      </div>`);
+
+      if (h.keyPresent && !h.keyLooksTrimmed) {
+        rows.push(`<div class="tiny" style="color:var(--warn);padding:2px 0">
+          ⚠ The key has leading or trailing whitespace — re-paste it in Netlify without spaces or newlines.
+        </div>`);
+      }
+
+      rows.push(`<div class="between" style="padding:6px 0">
+        <span class="small">Model</span>
+        <span class="small"><code>${U.esc(h.model)}</code> <span class="dim tiny">· ${U.esc(h.modelSource)}</span></span>
+      </div>`);
+
+      if (h.probe) {
+        rows.push(h.probe.ok
+          ? `<div class="between" style="padding:6px 0">
+               <span class="small">Live test</span>
+               ${badge(true, `Working (${h.probe.ms} ms)`)}
+             </div>`
+          : `<div style="padding:6px 0">
+               <div class="between"><span class="small">Live test</span>${badge(false, "Failed")}</div>
+               <div class="tiny mt-4" style="color:var(--danger);word-break:break-word">
+                 ${U.esc(h.probe.error || "Unknown error")}
+                 ${h.probe.status ? ` <span class="dim">(HTTP ${h.probe.status})</span>` : ""}
+               </div>
+               ${/not found|404|model/i.test(h.probe.error || "")
+                  ? `<div class="tiny dim mt-4">That usually means the model name is wrong for this key. Set <code>GEMINI_MODEL</code> to a model your key can reach.</div>`
+                  : ""}
+               ${/api key|permission|401|403/i.test(h.probe.error || "")
+                  ? `<div class="tiny dim mt-4">That usually means the key is invalid, restricted, or the Generative Language API isn't enabled for it.</div>`
+                  : ""}
+             </div>`);
+      }
+
+      box.innerHTML = rows.join("");
+    }).catch((e) => {
+      box.innerHTML = `<div class="small" style="color:var(--danger)">${U.esc(e.message)}</div>`;
+    });
   }
 
   const DASHBOARD_WIDGET_LABELS = {
@@ -1154,6 +1227,10 @@ App.views.settings = (function () {
       U.download(`scholar-backup-${U.today()}.json`, S.exportJSON());
       UI.toast("Backup downloaded", "Keep it somewhere safe.", "ok");
     });
+    if (root.querySelector("#aiStatus")) renderAiStatus(root, false);
+    U.on(root, "click", "[data-ai-check]", () => renderAiStatus(root, false));
+    U.on(root, "click", "[data-ai-probe]", () => renderAiStatus(root, true));
+
     U.on(root, "click", "[data-import]", importDialog);
     U.on(root, "click", "[data-load-demo]", () => {
       UI.confirm({
@@ -1201,10 +1278,10 @@ App.views.settings = (function () {
 
     U.on(root, "click", "[data-reseed]", () => {
       UI.confirm({
-        title: "Restore demo data?",
-        message: "This replaces everything with the sample school year that ships with the app.",
-        okLabel: "Restore demo", danger: true,
-        onConfirm() { S.reset(); UI.toast("Demo data restored"); App.router.go("dashboard"); }
+        title: "Start over?",
+        message: "This clears everything and returns the app to a brand-new state, including the first-run setup. Export a backup first if you want to keep anything.",
+        okLabel: "Start over", danger: true,
+        onConfirm() { S.reset(); UI.toast("Reset", "The app is back to a fresh start.", "ok"); App.router.go("dashboard"); }
       });
     });
     U.on(root, "click", "[data-wipe]", () => {

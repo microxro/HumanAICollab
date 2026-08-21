@@ -223,8 +223,10 @@
     const html = document.documentElement;
     html.setAttribute("data-sidebar", S.settings.sidebarCollapsed ? "collapsed" : "expanded");
     html.setAttribute("data-density", S.settings.density === "compact" ? "compact" : "comfortable");
-    if (S.settings.accent && S.settings.accent !== "indigo") html.setAttribute("data-accent", S.settings.accent);
-    else html.removeAttribute("data-accent");
+    // Always stamped, indigo included — leaving it off for the default made
+    // [data-accent="indigo"] rules silently dead and the "is an accent even
+    // applied?" question un-answerable from the DOM.
+    html.setAttribute("data-accent", S.settings.accent || "indigo");
     html.setAttribute("data-cvd", S.settings.cvdPreview || "none");
     // U11 type size + dyslexia-friendly face, U13 true-black OLED theme.
     html.setAttribute("data-fontsize", S.settings.fontSize || "normal");

@@ -37,6 +37,29 @@ App.assistant = (function () {
     return data;
   }
 
+  /**
+   * Ask the server what it can see: is a key present, what model will it use,
+   * and (with probe) does a real round-trip succeed. Surfaced in Settings so
+   * "the AI doesn't work" becomes a specific, readable cause.
+   */
+  async function checkHealth(probe) {
+    let res;
+    try {
+      res = await fetch(base() + "/assistant/health" + (probe ? "?probe=1" : ""));
+    } catch (e) {
+      throw new Error("Can't reach the AI service. Check your connection, or the site may not have redeployed yet.");
+    }
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!res.ok) {
+      throw new Error((data && data.error) ||
+        (res.status === 404
+          ? "The /assistant function isn't deployed. Push and redeploy the site."
+          : `Health check failed (${res.status})`));
+    }
+    return data;
+  }
+
   /* ---------------------------------------------------- schedule parsing -- */
 
   async function parseText(text) {
@@ -219,5 +242,5 @@ App.assistant = (function () {
     }
   }
 
-  return { parseText, parseImage, ask, buildContext, history, clearHistory };
+  return { parseText, parseImage, ask, buildContext, history, clearHistory, checkHealth };
 })();

@@ -17,7 +17,7 @@
    error page.
    ========================================================================== */
 
-import { configured, generateText, generateJSON } from "./_lib/gemini.js";
+import { configured, generateText, generateJSON, DEFAULT_MODEL as DEFAULT_MODEL_NAME } from "./_lib/gemini.js";
 
 const MAX_TEXT_LEN = 2000;
 const MAX_IMAGE_B64_LEN = 6 * 1024 * 1024; // ~4.5MB decoded, well under Gemini's per-image limit
@@ -181,6 +181,53 @@ async function ask(req) {
   return ok({ answer });
 }
 
+/* --------------------------------------------------------------- health -- */
+
+/**
+ * Answers "why isn't the AI working?" without anyone reading server logs.
+ * Deliberately reports the *shape* of the key (present? plausible length?)
+ * and never the key itself, plus a real round-trip when ?probe=1 so a bad
+ * model name or a rejected key surfaces as the provider's own error string
+ * instead of a generic failure in the UI.
+ */
+async function health(req) {
+  const key = process.env.GEMINI_API_KEY || "";
+  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL_NAME;
+  const out = {
+    configured: !!key,
+    keyPresent: !!key,
+    keyLength: key.length,
+    keyLooksTrimmed: key === key.trim(),
+    model,
+    modelSource: process.env.GEMINI_MODEL ? "GEMINI_MODEL env var" : "built-in default"
+  };
+
+  const probe = new URL(req.url).searchParams.get("probe");
+  if (probe && key) {
+    const started = Date.now();
+    try {
+      const answer = await generateText({
+        system: "Reply with exactly the word: ok",
+        prompt: "Say ok.",
+        maxOutputTokens: 10
+      });
+      out.probe = { ok: true, ms: Date.now() - started, reply: String(answer).trim().slice(0, 40) };
+    } catch (e) {
+      out.probe = {
+        ok: false,
+        ms: Date.now() - started,
+        code: e.code || "unknown",
+        status: e.status || null,
+        error: e.message
+      };
+    }
+  } else if (probe) {
+    out.probe = { ok: false, code: "not-configured", error: "GEMINI_API_KEY isn't set on this deploy." };
+  }
+
+  return ok(out);
+}
+
 /* --------------------------------------------------------------- routes -- */
 
 export default async (req) => {
@@ -191,6 +238,7 @@ export default async (req) => {
   const method = req.method.toUpperCase();
 
   try {
+    if (path === "health" && method === "GET") return await health(req);
     if (path === "parse-text" && method === "POST") return await parseText(req);
     if (path === "parse-image" && method === "POST") return await parseImage(req);
     if (path === "ask" && method === "POST") return await ask(req);
