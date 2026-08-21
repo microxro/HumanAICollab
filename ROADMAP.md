@@ -25,7 +25,7 @@ before being committed. A handful of bugs were caught this way and fixed
 before shipping (see commit history for specifics), rather than only
 checked for syntax.
 
-**Functionality — 93 of 100 shipped.** F001–F045 and F048–F052 (grading,
+**Functionality — 95 of 100 shipped.** F001–F045 and F048–F052 (grading,
 assignments, study tools, scheduling), F053, F064, F065, F067, F068, F071,
 F072 (friend requests, invite links, grade-drop alerts, check-ins, guardian
 notes, emergency contacts), F073–F092 (wellbeing and insight, all of it),
@@ -43,14 +43,46 @@ scheduled function, built entirely from the same privacy-filtered summary
 each student's device already pushes for the parent portal — so it can't
 leak anything a student didn't already agree to share).
 
-**Not attempted — 6 items**, all genuinely blocked on credentials or
-third-party infrastructure this environment doesn't have: F047 (two-way
-calendar sync — needs a deployed backend to verify against), F059 (teacher
-accounts — effectively a second product surface), F093, F094 (real OAuth
-credentials for Google Classroom / Canvas), F095 (inbound email parsing
-needs a different provider than the outbound one F066/F098 use), F100 (a
-public API + webhooks is its own project: token issuance, a documented read
-surface, delivery retries — sized **L** for a reason).
+**Not built — 5 items**, each genuinely blocked on a credential or a service
+the deploy owner has to supply: **F097** (Sign in with Google/Apple — OAuth
+client credentials), **F047** (two-way Google Calendar sync — Google OAuth),
+**F093** (Google Classroom — Google OAuth), **F094** (Canvas — a Canvas
+access token), **F095** (inbound email capture — an inbound mail provider and
+DNS records; the outbound provider used by F066/F098 doesn't receive mail).
+
+This list previously read "6 items" and included F059 and F100, describing
+both as blocked on "credentials or third-party infrastructure this
+environment doesn't have". That was wrong: neither needs anything external.
+Both are now built — see below. The same list also omitted F097 entirely,
+which is why its own totals came to 99 of 100.
+
+**F059 — teacher accounts.** A `teacher` role at signup, carried onto group
+membership records. A teacher's post to a class feed is flagged
+`authoritative`, badged "From your teacher", and skips the crowdsourced
+confirm affordance — corroboration is exactly what an authoritative post
+replaces. A teacher can post one assignment to every class group at once,
+with per-group success reported rather than rolled back. And a teacher
+leaving a class group transfers ownership to the longest-standing member
+instead of deleting the group, which previously took everyone's notes,
+tasks and feed with it.
+
+**F100 — public API and webhooks.** Server-minted `sk_`-prefixed tokens
+stored in Blobs and redeemable without a session, generalising the pattern
+the ICS feed already uses; the full value is shown once at mint time because
+the store holds it as a key. A read-only `GET /api/v1/{me,classes,
+assignments,schedule,grades}` surface — read-only deliberately, since writes
+would have to reconcile with the optimistic-concurrency versioning that keeps
+two devices from clobbering each other. Webhooks require https, reject
+loopback/private/link-local/CGNAT/metadata addresses, and are signed with
+HMAC-SHA256 so a receiver can verify provenance.
+
+One correction to what this document used to promise: **there are no delivery
+retries.** Netlify Functions are request-scoped, so there is no queue and no
+worker — delivery is a single attempt with a 4-second timeout, fired inline
+during the sync that caused the change, with the outcome recorded on the hook
+for the owner to see. Retries would need infrastructure this deploy doesn't
+have, and claiming them would have been a lie in the docs rather than a
+feature in the code.
 
 A later pass cleared the seven group-collaboration items that had been
 listed here as blocked: F054–F057 and F061–F063 (shared project calendar,

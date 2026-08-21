@@ -69,8 +69,11 @@ App.views.settings = (function () {
           <select class="select" name="role">
             <option value="student">Student</option>
             <option value="parent">Parent / guardian</option>
+            <option value="teacher">Teacher</option>
           </select>
-          <span class="hint">A parent account sees a linked student's status — it doesn't track homework of its own.</span>
+          <span class="hint">A parent account sees a linked student's status. A teacher account posts assignments
+          to class groups as official — students see them marked, with no need to confirm each other's guesses.
+          Neither tracks homework of its own.</span>
         </div>` : ""}
       </div>
       ${!isSignup ? `<p class="mt-8"><button type="button" class="btn-link small" data-forgot>Forgot your password?</button></p>` : ""}

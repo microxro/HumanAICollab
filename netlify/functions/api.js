@@ -1271,7 +1271,9 @@ async function createGroup(req, user) {
 
   const group = {
     id, code, name, ownerId: user.id, createdAt: Date.now(),
-    members: [{ id: user.id, name: user.name, joinedAt: Date.now() }],
+    // F059 — the role travels with the membership, so the feed can mark a
+    // teacher's post authoritative without a second lookup per item.
+    members: [{ id: user.id, name: user.name, role: user.role || "student", joinedAt: Date.now() }],
     decks: [], feed: []
   };
   await writeJSON("groups", id, group);
@@ -1341,7 +1343,12 @@ async function listGroups(user) {
 async function memberGroup(user, id) {
   const g = await readJSON("groups", id);
   if (!g) throw { status: 404, message: "Group not found." };
-  if (!g.members.some((m) => m.id === user.id)) throw { status: 403, message: "You're not a member of that group." };
+  const me = (g.members || []).find((m) => m.id === user.id);
+  if (!me) throw { status: 403, message: "You're not a member of that group." };
+  // Memberships created before F059 have no role. Fill it in from the live
+  // profile so an existing group starts badging its teacher correctly
+  // without a migration pass over every group blob.
+  if (!me.role && user.role) me.role = user.role;
   return g;
 }
 
@@ -1350,7 +1357,10 @@ async function getGroup(user, id) {
   return ok({
     group: {
       ...slimGroup(g),
-      members: g.members.map((m) => ({ id: m.id, name: m.name, joinedAt: m.joinedAt })),
+      // F059 — role is part of the membership the client needs: it decides
+      // whether the member list shows a teacher marker. This mapping is an
+      // explicit whitelist, so a new field is invisible until added here.
+      members: g.members.map((m) => ({ id: m.id, name: m.name, role: m.role || "student", joinedAt: m.joinedAt })),
       decks: g.decks.map((d) => ({
         id: d.id, name: d.name, cardCount: (d.cards || []).length,
         byName: d.byName, at: d.at
@@ -1703,19 +1713,81 @@ async function postFeed(req, user, id) {
   const title = String(b.title || "").trim().slice(0, 140);
   if (!title) return fail(400, "Say what the assignment is.");
 
+  // F059 — a teacher's post is the assignment, not a classmate's guess at
+  // it. The crowdsourced "confirm" affordance exists to corroborate a
+  // student's post; corroboration is exactly what an authoritative one
+  // replaces, so the flag lets the UI drop it rather than ask three people
+  // to agree with their teacher.
+  const authoritative = user.role === "teacher";
+
   const item = {
     id: randomId(8),
     title,
     className: String(b.className || "").slice(0, 60),
     due: String(b.due || "").slice(0, 10),
     notes: String(b.notes || "").slice(0, 500),
-    byId: user.id, byName: user.name, at: Date.now(),
+    byId: user.id, byName: user.name, byRole: user.role || "student",
+    authoritative,
+    at: Date.now(),
     confirms: [user.id]
   };
-  g.feed.push(item);
-  if (g.feed.length > 300) g.feed = g.feed.slice(-300);
-  await writeJSON("groups", g.id, g);
+
+  const saved = await updateJSON("groups", g.id, (cur) => {
+    if (!cur) return undefined;
+    const feed = (cur.feed || []).concat([item]);
+    return { ...cur, feed: feed.length > 300 ? feed.slice(-300) : feed };
+  });
+  if (!saved) return fail(404, "That group no longer exists.");
   return ok({ item });
+}
+
+/**
+ * F059 — post one assignment to every class group the teacher belongs to.
+ *
+ * A teacher typically owns several sections of the same course; without this
+ * they would post the same thing five times. Partial failure is reported per
+ * group rather than rolled back: four sections receiving it is better than
+ * none, and the teacher can see which one missed.
+ */
+async function postFeedToAll(req, user) {
+  if (user.role !== "teacher") {
+    return fail(403, "Only teacher accounts can post to every class at once.");
+  }
+  const b = await body(req);
+  const title = String(b.title || "").trim().slice(0, 140);
+  if (!title) return fail(400, "Say what the assignment is.");
+
+  const ids = Array.isArray(b.groupIds) && b.groupIds.length
+    ? b.groupIds.filter((x) => (user.groups || []).includes(x))
+    : (user.groups || []);
+  if (!ids.length) return fail(400, "You aren't in any class groups yet.");
+
+  const results = [];
+  for (const gid of ids) {
+    try {
+      const g = await memberGroup(user, gid);
+      const item = {
+        id: randomId(8),
+        title,
+        className: String(b.className || "").slice(0, 60),
+        due: String(b.due || "").slice(0, 10),
+        notes: String(b.notes || "").slice(0, 500),
+        byId: user.id, byName: user.name, byRole: "teacher",
+        authoritative: true,
+        at: Date.now(),
+        confirms: [user.id]
+      };
+      await updateJSON("groups", gid, (cur) => {
+        if (!cur) return undefined;
+        const feed = (cur.feed || []).concat([item]);
+        return { ...cur, feed: feed.length > 300 ? feed.slice(-300) : feed };
+      });
+      results.push({ groupId: gid, name: g.name, ok: true });
+    } catch (e) {
+      results.push({ groupId: gid, ok: false, error: (e && e.message) || "Couldn't post" });
+    }
+  }
+  return ok({ posted: results.filter((r) => r.ok).length, results });
 }
 
 async function confirmFeed(req, user, id, itemId) {
@@ -1928,6 +2000,8 @@ export default async (req) => {
       if (!parts[1] && method === "GET") return await listGroups(user);
       if (!parts[1] && method === "POST") return await createGroup(req, user);
       if (parts[1] === "join" && method === "POST") return await joinGroup(req, user);
+      // F059 — one assignment to every class group the teacher is in.
+      if (parts[1] === "broadcast" && method === "POST") return await postFeedToAll(req, user);
       if (parts[1] && !parts[2] && method === "GET") return await getGroup(user, parts[1]);
       if (parts[1] && parts[2] === "deck" && method === "POST") return await shareDeck(req, user, parts[1]);
       if (parts[1] && parts[2] === "deck" && parts[3] && method === "GET") return await getDeck(user, parts[1], parts[3]);

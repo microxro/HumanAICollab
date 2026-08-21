@@ -10,6 +10,12 @@ App.views.groups = (function () {
 
   let groups = null;      // list cache
   let openGroup = null;   // full detail of the selected group
+
+  /** F059 — the signed-in account's role decides the teacher affordances. */
+  function isTeacher() {
+    const u = App.sync.info().user;
+    return !!(u && u.role === "teacher");
+  }
   let loading = false;
   let error = null;
   let expandedFeedId = null;   // F058 — which post's comment thread is open
@@ -732,20 +738,29 @@ App.views.groups = (function () {
             const ratings = f.ratings || [];
             const avg = ratings.length ? Math.round(ratings.reduce((a, b) => a + b, 0) / ratings.length) : null;
             const expanded = expandedFeedId === f.id;
-            return `<div class="feed-item">
+            // F059 — a post from a teacher is the assignment, not a
+            // classmate's recollection of it. The confirm affordance exists
+            // to corroborate a student's post, and corroboration is exactly
+            // what an authoritative one replaces, so it's dropped rather
+            // than asking people to agree with their teacher.
+            const official = !!f.authoritative;
+            return `<div class="feed-item${official ? " feed-item-official" : ""}">
               <div class="list-item">
                 <span class="grow" style="min-width:0">
-                  <div class="title">${U.esc(f.title)}</div>
+                  <div class="title">${U.esc(f.title)}
+                    ${official ? `<span class="badge brand" title="Posted by a teacher account">From your teacher</span>` : ""}</div>
                   <div class="meta">${U.esc(f.className || "")}${f.due ? " · due " + U.esc(U.fmtDate(f.due)) : ""}
                     · posted by ${U.esc(f.byName)}</div>
                   ${f.notes ? `<div class="tiny muted mt-4">${U.esc(f.notes)}</div>` : ""}
                 </span>
-                <span class="badge ${f.confirms.length > 1 ? "ok" : ""}">✓ ${f.confirms.length}</span>
+                ${official
+                  ? `<span class="badge ok" title="Posted by a teacher — no confirmation needed">✓ Official</span>`
+                  : `<span class="badge ${f.confirms.length > 1 ? "ok" : ""}">✓ ${f.confirms.length}</span>`}
                 ${avg != null
                   ? `<span class="badge" title="${U.plural(ratings.length, "rating")}">⏱ ~${U.fmtDur(avg)}</span>`
                   : `<button class="btn btn-sm" data-rate="${f.id}" title="Anonymously say how long this actually took">⏱ Rate time</button>`}
                 <button class="btn btn-sm" data-toggle-comments="${f.id}">💬 ${comments.length || ""}</button>
-                <button class="btn btn-sm" data-confirm="${f.id}">Confirm</button>
+                ${official ? "" : `<button class="btn btn-sm" data-confirm="${f.id}">Confirm</button>`}
                 <button class="btn btn-sm btn-primary" data-take='${U.esc(JSON.stringify({ title: f.title, className: f.className, due: f.due, notes: f.notes }))}'>Add</button>
               </div>
               ${expanded ? `<div class="feed-comments">
@@ -782,6 +797,7 @@ App.views.groups = (function () {
               ${g.members.map((m) => `<div class="list-item">
                 ${UI.avatar(m.name, S.PALETTE[(m.name.charCodeAt(0) || 0) % S.PALETTE.length], "sm")}
                 <span class="grow"><div class="title">${U.esc(m.name)}</div></span>
+                ${m.role === "teacher" ? `<span class="badge ok" title="Teacher account — their posts are official">Teacher</span>` : ""}
                 ${m.id === g.ownerId ? `<span class="badge brand">Owner</span>` : ""}
               </div>`).join("")}
             </div>
@@ -792,6 +808,69 @@ App.views.groups = (function () {
         </div>
       </div>
     </div>`;
+  }
+
+  /**
+   * F059 — post one assignment to several class groups at once.
+   *
+   * A teacher usually has multiple sections of the same course; without this
+   * they would type the same assignment once per section. Groups are opt-in
+   * per post, because "all my classes" and "my third-period class" are both
+   * ordinary cases.
+   */
+  function broadcastForm() {
+    const list = groups || [];
+    if (!list.length) { UI.toast("No class groups", "Create or join one first.", "warn"); return; }
+
+    UI.modal({
+      title: "Post to your classes",
+      sub: "Goes out marked as official, so students don't have to confirm it.",
+      size: "wide",
+      okLabel: "Post",
+      body: `<div class="form-grid">
+        <div class="field full"><label>Assignment</label>
+          <input class="input" name="title" required maxlength="140" placeholder="e.g. Chapter 7 problems 1-20" /></div>
+        <div class="field"><label>Class name shown on the post</label>
+          <input class="input" name="className" maxlength="60" placeholder="e.g. AP Biology" /></div>
+        <div class="field"><label>Due</label>
+          <input class="input" type="date" name="due" value="${U.dateKey(U.addDays(new Date(), 7))}" /></div>
+        <div class="field full"><label>Notes</label>
+          <textarea class="textarea" name="notes" rows="2" maxlength="500"
+            placeholder="Anything students should know"></textarea></div>
+        <div class="field full">
+          <label>Post to</label>
+          <div class="row wrap gap-6">
+            ${list.map((g) => `<label class="row gap-6" style="align-items:center">
+              <input type="checkbox" class="check" data-bgroup="${U.esc(g.id)}" checked />
+              <span class="small">${U.esc(g.name)}</span>
+            </label>`).join("")}
+          </div>
+        </div>
+      </div>`,
+      onSubmit(d, modalRoot) {
+        const ids = [...modalRoot.querySelectorAll("[data-bgroup]")]
+          .filter((cb) => cb.checked).map((cb) => cb.dataset.bgroup);
+        if (!ids.length) { UI.toast("Pick at least one class", "", "warn"); return false; }
+
+        App.sync.broadcastFeed({
+          title: d.title.trim(), className: d.className, due: d.due, notes: (d.notes || "").trim()
+        }, ids)
+          .then((r) => {
+            const failed = (r.results || []).filter((x) => !x.ok);
+            if (failed.length) {
+              // Partial success is reported rather than rolled back: four
+              // sections receiving it beats none, and the teacher needs to
+              // know which one missed.
+              UI.toast("Posted to " + r.posted + " of " + ids.length,
+                failed.map((f) => f.error).join("; "), "warn");
+            } else {
+              UI.toast("Posted", `Sent to ${U.plural(r.posted, "class")}.`, "ok");
+            }
+            refresh();
+          })
+          .catch((e) => UI.toast("Couldn't post", e.message, "danger"));
+      }
+    });
   }
 
   function render() {
@@ -807,10 +886,20 @@ App.views.groups = (function () {
           <div class="sub">Shared flashcards and a crowdsourced "what's the homework?" feed</div>
         </div>
         <div class="page-actions">
+          ${isTeacher() && groups && groups.length > 1
+            ? `<button class="btn" data-broadcast>Post to all classes</button>` : ""}
           <button class="btn" data-join>Join with a code</button>
           <button class="btn btn-primary" data-create>+ New group</button>
         </div>
       </div>
+
+      ${isTeacher() ? `<div class="card mb-16" style="border-left:3px solid var(--brand-600)">
+        <div class="card-body small">
+          <strong>Teacher account.</strong> Anything you post to a class feed is marked
+          <span class="badge brand">From your teacher</span> — students see it as the assignment rather than
+          a classmate's guess, so nobody is asked to confirm it.
+        </div>
+      </div>` : ""}
 
       ${error ? `<div class="card mb-16" style="border-left:3px solid var(--danger)">
         <div class="card-body small">${U.esc(error)}</div></div>` : ""}
@@ -838,6 +927,7 @@ App.views.groups = (function () {
     U.on(root, "click", "[data-create]", createForm);
     U.on(root, "click", "[data-join]", () => joinForm());
     U.on(root, "click", "[data-open]", (_e, el) => openDetail(el.dataset.open));
+    U.on(root, "click", "[data-broadcast]", () => broadcastForm());
     U.on(root, "click", "[data-back]", () => { openGroup = null; groupTab = "feed"; App.router.refresh(); });
     U.on(root, "click", "[data-gtab]", (_e, el) => { groupTab = el.dataset.gtab; App.router.refresh(); });
 

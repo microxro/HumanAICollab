@@ -425,6 +425,11 @@ App.sync = (function () {
     return call("/webhooks/" + encodeURIComponent(id), { method: "DELETE" });
   }
 
+  /** F059 — post one assignment to every class group a teacher is in. */
+  function broadcastFeed(payload, groupIds) {
+    return call("/groups/broadcast", { method: "POST", body: { ...payload, groupIds } });
+  }
+
   function icsFeedUrl(token) { return `${location.origin}${base()}/ics-feed/${encodeURIComponent(token)}`; }
 
   /* ------------------------------------------------------ F070 focus windows */
@@ -566,7 +571,7 @@ App.sync = (function () {
     pushIcsFeed, icsFeedUrl,
     listApiTokens, mintApiToken, revokeApiToken,
     listWebhooks, addWebhook, removeWebhook, apiBaseUrl,
-    listGroups, createGroup, joinGroup, getGroup,
+    listGroups, createGroup, joinGroup, getGroup, broadcastFeed,
     shareDeck, getSharedDeck, postFeed, confirmFeed, commentFeed, rateFeed, leaveGroup,
     addGroupTask, updateGroupTask, deleteGroupTask,
     pushAvailability,

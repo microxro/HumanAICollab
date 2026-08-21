@@ -12,7 +12,8 @@
     "test:browser": "node tests/boot.mjs",
     "test:security": "node --import ./tests/stub/register.mjs tests/security.mjs",
     "test:a11y": "node tests/a11y.mjs",
-    "test:api": "node --import ./tests/stub/register.mjs tests/api.mjs"
+    "test:api": "node --import ./tests/stub/register.mjs tests/api.mjs",
+    "test:teacher": "node --import ./tests/stub/register.mjs tests/teacher.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1"

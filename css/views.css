@@ -790,3 +790,13 @@
 @media (max-width: 640px) {
   .week-grid, .week-allday { min-width: 640px; }
 }
+
+/* F059 — a teacher's post in a group feed. The left rail is a second,
+   non-colour channel alongside the "From your teacher" badge, so the
+   distinction survives greyscale and colour-vision differences. */
+.feed-item-official {
+  border-left: 3px solid var(--brand-600);
+  background: var(--brand-50);
+  border-radius: var(--radius-xs);
+}
+.feed-item-official .title { font-weight: 700; }
