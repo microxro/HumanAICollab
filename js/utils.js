@@ -279,6 +279,70 @@ App.utils = (function () {
     return lum > 0.62 ? "#10141f" : "#ffffff";
   }
 
+  /* ------------------------------------------------------- contrast maths -- */
+
+  function _srgb(c) { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+
+  function _rgb(hex) {
+    const h = String(hex || "#000000").replace("#", "");
+    const n = parseInt(h.length === 3 ? h.split("").map((x) => x + x).join("") : h, 16);
+    return Number.isFinite(n) ? [(n >> 16) & 255, (n >> 8) & 255, n & 255] : [0, 0, 0];
+  }
+
+  function luminance(hex) {
+    const [r, g, b] = _rgb(hex);
+    return 0.2126 * _srgb(r) + 0.7152 * _srgb(g) + 0.0722 * _srgb(b);
+  }
+
+  /** WCAG contrast ratio between two opaque colours. */
+  function contrastRatio(a, b) {
+    const la = luminance(a), lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+
+  const _hex = (r, g, b) =>
+    "#" + [r, g, b].map((x) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, "0")).join("");
+
+  /**
+   * A readable version of `hex` for text on `bg`.
+   *
+   * Class colours are user-chosen, and several views render a class name in
+   * its own colour on a 14%-alpha tint of that same colour — which for a
+   * mid-tone like the default indigo lands around 3:1 and fails WCAG AA. This
+   * walks the colour toward black (on a light background) or white (on a dark
+   * one) until it clears the target, so any colour a student picks stays
+   * legible without losing its identity.
+   */
+  function readableOn(hex, bg, target) {
+    const want = target || 4.5;
+    if (contrastRatio(hex, bg) >= want) return hex;
+    const [r, g, b] = _rgb(hex);
+    const towardWhite = luminance(bg) < 0.5;
+    for (let f = 0.02; f <= 1.001; f += 0.02) {
+      const c = towardWhite
+        ? _hex(r + (255 - r) * f, g + (255 - g) * f, b + (255 - b) * f)
+        : _hex(r * (1 - f), g * (1 - f), b * (1 - f));
+      if (contrastRatio(c, bg) >= want) return c;
+    }
+    return towardWhite ? "#ffffff" : "#000000";
+  }
+
+  /**
+   * `{ bg, fg }` for a coloured tag: a soft tint of the class colour with
+   * text guaranteed readable against it. `dark` selects the theme's surface,
+   * since the tint composites over that.
+   */
+  function tagColors(hex, dark) {
+    const surface = dark ? "#141926" : "#ffffff";
+    const [r, g, b] = _rgb(hex);
+    const a = dark ? 0.22 : 0.14;
+    const [sr, sg, sb] = _rgb(surface);
+    // The tint as it will actually be composited, so contrast is measured
+    // against what the eye sees rather than against a transparent colour.
+    const flat = _hex(sr + (r - sr) * a, sg + (g - sg) * a, sb + (b - sb) * a);
+    return { bg: flat, fg: readableOn(hex, flat, 4.5) };
+  }
+
   function hexAlpha(hex, alpha) {
     const h = String(hex || "#000").replace("#", "");
     const r = parseInt(h.slice(0, 2), 16);
@@ -421,7 +485,7 @@ App.utils = (function () {
     fmtDate, relDate, toMin, fromMin, nowMin, fmtTime, fmtDur, clock, convertWallTime,
     initials, esc, safeUrl, isEmail, mailtoHref, plural, titleCase,
     clamp, round, sum, avg, groupBy, sortBy,
-    $, $$, on, contrastText, hexAlpha, debounce, download,
+    $, $$, on, contrastText, hexAlpha, luminance, contrastRatio, readableOn, tagColors, debounce, download,
     pctToLetter, pctToGpa, gradeClass, skeletonRows, skeletonCards,
     SUBJECT_ICONS, guessSubjectIcon, subjectIconChar
   };

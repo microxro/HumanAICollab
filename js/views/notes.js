@@ -652,7 +652,7 @@ Ribosome: makes proteins
       <div class="card mb-16"><div class="card-body tight">
         <div class="row wrap gap-8">
           <input class="input input-sm" id="nSearch" placeholder="Search notes…" value="${U.esc(q)}" style="max-width:250px" />
-          <select class="select input-sm" id="nCls" style="max-width:190px">
+          <select class="select input-sm" id="nCls" style="max-width:190px" aria-label="Filter notes by class">
             <option value="">All classes</option>${UI.classOptions(clsFilter)}
           </select>
           <span class="grow"></span>
@@ -674,7 +674,7 @@ Ribosome: makes proteins
           </div>
           <div class="n-body">${U.esc(App.md.plain(n.body))}</div>
           <div class="n-foot">
-            ${c ? `<span class="tag" style="background:${U.hexAlpha(c.color, .14)};color:${U.esc(c.color)}">${U.esc(c.name)}</span>` : ""}
+            ${c ? `<span class="tag" style="background:${U.tagColors(c.color, S.isDark()).bg};color:${U.tagColors(c.color, S.isDark()).fg}">${U.esc(c.name)}</span>` : ""}
             ${(n.tags || []).slice(0, 2).map((t) => `<span class="tag">#${U.esc(t)}</span>`).join("")}
             <span class="grow"></span>
             <span class="tiny dim">${U.esc(U.fmtDate(n.updated))}</span>

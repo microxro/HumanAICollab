@@ -44,7 +44,8 @@ App.views.sharing = (function () {
             <div class="tiny dim">Confirms whether you're actually on campus</div>
           </div>
           <label class="switch">
-            <input type="checkbox" id="geoToggle" ${g.enabled ? "checked" : ""}
+            <input type="checkbox" id="geoToggle" aria-label="Share my location with linked guardians"
+                   ${g.enabled ? "checked" : ""}
                    ${perm === "unsupported" ? "disabled" : ""} />
             <span class="track"></span>
           </label>
@@ -273,7 +274,7 @@ App.views.sharing = (function () {
             ${shared.length ? `<div class="row gap-4 wrap" style="margin-top:5px">
               ${shared.map((id) => {
                 const c = S.cls(id);
-                return `<span class="tag" style="background:${U.hexAlpha(c.color, .14)};color:${U.esc(c.color)}">${U.esc(c.name)}</span>`;
+                return `<span class="tag" style="background:${U.tagColors(c.color, S.isDark()).bg};color:${U.tagColors(c.color, S.isDark()).fg}">${U.esc(c.name)}</span>`;
               }).join("")}
             </div>` : `<div class="tiny dim mt-4">No classes in common</div>`}
           </span>
@@ -474,7 +475,12 @@ App.views.sharing = (function () {
         <div class="tiny dim">${U.esc(desc)}</div>
       </div>
       <label class="switch">
-        <input type="checkbox" data-toggle="${key}" ${S.settings[key] ? "checked" : ""} />
+        <!-- The wrapping label contains only the visual track, so it gives the
+             control no accessible name — a screen reader announced eight
+             unlabelled checkboxes on this screen. The visible title is the
+             name; aria-label carries it without changing the layout. -->
+        <input type="checkbox" data-toggle="${key}" aria-label="${U.esc(title)}"
+               ${S.settings[key] ? "checked" : ""} />
         <span class="track"></span>
       </label>
     </div>`;

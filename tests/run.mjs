@@ -16,7 +16,7 @@ const NODE_SUITES = ["tests/migration.mjs", "tests/assets.mjs", "tests/email.mjs
 // These drive the real Netlify functions with only the storage layer stubbed,
 // so they need the loader that redirects _lib/blobs.js.
 const STUBBED_SUITES = ["tests/security.mjs"];
-const BROWSER_SUITES = ["tests/boot.mjs", "tests/xss.mjs", "tests/resilience.mjs", "tests/correctness.mjs"];
+const BROWSER_SUITES = ["tests/boot.mjs", "tests/xss.mjs", "tests/resilience.mjs", "tests/correctness.mjs", "tests/a11y.mjs"];
 
 function portOpen(port) {
   return new Promise((res) => {

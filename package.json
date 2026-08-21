@@ -10,12 +10,16 @@
     "test": "node tests/run.mjs",
     "test:node": "node tests/migration.mjs && node tests/assets.mjs && node tests/email.mjs",
     "test:browser": "node tests/boot.mjs",
-    "test:security": "node --import ./tests/stub/register.mjs tests/security.mjs"
+    "test:security": "node --import ./tests/stub/register.mjs tests/security.mjs",
+    "test:a11y": "node tests/a11y.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "axe-core": "^4.13.0"
   }
 }

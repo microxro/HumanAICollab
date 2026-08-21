@@ -115,7 +115,7 @@ App.views.college = (function () {
               <div class="title">${U.esc(e.prompt)}</div>
               <div class="meta">${e.words ? e.words + " words" : ""}</div>
             </span>
-            <select class="select input-sm" data-essay="${e.id}" style="width:130px">
+            <select class="select input-sm" data-essay="${e.id}" style="width:130px" aria-label="Status for ${U.esc(e.title || "essay")}">
               ${ESSAY_STATUS.map((s) => `<option value="${s}" ${s === e.status ? "selected" : ""}>${U.titleCase(s.replace("-", " "))}</option>`).join("")}
             </select>
             <button class="icon-btn btn-sm" data-rm-essay="${e.id}" aria-label="Remove">✕</button>

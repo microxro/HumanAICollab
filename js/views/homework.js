@@ -152,7 +152,7 @@ App.views.homework = (function () {
           <div id="stList">${(a.subtasks || []).map((s) => stRow(s)).join("")}</div>
           <div class="row gap-8 mt-4">
             <button type="button" class="btn btn-sm" id="addSt">+ Add step</button>
-            <select class="select input-sm" id="stTemplate" style="max-width:190px">
+            <select class="select input-sm" id="stTemplate" style="max-width:190px" aria-label="Subtask template">
               <option value="">Insert template…</option>
               ${Object.keys(ST_TEMPLATES).map((k) => `<option value="${U.esc(k)}">${U.esc(k)}</option>`).join("")}
             </select>
@@ -1009,10 +1009,10 @@ App.views.homework = (function () {
         <div class="row wrap gap-8">
           <input class="input input-sm" id="hwSearch" placeholder="Search assignments…"
                  value="${U.esc(filter.q)}" style="max-width:230px" />
-          <select class="select input-sm" id="fCls" style="max-width:190px">
+          <select class="select input-sm" id="fCls" style="max-width:190px" aria-label="Filter by class">
             <option value="">All classes</option>${UI.classOptions(filter.cls)}
           </select>
-          <select class="select input-sm" id="fStatus" style="max-width:150px">
+          <select class="select input-sm" id="fStatus" style="max-width:150px" aria-label="Filter by status">
             <option value="open"     ${filter.status === "open" ? "selected" : ""}>Open</option>
             <option value="week"     ${filter.status === "week" ? "selected" : ""}>Due this week</option>
             <option value="overdue"  ${filter.status === "overdue" ? "selected" : ""}>Overdue</option>
@@ -1021,7 +1021,7 @@ App.views.homework = (function () {
             <option value="archived" ${filter.status === "archived" ? "selected" : ""}>Archived</option>
             <option value="all"      ${filter.status === "all" ? "selected" : ""}>All</option>
           </select>
-          <select class="select input-sm" id="fSort" style="max-width:160px">
+          <select class="select input-sm" id="fSort" style="max-width:160px" aria-label="Sort assignments by">
             <option value="due"      ${filter.sort === "due" ? "selected" : ""}>Sort: due date</option>
             <option value="priority" ${filter.sort === "priority" ? "selected" : ""}>Sort: priority</option>
             <option value="cls"      ${filter.sort === "cls" ? "selected" : ""}>Sort: class</option>
@@ -1030,7 +1030,7 @@ App.views.homework = (function () {
           </select>
           <span class="grow"></span>
           <div class="row gap-6">
-            ${S.filtersFor("homework").length ? `<select class="select input-sm" id="fSaved" style="max-width:150px">
+            ${S.filtersFor("homework").length ? `<select class="select input-sm" id="fSaved" style="max-width:150px" aria-label="Load a saved filter">
               <option value="">Saved lists…</option>
               ${S.filtersFor("homework").map((f) => `<option value="${f.id}">${U.esc(f.name)}</option>`).join("")}
             </select>` : ""}
@@ -1059,7 +1059,7 @@ App.views.homework = (function () {
       return `<span class="tag"${style}>${U.esc(t.label)}</span>`;
     }).join("");
     box.innerHTML = `<span class="tiny dim">Will create:</span>
-      <span class="tag" style="background:var(--brand-50);color:var(--brand-600)">${U.esc(parsed.title)}</span>
+      <span class="tag" style="background:var(--brand-50);color:var(--brand-text)">${U.esc(parsed.title)}</span>
       ${chips}
       ${parsed.tokens.length ? "" : `<span class="tiny dim">— add a day, duration, or class to fill in more</span>`}`;
   }

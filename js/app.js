@@ -210,6 +210,11 @@
       }
     }
 
+    // Wire every <label> to its control. See UI.associateLabels — the views
+    // write the label/field pair ~230 times without a `for`, which makes the
+    // label decorative text rather than a label.
+    UI.associateLabels(root);
+
     renderNav();
     paintSyncBadge();
     paintTodayStrip();

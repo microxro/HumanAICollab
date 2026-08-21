@@ -218,7 +218,7 @@ App.views.contacts = (function () {
             </div>
             ${t.office ? `<div class="tiny dim mb-8">🕐 ${U.esc(t.office)}</div>` : ""}
             ${classes.length ? `<div class="row gap-6 wrap mb-12">
-              ${classes.map((c) => `<span class="tag" style="background:${U.hexAlpha(c.color, .14)};color:${U.esc(c.color)}">${U.esc(c.name)}</span>`).join("")}
+              ${classes.map((c) => `<span class="tag" style="background:${U.tagColors(c.color, S.isDark()).bg};color:${U.tagColors(c.color, S.isDark()).fg}">${U.esc(c.name)}</span>`).join("")}
             </div>` : `<div class="tiny dim mb-12">No classes assigned</div>`}
             <div class="row gap-6">
               ${t.email ? `<a class="btn btn-sm btn-primary" href="${mailto(t, classes[0])}"

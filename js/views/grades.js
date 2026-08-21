@@ -212,7 +212,7 @@ App.views.grades = (function () {
               <div class="tiny dim">${cat.weight}% of grade · ${U.plural(n, "graded item")}</div>
             </div>
             <div class="row gap-8 wrap">
-              <select class="select input-sm" data-drop="${cat.id}" style="width:110px">
+              <select class="select input-sm" data-drop="${cat.id}" style="width:110px" aria-label="Drop lowest scores in ${U.esc(cat.name)}">
                 ${[0, 1, 2, 3].map((v) => `<option value="${v}" ${(rules.dropLowest || {})[cat.id] === v || (!((rules.dropLowest || {})[cat.id]) && v === 0) ? "selected" : ""}>
                   ${v === 0 ? "Keep all" : "Drop " + v}</option>`).join("")}
               </select>
@@ -628,7 +628,7 @@ App.views.grades = (function () {
             </div>
             <div class="row gap-8">
               ${trendZoom ? `<button class="btn btn-sm" data-reset-zoom>↺ Reset zoom</button>` : ""}
-              <select class="select input-sm" id="trendCls" style="max-width:180px">
+              <select class="select input-sm" id="trendCls" style="max-width:180px" aria-label="Class shown in the trend chart">
                 <option value="">All classes</option>${UI.classOptions(selected)}
               </select>
             </div>

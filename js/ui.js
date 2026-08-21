@@ -160,6 +160,54 @@ App.ui = (function () {
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
 
+  /* ----------------------------------------------------- label wiring -- */
+
+  const LABELABLE = "input:not([type=hidden]), select, textarea";
+
+  /**
+   * Associates every `<label>` with its control.
+   *
+   * The views write `<div class="field"><label>Class name</label><input …>`
+   * about 230 times. That markup looks right and is not: with no `for` and no
+   * wrapping, the label is decorative text. Clicking it doesn't focus the
+   * field, and a screen reader announces "edit, blank". Fixing it in the
+   * templates would mean 230 hand-edits and would rot the moment someone adds
+   * a field, so it is done here — once, on every rendered subtree.
+   *
+   * Controls that carry their own aria-label, or that a label already wraps,
+   * are left alone.
+   */
+  function associateLabels(root) {
+    if (!root || !root.querySelectorAll) return;
+    U.$$("label", root).forEach((label) => {
+      if (label.hasAttribute("for")) return;
+      if (label.querySelector(LABELABLE)) return;      // implicit association
+
+      const field = label.closest(".field") || label.parentNode;
+      if (!field || !field.querySelectorAll) return;
+
+      // The first control after this label inside the same group.
+      const controls = [...field.querySelectorAll(LABELABLE)];
+      const target = controls.find((el) =>
+        label.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (!target) return;
+
+      if (!target.id) target.id = U.uid("f");
+      label.setAttribute("for", target.id);
+    });
+
+    // A control with neither a label nor an accessible name still needs one;
+    // a placeholder is not a label, but it is better than nothing and it is
+    // what the author meant.
+    U.$$(LABELABLE, root).forEach((el) => {
+      if (el.id && root.querySelector(`label[for="${CSS.escape(el.id)}"]`)) return;
+      if (el.getAttribute("aria-label") || el.getAttribute("aria-labelledby")) return;
+      if (el.closest("label")) return;
+      const ph = el.getAttribute("placeholder");
+      if (ph) el.setAttribute("aria-label", ph);
+    });
+  }
+
   /* ------------------------------------------------- field-level errors -- */
 
   function clearFieldErrors(scope) {
@@ -306,7 +354,11 @@ App.ui = (function () {
     const first = root.querySelector("input:not([type=hidden]), textarea, select");
     if (first) setTimeout(() => first.focus(), 40);
 
+    associateLabels(root);
     if (opts.onMount) opts.onMount(root);
+    // onMount often injects more markup (repeating rows, editors), so run
+    // once more over whatever it added.
+    associateLabels(root);
     return root;
   }
 
@@ -710,6 +762,7 @@ App.ui = (function () {
 
   return {
     toast, deleteWithUndo, pushUndo, popUndo, modal, closeModal, confirm, confirmTyped, prompt,
+    associateLabels,
     avatar, emptyState, classOptions, teacherOptions,
     colorPicker, bindSwatches, dayPicker, bindDays,
     gradePill, priorityBadge, dueBadge, menu, helpHint

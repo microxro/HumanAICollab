@@ -33,7 +33,10 @@ App.views.schedule = (function () {
     html += `<div></div>`;
     D.forEach((d) => {
       const isToday = rotating ? d === todayCycle : d === todayDow;
-      html += `<div class="tt-head" style="${isToday ? "color:var(--brand-600)" : ""}">${rotating ? "Day " + U.esc(d) : d}</div>`;
+      // --brand-600 is a fill colour; against the dark surface it measures
+      // about 3:1 as text. --brand-text is the accessible pairing and is
+      // defined per theme.
+      html += `<div class="tt-head" style="${isToday ? "color:var(--brand-text)" : ""}">${rotating ? "Day " + U.esc(d) : d}</div>`;
     });
 
     periods.forEach((p) => {
@@ -92,7 +95,8 @@ App.views.schedule = (function () {
         ${cd ? `<span class="badge brand">Day ${U.esc(cd)}</span>` : ""}
         ${isToday ? `<span class="badge solid">Today</span>` : ""}
         <span class="grow"></span>
-        <select class="select input-sm" data-bell-variant="${iso}" style="max-width:150px">
+        <select class="select input-sm" data-bell-variant="${iso}" style="max-width:150px"
+          aria-label="Bell schedule for ${U.esc(U.fmtDate(iso))}">
           <option value="">Normal schedule</option>
           ${Object.entries(S.settings.bellVariants).map(([k, v]) => `<option value="${k}" ${variant === k ? "selected" : ""}>${U.esc(v.label)}</option>`).join("")}
         </select>
@@ -164,7 +168,8 @@ App.views.schedule = (function () {
                  <span class="tiny dim">periods shift ${cfg.shiftMin > 0 ? "later" : "earlier"} by ${Math.abs(cfg.shiftMin)} min</span>`
               : `<span class="badge">Normal</span>`}
             <span class="grow"></span>
-            <select class="select input-sm" data-bell-variant="${U.today()}" style="max-width:190px">
+            <select class="select input-sm" data-bell-variant="${U.today()}" style="max-width:190px"
+              aria-label="Bell schedule for today">
               <option value="">Normal schedule</option>
               ${Object.entries(S.settings.bellVariants).map(([k, cv]) =>
                 `<option value="${k}" ${v === k ? "selected" : ""}>${U.esc(cv.label)}</option>`).join("")}

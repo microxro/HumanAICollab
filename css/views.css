@@ -710,7 +710,7 @@
 .md .md-tasks { list-style: none; padding-left: .2em; }
 .md .md-task { display: flex; gap: 7px; align-items: baseline; }
 .md .md-task.done { color: var(--text-3); text-decoration: line-through; }
-.md .md-box { color: var(--brand-500); flex-shrink: 0; }
+.md .md-box { color: var(--brand-text); flex-shrink: 0; }
 
 .md .md-code {
   background: var(--surface-3);

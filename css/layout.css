@@ -42,7 +42,7 @@
 }
 
 .logo-text { font-weight: 700; font-size: 1.02rem; letter-spacing: -.03em; }
-.logo-text span { color: var(--brand-500); }
+.logo-text span { color: var(--brand-text); }
 
 .sidebar-scroll {
   flex: 1;

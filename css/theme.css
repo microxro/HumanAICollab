@@ -13,15 +13,30 @@
   --brand-600: #4f46e5;
   --brand-700: #4338ca;
   --brand-800: #3730a3;
+  /* Brand colour when it carries *text* rather than a fill. --brand-500
+     measures 4.46:1 on white — a hair under the 4.5:1 minimum, which axe
+     reports as a serious violation. Fills keep --brand-500 so nothing
+     changes visually where contrast isn't the constraint. */
+  --brand-text: #595bd8;
 
-  /* Semantic */
-  --ok:      #16a34a;
+  /* Semantic
+     These are text colours as often as they are fills, so each one clears
+     4.5:1 against every light surface below — white, --bg, --surface-2 and
+     --surface-3. The original values sat between 3.2 and 3.7:1, which axe
+     flags as a serious violation on every screen that shows a badge. The
+     -strong variants keep the old, more saturated tone for fills and
+     borders, where contrast with text is not the constraint. */
+  --ok:      #117b38;
+  --ok-strong: #16a34a;
   --ok-bg:   #dcfce7;
-  --warn:    #d97706;
+  --warn:    #a15804;
+  --warn-strong: #d97706;
   --warn-bg: #fef3c7;
-  --danger:  #dc2626;
-  --danger-bg:#fee2e2;
-  --info:    #0891b2;
+  --danger:  #ce2424;
+  --danger-strong: #dc2626;
+  --danger-bg:#fee9e9;   /* lifted slightly so --danger on it clears 4.5:1 */
+  --info:    #06748e;
+  --info-strong: #0891b2;
   --info-bg: #cffafe;
 
   /* U40 — workload heat, a light-to-heavy warm ramp for the calendar */
@@ -39,7 +54,12 @@
   /* Text */
   --text:        #10141f;
   --text-2:      #4b5568;
-  --text-3:      #8791a5;
+  /* Muted text. #8791a5 measured 3.17:1 on white — under the 4.5:1 minimum —
+     and it is the token behind .dim, .muted, .sub, .meta and .stat-label, so
+     it alone accounted for around 500 contrast violations across all 21
+     views. This value clears 4.5:1 on every light surface while still
+     reading as clearly secondary. */
+  --text-3:      #636b79;
   --text-invert: #ffffff;
 
   /* Effects */
@@ -76,14 +96,29 @@
 
   --text:        #eef1f7;
   --text-2:      #a8b2c6;
-  --text-3:      #6f7b93;
+  /* 4.5:1 against every dark surface. #6f7b93 measured 3.77-4.11. */
+  --text-3:      #8993a6;
 
   --brand-50:  #1a1f3d;
   --brand-100: #232a52;
   --brand-200: #2f3a72;
+  --brand-text: #8587f4;
 
-  --ok-bg:     #10331f;
-  --warn-bg:   #3a2a0c;
+  /* The light theme's semantic colours are darkened for contrast against a
+     white page, which makes them *less* readable here — they have to be
+     lightened against a dark one instead. Each clears 4.5:1 on --bg,
+     --surface, --surface-2 and --surface-3. */
+  --ok:        #22a853;
+  --ok-strong: #16a34a;
+  --warn:      #da7a0b;
+  --warn-strong: #d97706;
+  --danger:    #e76d6d;
+  --danger-strong: #dc2626;
+  --info:      #279fbc;
+  --info-strong: #0891b2;
+
+  --ok-bg:     #0f301d;   /* deepened so --ok on it clears 4.5:1 */
+  --warn-bg:   #37280b;   /* deepened so --warn on it clears 4.5:1 */
   --danger-bg: #3d1618;
   --info-bg:   #0c2f38;
 
