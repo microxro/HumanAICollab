@@ -712,23 +712,38 @@ App.views.settings = (function () {
       const badge = (okd, text) =>
         `<span class="badge ${okd ? "ok" : "danger"}">${U.esc(text)}</span>`;
 
-      rows.push(`<div class="between" style="padding:6px 0">
-        <span class="small">API key</span>
-        ${h.keyPresent
-          ? badge(true, `Present (${h.keyLength} chars)`)
-          : badge(false, "Not set on this deploy")}
-      </div>`);
+      // The server only returns the key's length, the model name and the
+      // rest of the deployment configuration to the operator account
+      // (ADMIN_EMAIL). Everyone else gets the one fact this panel needs —
+      // is the assistant switched on — so the panel has to render both
+      // shapes rather than reading absent fields as "not set".
+      if (h.operator) {
+        rows.push(`<div class="between" style="padding:6px 0">
+          <span class="small">API key</span>
+          ${h.keyPresent
+            ? badge(true, `Present (${h.keyLength} chars)`)
+            : badge(false, "Not set on this deploy")}
+        </div>`);
 
-      if (h.keyPresent && !h.keyLooksTrimmed) {
-        rows.push(`<div class="tiny" style="color:var(--warn);padding:2px 0">
-          ⚠ The key has leading or trailing whitespace — re-paste it in Netlify without spaces or newlines.
+        if (h.keyPresent && !h.keyLooksTrimmed) {
+          rows.push(`<div class="tiny" style="color:var(--warn);padding:2px 0">
+            ⚠ The key has leading or trailing whitespace — re-paste it in Netlify without spaces or newlines.
+          </div>`);
+        }
+
+        rows.push(`<div class="between" style="padding:6px 0">
+          <span class="small">Model</span>
+          <span class="small"><code>${U.esc(h.model)}</code> <span class="dim tiny">· ${U.esc(h.modelSource)}</span></span>
+        </div>`);
+      } else {
+        rows.push(`<div class="between" style="padding:6px 0">
+          <span class="small">AI assistant</span>
+          ${h.configured ? badge(true, "Set up on this deploy") : badge(false, "Not set up on this deploy")}
+        </div>`);
+        rows.push(`<div class="tiny dim" style="padding:2px 0">
+          Set <code>ADMIN_EMAIL</code> to this account's address in Netlify to see the full configuration here.
         </div>`);
       }
-
-      rows.push(`<div class="between" style="padding:6px 0">
-        <span class="small">Model</span>
-        <span class="small"><code>${U.esc(h.model)}</code> <span class="dim tiny">· ${U.esc(h.modelSource)}</span></span>
-      </div>`);
 
       if (h.probe) {
         rows.push(h.probe.ok

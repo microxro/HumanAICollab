@@ -27,7 +27,7 @@
      GET    /groups/:id             members, shared decks, assignment feed
      POST   /groups/:id/deck        share a flashcard deck
      POST   /groups/:id/feed        post to the crowdsourced assignment feed
-     POST   /groups/:id/leave       leave (owner leaving deletes the group)
+     POST   /groups/:id/leave       leave (ownership transfers; last one out deletes)
 
      Group collaboration (F054-F063) — all hang off the group blob, so
      membership is the only access check needed:
@@ -52,12 +52,32 @@
 
    Every authenticated route verifies the bearer token, and every read of
    another person's data checks an explicit link/membership first.
+
+   Concurrency. Anything more than one person can write — a group blob, a
+   student's check-in/notes/focus-window list, either side of a friendship —
+   goes through updateJSON()/updateGroup(), which is a conditional write with
+   an optimistic retry. A plain read-modify-write on a shared key drops one of
+   two simultaneous edits and answers 200 to both, which leaves no trace
+   anywhere; tests/concurrency.mjs asserts each of those pairs survives.
+
+   Environment:
+     SCHOLAR_SECRET  required — signs session tokens, derives email lookup
+                     keys, hashes API tokens at rest. No fallback.
+     SITE_URL        required — the origin password-reset links are built
+                     from, and the only origin allowed to call this API
+                     cross-site.
+     RESEND_API_KEY  optional — outbound email.
+     EMAIL_FROM      optional — sender on a domain verified in Resend.
+                     Unset means Resend's sandbox sender, which only reaches
+                     the API key owner.
+     ADMIN_EMAIL     optional — the account allowed to read this deploy's
+                     configuration from /email-health. Unset means nobody.
    ========================================================================== */
 
 import {
   hashPassword, verifyPassword, signToken, verifyToken,
   normalizeEmail, emailKey, validEmail, passwordProblem,
-  randomId, randomCode
+  randomId, randomCode, toB64Url
 } from "./_lib/auth.js";
 import { readJSON, updateJSON, readJSONWithEtag, writeJSONIf, rateLimit, writeJSON, remove } from "./_lib/blobs.js";
 import { sendEmail, layout, configured as emailConfigured, deliverable as emailDeliverable, fromAddress, SANDBOX_FROM } from "./_lib/email.js";
@@ -72,10 +92,41 @@ const ROLES = ["student", "parent", "teacher"];
 /* ------------------------------------------------------------------ F100 -- */
 
 const API_TOKEN_PREFIX = "sk_";
+
+/**
+ * Marks a request that authenticated with an API token rather than a session.
+ *
+ * A Symbol, not a string key, and that matters: this rides on the live profile
+ * object, and eleven routes write that object straight back with
+ * writeJSON("profiles", user.id, user). As a plain `_viaApiToken` property it
+ * got persisted by the first POST /me an API token ever made — after which the
+ * flag was true for every future *session* too, and the account was locked out
+ * of its own Developer tab for good, with no way back from inside the product.
+ * JSON.stringify ignores symbol-keyed properties, so this can never be stored.
+ */
+const VIA_API_TOKEN = Symbol("viaApiToken");
+
+/**
+ * Blob key for an API token: SHA-256 over the token and SCHOLAR_SECRET.
+ *
+ * Keyed by the hash rather than the token so the store never holds the secret
+ * — a read of the apiTokens store yields nothing anyone can authenticate
+ * with. Mixing in SCHOLAR_SECRET means the hash can't be precomputed from a
+ * guessed token either. Base64url, so it's a legal blob key.
+ */
+async function tokenLookupKey(token) {
+  const data = new TextEncoder().encode(String(token) + "|" + (process.env.SCHOLAR_SECRET || ""));
+  return toB64Url(await crypto.subtle.digest("SHA-256", data));
+}
 const MAX_API_TOKENS = 10;
 const MAX_WEBHOOKS = 5;
 const WEBHOOK_TIMEOUT_MS = 4000;
-const WEBHOOK_EVENTS = ["state.updated", "assignment.due", "grade.changed"];
+// Only events this deploy actually emits. `assignment.due` and `grade.changed`
+// were listed here and never fired anywhere: a receiver could subscribe, see
+// the hook registered, and wait forever for a delivery that had no producer.
+// An endpoint you can subscribe to but that is structurally silent is worse
+// than one that isn't offered.
+const WEBHOOK_EVENTS = ["state.updated"];
 
 /**
  * Netlify Blobs throws on an empty key, a key beginning with "/" or "%2F",
@@ -83,12 +134,17 @@ const WEBHOOK_EVENTS = ["state.updated", "assignment.due", "grade.changed"];
  * every other case propagated to the generic 500 handler — free log noise and
  * a trivially discoverable defect. Validate before we ever reach storage.
  */
+/** UTF-8 size of a string — what every size limit in this file actually means. */
+function byteLength(s) {
+  return new TextEncoder().encode(String(s == null ? "" : s)).length;
+}
+
 function validBlobKey(key) {
   if (typeof key !== "string") return false;
   const k = key.trim();
   if (!k || k.length > 300) return false;
   if (k.startsWith("/") || k.startsWith("%2F") || k.startsWith("%2f")) return false;
-  if (new TextEncoder().encode(k).length > 600) return false;
+  if (byteLength(k) > 600) return false;
   return true;
 }
 
@@ -153,17 +209,23 @@ async function currentUser(req) {
   // works: server-minted, opaque, redeemable without a session.
   if (token.startsWith(API_TOKEN_PREFIX)) {
     if (!validBlobKey(token)) return null;
-    const rec = await readJSON("apiTokens", token, null);
+    const lookup = await tokenLookupKey(token);
+    // Hashed lookup first; the plaintext key is only tried for tokens minted
+    // before hashing existed, so an old token keeps working until it's revoked.
+    let rec = await readJSON("apiTokens", lookup, null);
+    let storedAt = lookup;
+    if (!rec) { rec = await readJSON("apiTokens", token, null); storedAt = token; }
     if (!rec || !rec.userId) return null;
     const profile = await readJSON("profiles", rec.userId);
     if (!profile) return null;
+    delete profile._viaApiToken;   // see VIA_API_TOKEN — clears any stored flag
     // Revoked alongside sessions when the password changes.
     if (Number(profile.tokenEpoch || 0) > Number(rec.epoch || 0)) return null;
     // Best-effort usage stamp; never let it fail the request.
     if (!rec.lastUsedAt || Date.now() - rec.lastUsedAt > 60000) {
-      writeJSON("apiTokens", token, { ...rec, lastUsedAt: Date.now() }).catch(() => {});
+      writeJSON("apiTokens", storedAt, { ...rec, lastUsedAt: Date.now() }).catch(() => {});
     }
-    profile._viaApiToken = true;
+    profile[VIA_API_TOKEN] = true;
     return profile;
   }
 
@@ -171,6 +233,10 @@ async function currentUser(req) {
   if (!payload || !payload.sub) return null;
   const profile = await readJSON("profiles", payload.sub);
   if (!profile) return null;
+  // Repairs a profile written while the flag was a plain property: without
+  // this, an account that once used an API token stays locked out of token
+  // management forever, because the stored `true` outlives the request.
+  delete profile._viaApiToken;
 
   // Session revocation. Tokens are stateless with a 30-day life, so before
   // this a stolen one kept working for a month and a password reset did
@@ -193,7 +259,11 @@ async function body(req) {
   try {
     const text = await req.text();
     if (!text) return {};
-    if (text.length > MAX_STATE_BYTES) throw { status: 413, message: "That payload is too large." };
+    // Bytes, not `.length`. A JS string counts UTF-16 code units, so a body
+    // of emoji or CJK measured about half its real size here while pushState
+    // measured the same body in bytes — the two disagreed on what "5 MB"
+    // meant, and this gate was the looser of the pair.
+    if (byteLength(text) > MAX_STATE_BYTES) throw { status: 413, message: "That payload is too large." };
     return JSON.parse(text);
   } catch (e) {
     if (e && e.status) throw e;
@@ -225,10 +295,10 @@ async function signup(req) {
   // Rate limited per address so signup can't be used to walk a list of emails
   // (each attempt otherwise answers "does this account exist?" in one call),
   // and so an unbounded number of accounts can't be created on a whim.
-  const rl = await rateLimit("signup", await emailKey(email), 5, 60 * 60 * 1000);
+  const key = await emailKey(email);
+  const rl = await rateLimit("signup", key, 5, 60 * 60 * 1000);
   if (!rl.allowed) return fail(429, "Too many sign-up attempts for that address. Try again later.");
 
-  const key = await emailKey(email);
   const pw = await hashPassword(b.password);
   const id = randomId(12);
 
@@ -308,6 +378,22 @@ async function login(req) {
   return ok({ token, user: publicUser(profile) });
 }
 
+/**
+ * Whether this account runs the deploy, and may see its configuration.
+ *
+ * There is no admin role in the product, and inventing one would put a
+ * privilege boundary in the data where anybody who can write a profile could
+ * cross it. This reads a single environment variable instead: only whoever
+ * can set Netlify env vars can name the operator, and with ADMIN_EMAIL unset
+ * nobody is one — the safe default, at the cost of the deploy owner having to
+ * set it before the diagnostics answer them in full.
+ */
+function isOperator(user) {
+  const admin = normalizeEmail(process.env.ADMIN_EMAIL || "");
+  if (!admin) return false;
+  return normalizeEmail(user && user.email) === admin;
+}
+
 function publicUser(p) {
   return { id: p.id, email: p.email, name: p.name, role: p.role, links: p.links || [], groups: p.groups || [] };
 }
@@ -348,35 +434,53 @@ function siteOrigin() {
  *
  * Answers "why didn't the email arrive" without needing the Netlify function
  * logs. Requires a session, because ?probe=1 sends a real message and an
- * anonymous trigger would be a free spam relay. Never returns the API key —
- * only whether one is present and how long it is, which is enough to catch a
- * truncated or whitespace-padded paste.
+ * anonymous trigger would be a free spam relay.
+ *
+ * What it *shows* depends on who is asking. The sender address, the key's
+ * length and shape, whether SITE_URL is set and the provider's verbatim
+ * rejection are deployment configuration: useful to whoever runs this deploy,
+ * and a free reconnaissance report for anyone else who signs up. Ordinary
+ * accounts get the two facts the UI needs — can this deploy send, and can it
+ * reach me — and a probe that says whether the message went out.
  */
 async function emailHealth(req, user) {
   const key = process.env.RESEND_API_KEY || "";
   const from = fromAddress();
+  const operator = isOperator(user);
+
   const out = {
     configured: emailConfigured(),
     deliverable: emailDeliverable(),
-    keyPresent: !!key,
-    keyLength: key.length,
-    keyLooksTrimmed: key === key.trim(),
-    keyPrefixOk: key.startsWith("re_"),
-    from,
-    usingSandboxSender: from === SANDBOX_FROM,
-    siteUrlSet: !!process.env.SITE_URL
+    operator
   };
 
-  if (!out.configured) {
-    out.diagnosis = "RESEND_API_KEY is not set in this deploy's environment.";
-  } else if (out.usingSandboxSender) {
-    out.diagnosis = "EMAIL_FROM is unset, so mail goes out from " + SANDBOX_FROM + ". Resend only " +
-      "delivers from that address to the API key owner's own email — every other recipient is " +
-      "rejected 403. Verify a domain in Resend, then set EMAIL_FROM to an address on it.";
-  } else if (!out.keyPrefixOk) {
-    out.diagnosis = "RESEND_API_KEY doesn't start with 're_', which Resend keys do. Check for a truncated paste.";
+  if (operator) {
+    Object.assign(out, {
+      keyPresent: !!key,
+      keyLength: key.length,
+      keyLooksTrimmed: key === key.trim(),
+      keyPrefixOk: key.startsWith("re_"),
+      from,
+      usingSandboxSender: from === SANDBOX_FROM,
+      siteUrlSet: !!process.env.SITE_URL
+    });
+    if (!out.configured) {
+      out.diagnosis = "RESEND_API_KEY is not set in this deploy's environment.";
+    } else if (out.usingSandboxSender) {
+      out.diagnosis = "EMAIL_FROM is unset, so mail goes out from " + SANDBOX_FROM + ". Resend only " +
+        "delivers from that address to the API key owner's own email — every other recipient is " +
+        "rejected 403. Verify a domain in Resend, then set EMAIL_FROM to an address on it.";
+    } else if (!out.keyPrefixOk) {
+      out.diagnosis = "RESEND_API_KEY doesn't start with 're_', which Resend keys do. Check for a truncated paste.";
+    } else {
+      out.diagnosis = "Configuration looks right. Add ?probe=1 to send a real test message to your own address.";
+    }
+  } else if (!out.configured) {
+    out.diagnosis = "Email isn't set up on this deploy yet.";
+  } else if (!out.deliverable) {
+    out.diagnosis = "Email is only half set up on this deploy, so messages may not reach you.";
   } else {
-    out.diagnosis = "Configuration looks right. Add ?probe=1 to send a real test message to your own address.";
+    out.diagnosis = "Email is set up. Add ?probe=1 to send yourself a test message.";
   }
 
   const url = new URL(req.url);
@@ -385,15 +489,29 @@ async function emailHealth(req, user) {
     if (!to) {
       out.probe = { ok: false, error: "This account has no email address on file." };
     } else {
+      // A probe sends real mail. Without a limit, one signed-in account could
+      // loop this endpoint and burn the deploy's Resend quota — or its
+      // sending reputation — a message at a time.
+      const limit = await rateLimit("emailprobe", user.id, 5, 60 * 60 * 1000);
+      if (!limit.allowed) {
+        out.probe = { ok: false, error: "You've sent five test messages this hour. Try again later." };
+        return ok(out);
+      }
       const r = await sendEmail({
         to,
         subject: "Scholar email test",
         html: layout("Email is working", "<p>This is a test message from your Scholar deploy. " +
           "If you're reading it, password resets and weekly digests can reach you.</p>")
       }).catch((e) => ({ sent: false, reason: "exception", detail: String(e && e.message || e) }));
-      out.probe = r.sent
-        ? { ok: true, to, from: r.from }
-        : { ok: false, to, status: r.status, error: r.detail || r.reason, hint: r.hint || "" };
+      if (r.sent) {
+        out.probe = operator ? { ok: true, to, from: r.from } : { ok: true, to };
+      } else if (operator) {
+        out.probe = { ok: false, to, status: r.status, error: r.detail || r.reason, hint: r.hint || "" };
+      } else {
+        // The provider's own text names the sending domain and the reason it
+        // was refused; that's the deploy's business, not a signed-up stranger's.
+        out.probe = { ok: false, to, error: "That test message couldn't be sent." };
+      }
     }
   }
 
@@ -518,7 +636,7 @@ async function pushState(req, user) {
 
   // Measured in UTF-8 bytes, not UTF-16 code units: the old length check let
   // a payload of multi-byte characters through at roughly 3x the stated cap.
-  const size = new TextEncoder().encode(JSON.stringify(b.state)).length;
+  const size = byteLength(JSON.stringify(b.state));
   if (size > MAX_STATE_BYTES) return fail(413, "Your data is too large to sync (over 5 MB).");
 
   const base = Number(b.baseVersion || 0);
@@ -588,7 +706,17 @@ async function mintLinkCode(user) {
 async function redeemLinkCode(req, user) {
   const b = await body(req);
   const code = String(b.code || "").trim().toUpperCase();
-  if (!code) return fail(400, "Enter a link code.");
+  // joinGroup validates the key shape and limits guesses; this route did
+  // neither, and it is the more dangerous of the two. A link code is also six
+  // characters, and redeeming one makes the caller a *guardian*: live
+  // location, check-in requests, notes, focus windows. Unlimited guessing
+  // against that is a worse deal than unlimited guessing at a study group.
+  if (!validBlobKey(code)) return fail(400, "Enter a link code.");
+
+  const guessLimit = await rateLimit("linkcode", user.id, 10, 60 * 60 * 1000);
+  if (!guessLimit.allowed) {
+    return fail(429, "Too many link-code attempts. Try again in an hour.");
+  }
 
   const rec = await readJSON("links", code);
   if (!rec) return fail(404, "That code isn't valid.");
@@ -610,11 +738,13 @@ async function redeemLinkCode(req, user) {
   const student = await readJSON("profiles", rec.studentId);
   if (!student) return fail(404, "That student account no longer exists.");
 
-  const already = (user.links || []).some((l) => l.id === student.id);
-  if (!already) {
-    user.links = (user.links || []).concat([{ id: student.id, role: "child", name: student.name, since: Date.now() }]);
-    await writeJSON("profiles", user.id, user);
-  }
+  // Conditional, like the student's side below: redeeming two codes at once
+  // otherwise drops one of the two children off the guardian's list.
+  await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    if ((cur.links || []).some((l) => l.id === student.id)) return undefined;
+    return { ...cur, links: (cur.links || []).concat([{ id: student.id, role: "child", name: student.name, since: Date.now() }]) };
+  });
   await updateJSON("profiles", student.id, (cur) => {
     if (!cur) return undefined;
     if ((cur.links || []).some((l) => l.id === user.id)) return undefined;
@@ -653,8 +783,8 @@ async function unlink(user, otherId) {
   const linked = (user.links || []).some((l) => l.id === otherId);
   if (!linked) return fail(404, "You aren't linked to that account.");
 
-  user.links = (user.links || []).filter((l) => l.id !== otherId);
-  await writeJSON("profiles", user.id, user);
+  await updateJSON("profiles", user.id, (cur) =>
+    cur ? { ...cur, links: (cur.links || []).filter((l) => l.id !== otherId) } : undefined);
 
   // Conditional so an unlink can't clobber a concurrent change to the other
   // person's profile, and scoped to removing exactly one entry.
@@ -671,27 +801,66 @@ async function unlink(user, otherId) {
 // each profile keeps its own view of the relationship (`peers`), so an
 // accept/decline is a two-write, symmetric update rather than a shared row.
 
+const MAX_PEERS = 200;
+
 async function requestFriend(req, user) {
   const b = await body(req);
   const email = normalizeEmail(b.email || "");
   if (!validEmail(email)) return fail(400, "Enter a valid email address.");
   if (email === user.email) return fail(400, "You can't friend yourself.");
 
+  // This route answers a question about an address the caller supplies, so
+  // without a limit it is an account-enumeration tool: feed it a list and
+  // sort the replies. The limit doesn't make enumeration impossible, it makes
+  // it cost 20 addresses an hour instead of thousands a minute.
+  const limit = await rateLimit("friendreq", user.id, 20, 60 * 60 * 1000);
+  if (!limit.allowed) {
+    return fail(429, "You've sent a lot of requests this hour. Try again later.");
+  }
+
+  if ((user.peers || []).length >= MAX_PEERS) {
+    return fail(409, `You already have ${MAX_PEERS} connections and pending requests. Clear some first.`);
+  }
+
   const key = await emailKey(email);
   const rec = await readJSON("users", key);
-  if (!rec) return fail(404, "No Scholar account with that email.");
-  const target = await readJSON("profiles", rec.id);
-  if (!target) return fail(404, "No Scholar account with that email.");
+  const target = rec ? await readJSON("profiles", rec.id) : null;
 
-  user.peers = user.peers || [];
-  target.peers = target.peers || [];
-  if (user.peers.some((p) => p.id === target.id)) return fail(409, "You're already connected or a request is pending.");
+  // One reply for "no such account", "already connected" and "already
+  // pending". Distinct answers told the caller which addresses have Scholar
+  // accounts, and 409-vs-404 told them which of *those* they had already
+  // reached — free contact-graph reconnaissance for anyone with a word list.
+  // Nothing here reveals the target's name either; the requester learns it
+  // only if the request is accepted.
+  const vague = () => ok({ requested: true });
 
-  user.peers.push({ id: target.id, name: target.name, status: "pending-out", since: Date.now() });
-  target.peers.push({ id: user.id, name: user.name, status: "pending-in", since: Date.now() });
-  await writeJSON("profiles", user.id, user);
-  await writeJSON("profiles", target.id, target);
-  return ok({ requested: { id: target.id, name: target.name } });
+  if (!target) return vague();
+  if ((user.peers || []).some((p) => p.id === target.id)) return vague();
+
+  const now = Date.now();
+  // Each side is written conditionally and independently, because these are
+  // two different people's profiles: a plain write of `target` here would
+  // clobber whatever that person saved between our read and our write —
+  // including a friend request they accepted a second ago.
+  const mine = await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    const peers = cur.peers || [];
+    if (peers.some((p) => p.id === target.id)) return undefined;
+    if (peers.length >= MAX_PEERS) return undefined;
+    return { ...cur, peers: peers.concat([{ id: target.id, name: target.name, status: "pending-out", since: now }]) };
+  });
+  // Only touch the recipient once our own side landed, so a failure can't
+  // leave them holding a request that doesn't exist on the sender's list.
+  if (mine && (mine.peers || []).some((p) => p.id === target.id)) {
+    await updateJSON("profiles", target.id, (cur) => {
+      if (!cur) return undefined;
+      const peers = cur.peers || [];
+      if (peers.some((p) => p.id === user.id)) return undefined;
+      if (peers.length >= MAX_PEERS) return undefined;
+      return { ...cur, peers: peers.concat([{ id: user.id, name: user.name, status: "pending-in", since: now }]) };
+    });
+  }
+  return vague();
 }
 
 async function respondFriend(req, user) {
@@ -702,22 +871,25 @@ async function respondFriend(req, user) {
   const mine = user.peers.find((p) => p.id === otherId && p.status === "pending-in");
   if (!mine) return fail(404, "No pending request from that person.");
 
-  const other = await readJSON("profiles", otherId);
+  // Both sides conditionally, for the same reason as requestFriend: these
+  // are two people's live profiles, and a straight write of either one
+  // discards whatever the other person changed in the meantime.
   if (!accept) {
-    user.peers = user.peers.filter((p) => p.id !== otherId);
-    if (other) { other.peers = (other.peers || []).filter((p) => p.id !== user.id); await writeJSON("profiles", otherId, other); }
-    await writeJSON("profiles", user.id, user);
+    await updateJSON("profiles", user.id, (cur) =>
+      cur ? { ...cur, peers: (cur.peers || []).filter((p) => p.id !== otherId) } : undefined);
+    await updateJSON("profiles", otherId, (cur) =>
+      cur ? { ...cur, peers: (cur.peers || []).filter((p) => p.id !== user.id) } : undefined);
     return ok({ declined: otherId });
   }
 
-  mine.status = "accepted";
-  await writeJSON("profiles", user.id, user);
-  if (other) {
-    other.peers = other.peers || [];
-    const theirs = other.peers.find((p) => p.id === user.id);
-    if (theirs) theirs.status = "accepted";
-    await writeJSON("profiles", otherId, other);
-  }
+  await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    return { ...cur, peers: (cur.peers || []).map((p) => (p.id === otherId ? { ...p, status: "accepted" } : p)) };
+  });
+  await updateJSON("profiles", otherId, (cur) => {
+    if (!cur) return undefined;
+    return { ...cur, peers: (cur.peers || []).map((p) => (p.id === user.id ? { ...p, status: "accepted" } : p)) };
+  });
   return ok({ accepted: otherId });
 }
 
@@ -729,13 +901,51 @@ async function removeFriend(user, otherId) {
   const known = (user.peers || []).some((p) => p.id === otherId);
   if (!known) return fail(404, "That isn't one of your connections.");
 
-  user.peers = (user.peers || []).filter((p) => p.id !== otherId);
-  await writeJSON("profiles", user.id, user);
+  await updateJSON("profiles", user.id, (cur) =>
+    cur ? { ...cur, peers: (cur.peers || []).filter((p) => p.id !== otherId) } : undefined);
   await updateJSON("profiles", otherId, (other) => {
     if (!other) return undefined;
     return { ...other, peers: (other.peers || []).filter((p) => p.id !== user.id) };
   });
   return ok({ removed: otherId });
+}
+
+/* ------------------------------------------------ per-student list stores --
+   checkins, guardianNotes and focusWindows are each a single blob under the
+   *student's* id that both sides write: a guardian appends, the student marks
+   items answered. Read-modify-write with a plain writeJSON therefore drops
+   whichever of the two lands second — a parent's note posted while the
+   student is answering a check-in simply vanishes, with a 200 either way.
+   Both operations go through the conditional path instead.
+   ------------------------------------------------------------------------ */
+
+/** Append to a capped, newest-first per-student list, conditionally. */
+async function prependCapped(storeName, key, item, cap) {
+  await updateJSON(storeName, key, (cur) => {
+    const list = Array.isArray(cur) ? cur : [];
+    return [item].concat(list).slice(0, cap);
+  }, { fallback: [] });
+}
+
+/**
+ * Change one item in a per-student list, conditionally.
+ * `mutate` gets the matching item and may return false to abort the write.
+ * Throws {status,message} when nothing matches, so callers stay one-liners.
+ */
+async function mutateListItem(storeName, key, match, mutate, missing) {
+  let found = false;
+  await updateJSON(storeName, key, (cur) => {
+    const list = Array.isArray(cur) ? cur : [];
+    const i = list.findIndex(match);
+    if (i < 0) { found = false; return undefined; }
+    found = true;
+    const next = list.slice();
+    const patched = mutate({ ...next[i] });
+    if (patched === false) return undefined;
+    next[i] = patched;
+    return next;
+  }, { fallback: [] });
+  if (!found) throw { status: 404, message: missing };
 }
 
 /* ------------------------------------------------------ guardian check-ins */
@@ -748,9 +958,8 @@ async function requestCheckin(req, user) {
   const linked = (user.links || []).some((l) => l.id === studentId && l.role === "child");
   if (!linked) return fail(403, "You aren't linked to that student.");
 
-  const list = await readJSON("checkins", studentId, []);
-  list.unshift({ id: randomId(8), fromId: user.id, fromName: user.name, at: Date.now(), respondedAt: null });
-  await writeJSON("checkins", studentId, list.slice(0, 30));
+  await prependCapped("checkins", studentId,
+    { id: randomId(8), fromId: user.id, fromName: user.name, at: Date.now(), respondedAt: null }, 30);
   return ok({ requested: true });
 }
 
@@ -761,11 +970,9 @@ async function listCheckins(user) {
 
 async function respondCheckin(req, user) {
   const b = await body(req);
-  const list = await readJSON("checkins", user.id, []);
-  const item = list.find((c) => c.id === b.id);
-  if (!item) return fail(404, "That check-in request is gone.");
-  item.respondedAt = Date.now();
-  await writeJSON("checkins", user.id, list);
+  const id = String(b.id || "");
+  await mutateListItem("checkins", user.id, (c) => c.id === id,
+    (c) => ({ ...c, respondedAt: Date.now() }), "That check-in request is gone.");
   return ok({ responded: true });
 }
 
@@ -780,11 +987,16 @@ async function respondCheckin(req, user) {
 /**
  * Personal API tokens.
  *
- * Minted server-side and stored in Blobs keyed by the token itself, so
- * redeeming one is a direct lookup with no session involved — the same shape
- * the ICS feed already uses. The full token is returned exactly once, at mint
- * time; afterwards only a prefix is shown, because the store holds the token
- * as the key and there is nowhere to read it back from.
+ * Minted server-side and stored in Blobs under a SHA-256 of the token, so
+ * redeeming one is still a direct lookup with no session involved, but the
+ * secret itself is never written down anywhere. The full token is returned
+ * exactly once, at mint time; afterwards only a prefix is shown.
+ *
+ * The profile index used to carry `key: <the token>` so revoke could find the
+ * blob to delete — which meant the plaintext token sat in the profile, read
+ * back by every route that loads a profile, and directly contradicted the
+ * claim above that it was unrecoverable. The index now stores the same hash
+ * the store is keyed by: enough to revoke, useless to an attacker.
  */
 async function listApiTokens(user) {
   const index = Array.isArray(user.apiTokens) ? user.apiTokens : [];
@@ -808,13 +1020,14 @@ async function mintApiToken(req, user) {
 
   const token = API_TOKEN_PREFIX + randomId(32);
   const id = randomId(8);
+  const lookup = await tokenLookupKey(token);
   const entry = {
     id, label,
     hint: token.slice(0, API_TOKEN_PREFIX.length + 6) + "…",
     createdAt: Date.now()
   };
 
-  await writeJSON("apiTokens", token, {
+  await writeJSON("apiTokens", lookup, {
     userId: user.id,
     id,
     label,
@@ -826,7 +1039,7 @@ async function mintApiToken(req, user) {
   await updateJSON("profiles", user.id, (cur) => {
     if (!cur) return undefined;
     const list = Array.isArray(cur.apiTokens) ? cur.apiTokens : [];
-    return { ...cur, apiTokens: list.concat([{ ...entry, key: token }]) };
+    return { ...cur, apiTokens: list.concat([{ ...entry, lookup }]) };
   });
 
   // The only time the caller ever sees it.
@@ -838,7 +1051,10 @@ async function revokeApiToken(user, id) {
   const hit = index.find((t) => t.id === id);
   if (!hit) return fail(404, "No such token.");
 
-  await remove("apiTokens", hit.key);
+  // `key` is the legacy plaintext field; tokens minted before hashing landed
+  // are still revocable, and revoking one removes the plaintext record too.
+  if (hit.lookup) await remove("apiTokens", hit.lookup);
+  if (hit.key) await remove("apiTokens", hit.key);
   await updateJSON("profiles", user.id, (cur) => {
     if (!cur) return undefined;
     return { ...cur, apiTokens: (cur.apiTokens || []).filter((t) => t.id !== id) };
@@ -856,6 +1072,30 @@ async function revokeApiToken(user, id) {
  * http://localhost:8888 would have the function fetch internal endpoints and
  * report back. This is the first thing a security tester probes.
  */
+/**
+ * The IPv4 octets inside an IPv4-mapped IPv6 literal, or null.
+ * Handles both `::ffff:10.0.0.1` and the normalised `::ffff:a00:1`.
+ */
+function mappedV4(h) {
+  const m = h.match(/^::ffff:(.+)$/i);
+  if (!m) return null;
+  const dotted = m[1].match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (dotted) return dotted.slice(1, 5).map(Number);
+  const hex = m[1].match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (!hex) return null;
+  const hi = parseInt(hex[1], 16), lo = parseInt(hex[2], 16);
+  return [hi >> 8, hi & 255, lo >> 8, lo & 255];
+}
+
+/** Loopback, private, link-local and CGNAT IPv4 ranges. */
+function privateV4(a, b) {
+  return a === 10 || a === 127 || a === 0 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    (a === 100 && b >= 64 && b <= 127);
+}
+
 function webhookUrlProblem(raw) {
   let u;
   try { u = new URL(String(raw || "")); } catch (e) { return "That isn't a valid URL."; }
@@ -869,19 +1109,32 @@ function webhookUrlProblem(raw) {
   }
   // IPv4 literals: block loopback, private, link-local and CGNAT ranges.
   const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 10 || a === 127 || a === 0 ||
-        (a === 172 && b >= 16 && b <= 31) ||
-        (a === 192 && b === 168) ||
-        (a === 169 && b === 254) ||
-        (a === 100 && b >= 64 && b <= 127)) {
+  if (v4 && privateV4(Number(v4[1]), Number(v4[2]))) {
+    return "That address is on a private network.";
+  }
+  // IPv6 loopback, unique-local (fc00::/7) and link-local (fe80::/10).
+  //
+  // Gated on the host actually *being* an IPv6 literal. These are hex-digit
+  // prefix tests, and applied to a name they reject any domain beginning
+  // "fc", "fd" or "fe80" — fcbarcelona.com, fda.gov, fdic.gov and every
+  // hook.fd-something endpoint were refused as "on a private network", which
+  // is the kind of arbitrary rejection nobody can debug from the message.
+  // URL parsing puts a literal in brackets, and a bare hostname can never
+  // contain a colon, so `:` is a reliable discriminator.
+  const isV6Literal = u.hostname.startsWith("[") || host.includes(":");
+  if (isV6Literal) {
+    const h = host.replace(/%.*$/, "");   // drop any zone id
+    if (h === "::1" || h === "::" || /^f[cd]/.test(h) || /^fe[89ab]/.test(h)) {
       return "That address is on a private network.";
     }
-  }
-  // IPv6 loopback, unique-local and link-local.
-  if (host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80")) {
-    return "That address is on a private network.";
+    // ::ffff:10.0.0.1 — an IPv4 private address wearing IPv6 clothes. Note
+    // that `new URL()` rewrites the dotted form into hex (::ffff:a00:1), so
+    // matching only on dots misses every one of these; both spellings are
+    // reduced to the four octets before the range check.
+    const mapped = mappedV4(h);
+    if (mapped && privateV4(mapped[0], mapped[1])) {
+      return "That address is on a private network.";
+    }
   }
   return null;
 }
@@ -1028,7 +1281,25 @@ async function hmacHex(secret, message) {
  * discovered. Everything is served from the state blob the user's own devices
  * already sync.
  */
+const V1_RESOURCES = ["me", "classes", "assignments", "schedule", "grades"];
+
 async function v1(user, resource, url) {
+  // Validated before the state read, so an unknown resource answers 404
+  // whether or not the account has synced anything. It used to fall through
+  // to the "hasn't synced any data yet" 200 for an empty account and 404 for
+  // a populated one — which made this endpoint a way to ask, per account,
+  // whether it holds data, and made the API's own contract depend on state.
+  if (!V1_RESOURCES.includes(resource)) {
+    return fail(404, `Unknown resource. Try: ${V1_RESOURCES.join(", ")}.`);
+  }
+
+  // Reads are cheap but not free, and an API token is a long-lived credential
+  // meant for scripts — the shape of client most likely to poll in a loop.
+  const limit = await rateLimit("v1", user.id, 600, 60 * 60 * 1000);
+  if (!limit.allowed) {
+    return fail(429, "You've made too many API requests this hour. The limit is 600.");
+  }
+
   const rec = await readJSON("state", user.id, null);
   const db = (rec && rec.data) || null;
 
@@ -1040,8 +1311,8 @@ async function v1(user, resource, url) {
   }
   if (!db) return ok({ [resource]: [], syncedAt: null, note: "This account hasn't synced any data yet." });
 
-  const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 200));
-  const list = (arr) => (Array.isArray(arr) ? arr : []).slice(0, limit);
+  const pageSize = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 200));
+  const list = (arr) => (Array.isArray(arr) ? arr : []).slice(0, pageSize);
 
   switch (resource) {
     case "classes":
@@ -1078,8 +1349,9 @@ async function v1(user, resource, url) {
         };
       }), syncedAt: rec.updatedAt });
 
+    /* istanbul ignore next — V1_RESOURCES is checked at the top. */
     default:
-      return fail(404, "Unknown resource. Try: me, classes, assignments, schedule, grades.");
+      return fail(404, `Unknown resource. Try: ${V1_RESOURCES.join(", ")}.`);
   }
 }
 
@@ -1122,13 +1394,11 @@ async function proposeFocusWindow(req, user) {
   const endAt = Number(b.endAt) || 0;
   if (!endAt || endAt <= startAt) return fail(400, "End time has to be after the start time.");
 
-  const list = await readJSON("focusWindows", studentId, []);
-  list.unshift({
+  await prependCapped("focusWindows", studentId, {
     id: randomId(8), fromId: user.id, fromName: user.name,
     startAt, endAt, note: String(b.note || "").trim().slice(0, 200),
     status: "pending", createdAt: Date.now(), agreedAt: null, endedAt: null
-  });
-  await writeJSON("focusWindows", studentId, list.slice(0, 30));
+  }, 30);
   return ok({ proposed: true });
 }
 
@@ -1140,23 +1410,21 @@ async function listFocusWindows(user) {
 async function respondFocusWindow(req, user) {
   const b = await body(req);
   const action = b.action === "decline" ? "declined" : "agreed";
-  const list = await readJSON("focusWindows", user.id, []);
-  const item = list.find((f) => f.id === b.id && f.status === "pending");
-  if (!item) return fail(404, "That proposal is gone or already answered.");
-  item.status = action;
-  if (action === "agreed") item.agreedAt = Date.now();
-  await writeJSON("focusWindows", user.id, list);
+  const id = String(b.id || "");
+  await mutateListItem("focusWindows", user.id,
+    (f) => f.id === id && f.status === "pending",
+    (f) => ({ ...f, status: action, agreedAt: action === "agreed" ? Date.now() : f.agreedAt }),
+    "That proposal is gone or already answered.");
   return ok({ status: action });
 }
 
 async function endFocusWindow(req, user) {
   const b = await body(req);
-  const list = await readJSON("focusWindows", user.id, []);
-  const item = list.find((f) => f.id === b.id && f.status === "agreed");
-  if (!item) return fail(404, "That focus window isn't running.");
-  item.status = "ended";
-  item.endedAt = Date.now();
-  await writeJSON("focusWindows", user.id, list);
+  const id = String(b.id || "");
+  await mutateListItem("focusWindows", user.id,
+    (f) => f.id === id && f.status === "agreed",
+    (f) => ({ ...f, status: "ended", endedAt: Date.now() }),
+    "That focus window isn't running.");
   return ok({ ended: true });
 }
 
@@ -1168,20 +1436,23 @@ async function sendGuardianNote(req, user) {
   const linked = (user.links || []).some((l) => l.id === studentId && l.role === "child");
   if (!linked) return fail(403, "You aren't linked to that student.");
 
-  const list = await readJSON("guardianNotes", studentId, []);
-  list.unshift({ id: randomId(8), fromId: user.id, fromName: user.name, text, at: Date.now(), read: false });
-  await writeJSON("guardianNotes", studentId, list.slice(0, 50));
+  await prependCapped("guardianNotes", studentId,
+    { id: randomId(8), fromId: user.id, fromName: user.name, text, at: Date.now(), read: false }, 50);
   return ok({ sent: true });
 }
 
 async function listGuardianNotes(user) {
-  const list = await readJSON("guardianNotes", user.id, []);
-  // Marking as read on fetch — the student just opened the list.
-  if (list.some((n) => !n.read)) {
-    list.forEach((n) => { n.read = true; });
-    await writeJSON("guardianNotes", user.id, list);
-  }
-  return ok({ notes: list });
+  // Marking as read on fetch — the student just opened the list. Conditional,
+  // because a guardian may be posting a new note at this exact moment and a
+  // straight write-back of the list we read would delete it. The response
+  // still shows what *this* read saw, so the flags the student is looking at
+  // are the ones that were just written.
+  const saved = await updateJSON("guardianNotes", user.id, (cur) => {
+    const list = Array.isArray(cur) ? cur : [];
+    if (!list.some((n) => !n.read)) return undefined;
+    return list.map((n) => (n.read ? n : { ...n, read: true }));
+  }, { fallback: [] });
+  return ok({ notes: Array.isArray(saved) ? saved : [] });
 }
 
 /* ------------------------------------------------------------- location -- */
@@ -1235,18 +1506,53 @@ function cleanStatus(raw) {
   };
 }
 
+/**
+ * Validates the shared summary without narrowing it.
+ *
+ * This is an allow-list, which means a field the client sends and this
+ * function forgets is silently dropped — and the parent portal then renders
+ * an em dash forever with no error anywhere. An earlier version of this
+ * function did exactly that to `classes`, `gradeAlerts`, `studyWeek` and
+ * `usageWeek`, quietly disabling per-class grade sharing (F065), the
+ * grade-drop alerts, study time and screen time. Every field js/sync.js
+ * pushLocation() sends is listed here; adding one there means adding it here.
+ */
 function cleanSummary(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const upcoming = Array.isArray(raw.upcoming) ? raw.upcoming.slice(0, 5) : [];
+
+  const rows = (v, n) => (Array.isArray(v) ? v : []).slice(0, n)
+    .filter((x) => x && typeof x === "object" && !Array.isArray(x));
+
   return {
+    name: str(raw.name, 80),
     openAssignments: num(raw.openAssignments, 0, 9999) ?? 0,
     overdue: num(raw.overdue, 0, 9999) ?? 0,
+    streak: num(raw.streak, 0, 100000) ?? 0,
     gpa: raw.gpa == null ? null : num(raw.gpa, 0, 6),
     attendance: raw.attendance == null ? null : num(raw.attendance, 0, 100),
-    studyMinutes: num(raw.studyMinutes, 0, 100000) ?? 0,
-    upcoming: upcoming
-      .filter((u) => u && typeof u === "object" && !Array.isArray(u))
-      .map((u) => ({ title: str(u.title, 120), className: str(u.className, 80), due: str(u.due, 20) }))
+
+    // Minutes. `studyWeek` is the name the parent portal and the weekly
+    // digest both read; `studyMinutes` is accepted as an alias so an older
+    // client that sends that name still populates the same figure.
+    studyWeek: num(raw.studyWeek, 0, 100000) ?? num(raw.studyMinutes, 0, 100000) ?? 0,
+    usageToday: num(raw.usageToday, 0, 100000) ?? 0,
+    usageWeek: num(raw.usageWeek, 0, 1000000) ?? 0,
+
+    upcoming: rows(raw.upcoming, 6)
+      .map((u) => ({ title: str(u.title, 120), className: str(u.className, 80), due: str(u.due, 20) })),
+
+    // Null rather than [] when grade sharing is off, so the portal can tell
+    // "not shared" apart from "shared, but no classes".
+    classes: raw.classes == null ? null : rows(raw.classes, 30)
+      .map((c) => ({ name: str(c.name, 80), grade: num(c.grade, 0, 150) })),
+
+    // F065 — every field is rendered, so every field is bounded.
+    gradeAlerts: rows(raw.gradeAlerts, 20)
+      .map((g) => ({
+        classId: str(g.classId, 40),
+        className: str(g.className, 80),
+        delta: num(g.delta, -150, 150) ?? 0
+      }))
   };
 }
 
@@ -1265,9 +1571,17 @@ async function createGroup(req, user) {
   if (!name) return fail(400, "Give the group a name.");
 
   const id = randomId(10);
-  let code = randomCode(6);
-  // Avoid the (very unlikely) collision rather than silently overwrite.
-  for (let i = 0; i < 5 && (await readJSON("codes", code)); i++) code = randomCode(6);
+  // Claim the join code conditionally rather than checking-then-writing: a
+  // read followed by a write is exactly where two simultaneous creates both
+  // see the code as free, and the second silently steals the first group's
+  // code — after which one of the two is unjoinable and the other collects
+  // strangers. writeJSONIf(..., null) is "only if this key doesn't exist".
+  let code = null;
+  for (let i = 0; i < 6; i++) {
+    const candidate = randomCode(6);
+    if (await writeJSONIf("codes", candidate, id, null)) { code = candidate; break; }
+  }
+  if (!code) return fail(503, "Couldn't allocate a join code — try again.");
 
   const group = {
     id, code, name, ownerId: user.id, createdAt: Date.now(),
@@ -1277,10 +1591,13 @@ async function createGroup(req, user) {
     decks: [], feed: []
   };
   await writeJSON("groups", id, group);
-  await writeJSON("codes", code, id);
 
-  user.groups = (user.groups || []).concat([id]);
-  await writeJSON("profiles", user.id, user);
+  await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    const groups = cur.groups || [];
+    if (groups.includes(id)) return undefined;
+    return { ...cur, groups: groups.concat([id]) };
+  });
 
   return ok({ group: slimGroup(group) });
 }
@@ -1317,10 +1634,12 @@ async function joinGroup(req, user) {
   });
   if (full) return fail(409, "That group is full.");
 
-  if (!(user.groups || []).includes(group.id)) {
-    user.groups = (user.groups || []).concat([group.id]);
-    await writeJSON("profiles", user.id, user);
-  }
+  await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    const groups = cur.groups || [];
+    if (groups.includes(group.id)) return undefined;
+    return { ...cur, groups: groups.concat([group.id]) };
+  });
   return ok({ group: slimGroup(saved || group) });
 }
 
@@ -1379,6 +1698,34 @@ async function getGroup(user, id) {
   });
 }
 
+/**
+ * Membership check and a conditional read-modify-write of a group blob, in one.
+ *
+ * A group blob is the one thing in this system that many people write at
+ * once, and every handler below used to do `memberGroup()` → mutate → plain
+ * `writeJSON`. Two members acting in the same second each wrote a whole blob
+ * built from their own stale snapshot, so one of the two changes disappeared
+ * with a 200 — and it took the *rest* of that snapshot with it: a note shared
+ * a moment earlier, a task someone just ticked off, even a member who joined
+ * in between. Nothing surfaced; the group just quietly lost work.
+ *
+ * `mutate` receives the live group and edits it in place. Return `false` to
+ * finish without writing (nothing changed), or throw `{status, message}` to
+ * reject — the router turns that into the right response. It may run more
+ * than once, on a fresh read each time, so it must not depend on anything
+ * computed from an earlier attempt.
+ */
+async function updateGroup(user, id, mutate) {
+  return await updateJSON("groups", id, (cur) => {
+    if (!cur) throw { status: 404, message: "Group not found." };
+    const g = ensureGroupCollections(cur);
+    const me = (g.members || []).find((m) => m.id === user.id);
+    if (!me) throw { status: 403, message: "You're not a member of that group." };
+    if (!me.role && user.role) me.role = user.role;
+    return mutate(g) === false ? undefined : g;
+  });
+}
+
 /* ============================================ F054-F063 group collaboration ==
    Everything below hangs off the existing group blob rather than new stores,
    so membership is the single access check for all of it: memberGroup() has
@@ -1401,55 +1748,63 @@ function ensureGroupCollections(g) {
 
 /* --- F055 group task assignment --- */
 async function addGroupTask(req, user, id) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
   const b = await body(req);
   const title = String(b.title || "").trim().slice(0, 120);
   if (!title) return fail(400, "Give the task a title.");
-  if (g.tasks.length >= GROUP_LIMITS.tasks) return fail(409, "This group has too many tasks — finish or remove some first.");
 
-  // An assignee must actually be in the group; otherwise it's unassigned.
-  const assigneeId = g.members.some((m) => m.id === b.assigneeId) ? b.assigneeId : null;
-  const task = {
-    id: randomId(8), title,
-    detail: String(b.detail || "").slice(0, 500),
-    assigneeId,
-    assigneeName: assigneeId ? (g.members.find((m) => m.id === assigneeId) || {}).name : null,
-    due: String(b.due || "").slice(0, 10),
-    status: "todo",
-    byId: user.id, byName: user.name, at: Date.now()
-  };
-  g.tasks.push(task);
-  await writeJSON("groups", id, g);
+  const taskId = randomId(8);
+  let task;
+  await updateGroup(user, id, (g) => {
+    if (g.tasks.length >= GROUP_LIMITS.tasks) {
+      throw { status: 409, message: "This group has too many tasks — finish or remove some first." };
+    }
+    // An assignee must actually be in the group; otherwise it's unassigned.
+    const assigneeId = g.members.some((m) => m.id === b.assigneeId) ? b.assigneeId : null;
+    task = {
+      id: taskId, title,
+      detail: String(b.detail || "").slice(0, 500),
+      assigneeId,
+      assigneeName: assigneeId ? (g.members.find((m) => m.id === assigneeId) || {}).name : null,
+      due: String(b.due || "").slice(0, 10),
+      status: "todo",
+      byId: user.id, byName: user.name, at: Date.now()
+    };
+    g.tasks.push(task);
+  });
   return ok({ task });
 }
 
 async function updateGroupTask(req, user, id, taskId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const t = g.tasks.find((x) => x.id === taskId);
-  if (!t) return fail(404, "That task no longer exists.");
   const b = await body(req);
+  let task;
+  await updateGroup(user, id, (g) => {
+    const t = g.tasks.find((x) => x.id === taskId);
+    if (!t) throw { status: 404, message: "That task no longer exists." };
 
-  if (b.status && ["todo", "doing", "done"].includes(b.status)) t.status = b.status;
-  if (b.assigneeId !== undefined) {
-    const ok2 = g.members.some((m) => m.id === b.assigneeId);
-    t.assigneeId = ok2 ? b.assigneeId : null;
-    t.assigneeName = ok2 ? (g.members.find((m) => m.id === b.assigneeId) || {}).name : null;
-  }
-  if (typeof b.title === "string" && b.title.trim()) t.title = b.title.trim().slice(0, 120);
-  if (typeof b.due === "string") t.due = b.due.slice(0, 10);
-  t.updatedAt = Date.now();
-  await writeJSON("groups", id, g);
-  return ok({ task: t });
+    if (b.status && ["todo", "doing", "done"].includes(b.status)) t.status = b.status;
+    if (b.assigneeId !== undefined) {
+      const inGroup = g.members.some((m) => m.id === b.assigneeId);
+      t.assigneeId = inGroup ? b.assigneeId : null;
+      t.assigneeName = inGroup ? (g.members.find((m) => m.id === b.assigneeId) || {}).name : null;
+    }
+    if (typeof b.title === "string" && b.title.trim()) t.title = b.title.trim().slice(0, 120);
+    if (typeof b.due === "string") t.due = b.due.slice(0, 10);
+    t.updatedAt = Date.now();
+    task = t;
+  });
+  return ok({ task });
 }
 
 async function deleteGroupTask(user, id, taskId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const t = g.tasks.find((x) => x.id === taskId);
-  if (!t) return fail(404, "That task no longer exists.");
-  // Only the creator or the group owner can remove someone's task.
-  if (t.byId !== user.id && g.ownerId !== user.id) return fail(403, "Only the person who added this, or the group owner, can remove it.");
-  g.tasks = g.tasks.filter((x) => x.id !== taskId);
-  await writeJSON("groups", id, g);
+  await updateGroup(user, id, (g) => {
+    const t = g.tasks.find((x) => x.id === taskId);
+    if (!t) throw { status: 404, message: "That task no longer exists." };
+    // Only the creator or the group owner can remove someone's task.
+    if (t.byId !== user.id && g.ownerId !== user.id) {
+      throw { status: 403, message: "Only the person who added this, or the group owner, can remove it." };
+    }
+    g.tasks = g.tasks.filter((x) => x.id !== taskId);
+  });
   return ok({ removed: true });
 }
 
@@ -1458,7 +1813,6 @@ async function deleteGroupTask(user, id, taskId) {
    Storing busy (not full schedules) keeps class names and grades out of a
    shared blob other students can read. */
 async function pushAvailability(req, user, id) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
   const b = await body(req);
   const busy = Array.isArray(b.busy) ? b.busy.slice(0, 400) : [];
 
@@ -1468,135 +1822,153 @@ async function pushAvailability(req, user, id) {
     end: String(x.end || "").slice(0, 5)
   })).filter((x) => /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/.test(x.day) && /^\d\d:\d\d$/.test(x.start) && /^\d\d:\d\d$/.test(x.end));
 
-  g.availability = g.availability.filter((a) => a.id !== user.id);
-  if (g.availability.length >= GROUP_LIMITS.availability) g.availability.shift();
-  g.availability.push({ id: user.id, name: user.name, busy: clean, at: Date.now() });
-  await writeJSON("groups", id, g);
+  await updateGroup(user, id, (g) => {
+    g.availability = g.availability.filter((a) => a.id !== user.id);
+    if (g.availability.length >= GROUP_LIMITS.availability) g.availability.shift();
+    g.availability.push({ id: user.id, name: user.name, busy: clean, at: Date.now() });
+  });
   return ok({ shared: clean.length });
 }
 
 /* --- F056 accountability partners --- */
 async function requestPartner(req, user, id) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
   const b = await body(req);
   const withId = String(b.withId || "");
   if (withId === user.id) return fail(400, "Pick someone other than yourself.");
-  if (!g.members.some((m) => m.id === withId)) return fail(404, "That person isn't in this group.");
-  if (g.partners.length >= GROUP_LIMITS.partners) return fail(409, "Too many partner requests in this group.");
 
-  const existing = g.partners.find((p) =>
-    (p.aId === user.id && p.bId === withId) || (p.aId === withId && p.bId === user.id));
-  if (existing) return fail(409, existing.status === "accepted" ? "You're already partners." : "There's already a pending request.");
-
-  const other = g.members.find((m) => m.id === withId);
-  const pair = {
-    id: randomId(8),
-    aId: user.id, aName: user.name,
-    bId: withId, bName: other.name,
-    status: "pending", at: Date.now()
-  };
-  g.partners.push(pair);
-  await writeJSON("groups", id, g);
+  const pairId = randomId(8);
+  let pair;
+  await updateGroup(user, id, (g) => {
+    const other = g.members.find((m) => m.id === withId);
+    if (!other) throw { status: 404, message: "That person isn't in this group." };
+    if (g.partners.length >= GROUP_LIMITS.partners) {
+      throw { status: 409, message: "Too many partner requests in this group." };
+    }
+    const existing = g.partners.find((p) =>
+      (p.aId === user.id && p.bId === withId) || (p.aId === withId && p.bId === user.id));
+    if (existing) {
+      throw { status: 409, message: existing.status === "accepted" ? "You're already partners." : "There's already a pending request." };
+    }
+    pair = {
+      id: pairId,
+      aId: user.id, aName: user.name,
+      bId: withId, bName: other.name,
+      status: "pending", at: Date.now()
+    };
+    g.partners.push(pair);
+  });
   return ok({ partner: pair });
 }
 
 async function respondPartner(req, user, id, pairId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const pair = g.partners.find((p) => p.id === pairId);
-  if (!pair) return fail(404, "That request no longer exists.");
-  // Only the person who was asked can answer.
-  if (pair.bId !== user.id) return fail(403, "Only the person who was asked can answer this.");
   const b = await body(req);
-  if (b.accept) { pair.status = "accepted"; pair.respondedAt = Date.now(); }
-  else { g.partners = g.partners.filter((p) => p.id !== pairId); }
-  await writeJSON("groups", id, g);
+  await updateGroup(user, id, (g) => {
+    const pair = g.partners.find((p) => p.id === pairId);
+    if (!pair) throw { status: 404, message: "That request no longer exists." };
+    // Only the person who was asked can answer.
+    if (pair.bId !== user.id) throw { status: 403, message: "Only the person who was asked can answer this." };
+    if (b.accept) { pair.status = "accepted"; pair.respondedAt = Date.now(); }
+    else { g.partners = g.partners.filter((p) => p.id !== pairId); }
+  });
   return ok({ status: b.accept ? "accepted" : "declined" });
 }
 
 async function endPartner(user, id, pairId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const pair = g.partners.find((p) => p.id === pairId);
-  if (!pair) return fail(404, "That partnership no longer exists.");
-  if (pair.aId !== user.id && pair.bId !== user.id) return fail(403, "That isn't your partnership.");
-  g.partners = g.partners.filter((p) => p.id !== pairId);
-  await writeJSON("groups", id, g);
+  await updateGroup(user, id, (g) => {
+    const pair = g.partners.find((p) => p.id === pairId);
+    if (!pair) throw { status: 404, message: "That partnership no longer exists." };
+    if (pair.aId !== user.id && pair.bId !== user.id) throw { status: 403, message: "That isn't your partnership." };
+    g.partners = g.partners.filter((p) => p.id !== pairId);
+  });
   return ok({ ended: true });
 }
 
 /* --- F061 peer tutoring board --- */
 async function postTutoring(req, user, id) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
   const b = await body(req);
   const subject = String(b.subject || "").trim().slice(0, 60);
   if (!subject) return fail(400, "What subject?");
-  if (g.tutoring.length >= GROUP_LIMITS.tutoring) g.tutoring.shift();
 
-  const post = {
-    id: randomId(8),
-    kind: b.kind === "offer" ? "offer" : "request",
-    subject,
-    detail: String(b.detail || "").slice(0, 400),
-    availability: String(b.availability || "").slice(0, 120),
-    byId: user.id, byName: user.name, at: Date.now(),
-    responders: []
-  };
-  g.tutoring.push(post);
-  await writeJSON("groups", id, g);
+  const postId = randomId(8);
+  let post;
+  await updateGroup(user, id, (g) => {
+    if (g.tutoring.length >= GROUP_LIMITS.tutoring) g.tutoring.shift();
+    post = {
+      id: postId,
+      kind: b.kind === "offer" ? "offer" : "request",
+      subject,
+      detail: String(b.detail || "").slice(0, 400),
+      availability: String(b.availability || "").slice(0, 120),
+      byId: user.id, byName: user.name, at: Date.now(),
+      responders: []
+    };
+    g.tutoring.push(post);
+  });
   return ok({ post });
 }
 
 async function respondTutoring(user, id, postId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const post = g.tutoring.find((x) => x.id === postId);
-  if (!post) return fail(404, "That post no longer exists.");
-  if (post.byId === user.id) return fail(400, "That's your own post.");
-  if (!post.responders.some((r) => r.id === user.id)) {
+  let count = 0;
+  await updateGroup(user, id, (g) => {
+    const post = g.tutoring.find((x) => x.id === postId);
+    if (!post) throw { status: 404, message: "That post no longer exists." };
+    if (post.byId === user.id) throw { status: 400, message: "That's your own post." };
+    count = post.responders.length;
+    if (post.responders.some((r) => r.id === user.id)) return false;
     post.responders.push({ id: user.id, name: user.name, at: Date.now() });
-    await writeJSON("groups", id, g);
-  }
-  return ok({ responders: post.responders.length });
+    count = post.responders.length;
+  });
+  return ok({ responders: count });
 }
 
 async function removeTutoring(user, id, postId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const post = g.tutoring.find((x) => x.id === postId);
-  if (!post) return fail(404, "That post no longer exists.");
-  if (post.byId !== user.id && g.ownerId !== user.id) return fail(403, "Only the author or the group owner can remove this.");
-  g.tutoring = g.tutoring.filter((x) => x.id !== postId);
-  await writeJSON("groups", id, g);
+  await updateGroup(user, id, (g) => {
+    const post = g.tutoring.find((x) => x.id === postId);
+    if (!post) throw { status: 404, message: "That post no longer exists." };
+    if (post.byId !== user.id && g.ownerId !== user.id) {
+      throw { status: 403, message: "Only the author or the group owner can remove this." };
+    }
+    g.tutoring = g.tutoring.filter((x) => x.id !== postId);
+  });
   return ok({ removed: true });
 }
 
 /* --- F062 shared notes with attribution --- */
 async function shareNote(req, user, id) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
   const b = await body(req);
   const title = String(b.title || "").trim().slice(0, 120);
   const noteBody = String(b.body || "").slice(0, 20000);
   if (!title || !noteBody) return fail(400, "A shared note needs a title and some content.");
-  if (g.sharedNotes.length >= GROUP_LIMITS.notes) return fail(409, "This group already has 100 shared notes.");
 
-  const note = {
-    id: randomId(8), title, body: noteBody,
-    subject: String(b.subject || "").slice(0, 60),
-    byId: user.id, byName: user.name, at: Date.now(),
-    thanks: []   // attribution is the point: who wrote it stays attached
-  };
-  g.sharedNotes.push(note);
-  await writeJSON("groups", id, g);
+  const noteId = randomId(8);
+  let note;
+  await updateGroup(user, id, (g) => {
+    if (g.sharedNotes.length >= GROUP_LIMITS.notes) {
+      throw { status: 409, message: `This group already has ${GROUP_LIMITS.notes} shared notes.` };
+    }
+    note = {
+      id: noteId, title, body: noteBody,
+      subject: String(b.subject || "").slice(0, 60),
+      byId: user.id, byName: user.name, at: Date.now(),
+      thanks: []   // attribution is the point: who wrote it stays attached
+    };
+    g.sharedNotes.push(note);
+  });
   return ok({ note: { ...note, body: undefined } });
 }
 
 async function thankNote(user, id, noteId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const note = g.sharedNotes.find((n) => n.id === noteId);
-  if (!note) return fail(404, "That note no longer exists.");
-  if (note.byId === user.id) return fail(400, "That's your own note.");
-  if (!note.thanks.includes(user.id)) {
+  let count = 0;
+  await updateGroup(user, id, (g) => {
+    const note = g.sharedNotes.find((n) => n.id === noteId);
+    if (!note) throw { status: 404, message: "That note no longer exists." };
+    if (note.byId === user.id) throw { status: 400, message: "That's your own note." };
+    count = note.thanks.length;
+    if (note.thanks.includes(user.id)) return false;
     note.thanks.push(user.id);
-    await writeJSON("groups", id, g);
-  }
-  return ok({ thanks: note.thanks.length });
+    count = note.thanks.length;
+  });
+  return ok({ thanks: count });
 }
 
 async function getSharedNote(user, id, noteId) {
@@ -1607,96 +1979,111 @@ async function getSharedNote(user, id, noteId) {
 }
 
 async function removeSharedNote(user, id, noteId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const note = g.sharedNotes.find((n) => n.id === noteId);
-  if (!note) return fail(404, "That note no longer exists.");
-  if (note.byId !== user.id && g.ownerId !== user.id) return fail(403, "Only the author or the group owner can remove this.");
-  g.sharedNotes = g.sharedNotes.filter((n) => n.id !== noteId);
-  await writeJSON("groups", id, g);
+  await updateGroup(user, id, (g) => {
+    const note = g.sharedNotes.find((n) => n.id === noteId);
+    if (!note) throw { status: 404, message: "That note no longer exists." };
+    if (note.byId !== user.id && g.ownerId !== user.id) {
+      throw { status: 403, message: "Only the author or the group owner can remove this." };
+    }
+    g.sharedNotes = g.sharedNotes.filter((n) => n.id !== noteId);
+  });
   return ok({ removed: true });
 }
 
 /* --- F063 opt-in group challenges (cooperative, never a ranked leaderboard) --- */
 async function createChallenge(req, user, id) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
   const b = await body(req);
   const title = String(b.title || "").trim().slice(0, 100);
   const target = Number(b.target) || 0;
-  if (!title || target <= 0) return fail(400, "A challenge needs a title and a target.");
-  if (g.challenges.length >= GROUP_LIMITS.challenges) return fail(409, "This group already has 20 challenges.");
+  if (!title || !Number.isFinite(target) || target <= 0) return fail(400, "A challenge needs a title and a target.");
 
-  const ch = {
-    id: randomId(8), title,
-    metric: ["studyMinutes", "assignmentsDone", "custom"].includes(b.metric) ? b.metric : "studyMinutes",
-    target,
-    unit: String(b.unit || "minutes").slice(0, 20),
-    endsOn: String(b.endsOn || "").slice(0, 10),
-    byId: user.id, byName: user.name, at: Date.now(),
-    // Opt-in: joining is a separate act from the challenge existing.
-    participants: []
-  };
-  g.challenges.push(ch);
-  await writeJSON("groups", id, g);
+  const chId = randomId(8);
+  let ch;
+  await updateGroup(user, id, (g) => {
+    if (g.challenges.length >= GROUP_LIMITS.challenges) {
+      throw { status: 409, message: `This group already has ${GROUP_LIMITS.challenges} challenges.` };
+    }
+    ch = {
+      id: chId, title,
+      metric: ["studyMinutes", "assignmentsDone", "custom"].includes(b.metric) ? b.metric : "studyMinutes",
+      target,
+      unit: String(b.unit || "minutes").slice(0, 20),
+      endsOn: String(b.endsOn || "").slice(0, 10),
+      byId: user.id, byName: user.name, at: Date.now(),
+      // Opt-in: joining is a separate act from the challenge existing.
+      participants: []
+    };
+    g.challenges.push(ch);
+  });
   return ok({ challenge: ch });
 }
 
 async function joinChallenge(user, id, chId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const ch = g.challenges.find((c) => c.id === chId);
-  if (!ch) return fail(404, "That challenge no longer exists.");
-  if (!ch.participants.some((p) => p.id === user.id)) {
+  let count = 0;
+  await updateGroup(user, id, (g) => {
+    const ch = g.challenges.find((c) => c.id === chId);
+    if (!ch) throw { status: 404, message: "That challenge no longer exists." };
+    count = ch.participants.length;
+    if (ch.participants.some((p) => p.id === user.id)) return false;
     ch.participants.push({ id: user.id, name: user.name, contributed: 0, at: Date.now() });
-    await writeJSON("groups", id, g);
-  }
-  return ok({ joined: true, participants: ch.participants.length });
+    count = ch.participants.length;
+  });
+  return ok({ joined: true, participants: count });
 }
 
 async function contributeChallenge(req, user, id, chId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const ch = g.challenges.find((c) => c.id === chId);
-  if (!ch) return fail(404, "That challenge no longer exists.");
-  const p = ch.participants.find((x) => x.id === user.id);
-  if (!p) return fail(403, "Join the challenge first.");
   const b = await body(req);
   const amount = Number(b.amount);
-  if (!isFinite(amount) || amount < 0) return fail(400, "That isn't a valid amount.");
-  // Absolute, not additive — the client owns the running total, so a retried
-  // request can't double-count someone's study minutes.
-  p.contributed = Math.min(amount, 100000);
-  p.updatedAt = Date.now();
-  await writeJSON("groups", id, g);
-  const total = ch.participants.reduce((s, x) => s + (x.contributed || 0), 0);
-  return ok({ total, target: ch.target });
+  if (!Number.isFinite(amount) || amount < 0) return fail(400, "That isn't a valid amount.");
+
+  let total = 0, target = 0;
+  await updateGroup(user, id, (g) => {
+    const ch = g.challenges.find((c) => c.id === chId);
+    if (!ch) throw { status: 404, message: "That challenge no longer exists." };
+    const p = ch.participants.find((x) => x.id === user.id);
+    if (!p) throw { status: 403, message: "Join the challenge first." };
+    // Absolute, not additive — the client owns the running total, so a
+    // retried request can't double-count someone's study minutes.
+    p.contributed = Math.min(amount, 100000);
+    p.updatedAt = Date.now();
+    total = ch.participants.reduce((sum, x) => sum + (Number(x.contributed) || 0), 0);
+    target = ch.target;
+  });
+  return ok({ total, target });
 }
 
 async function leaveChallenge(user, id, chId) {
-  const g = ensureGroupCollections(await memberGroup(user, id));
-  const ch = g.challenges.find((c) => c.id === chId);
-  if (!ch) return fail(404, "That challenge no longer exists.");
-  ch.participants = ch.participants.filter((p) => p.id !== user.id);
-  await writeJSON("groups", id, g);
+  await updateGroup(user, id, (g) => {
+    const ch = g.challenges.find((c) => c.id === chId);
+    if (!ch) throw { status: 404, message: "That challenge no longer exists." };
+    ch.participants = ch.participants.filter((p) => p.id !== user.id);
+  });
   return ok({ left: true });
 }
 
 async function shareDeck(req, user, id) {
-  const g = await memberGroup(user, id);
   const b = await body(req);
   const deck = b.deck;
-  if (!deck || !Array.isArray(deck.cards)) return fail(400, "Missing deck.");
+  if (!deck || typeof deck !== "object" || !Array.isArray(deck.cards)) return fail(400, "Missing deck.");
   if (deck.cards.length > 500) return fail(413, "That deck is too large (max 500 cards).");
-  if (g.decks.length >= 50) return fail(409, "This group already has 50 shared decks.");
 
   const rec = {
     id: randomId(8),
     name: String(deck.name || "Untitled deck").slice(0, 80),
-    cards: deck.cards.slice(0, 500).map((c) => ({
-      front: String(c.front || "").slice(0, 500),
-      back: String(c.back || "").slice(0, 500)
-    })),
+    cards: deck.cards
+      .slice(0, 500)
+      .filter((c) => c && typeof c === "object")
+      .map((c) => ({
+        front: String(c.front || "").slice(0, 500),
+        back: String(c.back || "").slice(0, 500)
+      })),
     byId: user.id, byName: user.name, at: Date.now()
   };
-  g.decks.push(rec);
-  await writeJSON("groups", g.id, g);
+
+  await updateGroup(user, id, (g) => {
+    if ((g.decks || []).length >= 50) throw { status: 409, message: "This group already has 50 shared decks." };
+    g.decks.push(rec);
+  });
   return ok({ deck: { id: rec.id, name: rec.name, cardCount: rec.cards.length } });
 }
 
@@ -1791,29 +2178,33 @@ async function postFeedToAll(req, user) {
 }
 
 async function confirmFeed(req, user, id, itemId) {
-  const g = await memberGroup(user, id);
-  const item = g.feed.find((f) => f.id === itemId);
-  if (!item) return fail(404, "That post is gone.");
-  if (!item.confirms.includes(user.id)) {
+  let count = 0;
+  await updateGroup(user, id, (g) => {
+    const item = (g.feed || []).find((f) => f.id === itemId);
+    if (!item) throw { status: 404, message: "That post is gone." };
+    if (!Array.isArray(item.confirms)) item.confirms = [];
+    count = item.confirms.length;
+    if (item.confirms.includes(user.id)) return false;
     item.confirms.push(user.id);
-    await writeJSON("groups", g.id, g);
-  }
-  return ok({ confirms: item.confirms.length });
+    count = item.confirms.length;
+  });
+  return ok({ confirms: count });
 }
 
 /* F058 — discuss a crowdsourced post inline instead of a separate chat. */
 async function commentFeed(req, user, id, itemId) {
-  const g = await memberGroup(user, id);
-  const item = g.feed.find((f) => f.id === itemId);
-  if (!item) return fail(404, "That post is gone.");
   const b = await body(req);
   const text = String(b.text || "").trim().slice(0, 500);
   if (!text) return fail(400, "Write something first.");
-  if (!item.comments) item.comments = [];
+
   const comment = { id: randomId(8), text, byId: user.id, byName: user.name, at: Date.now() };
-  item.comments.push(comment);
-  if (item.comments.length > 200) item.comments = item.comments.slice(-200);
-  await writeJSON("groups", g.id, g);
+  await updateGroup(user, id, (g) => {
+    const item = (g.feed || []).find((f) => f.id === itemId);
+    if (!item) throw { status: 404, message: "That post is gone." };
+    if (!Array.isArray(item.comments)) item.comments = [];
+    item.comments.push(comment);
+    if (item.comments.length > 200) item.comments = item.comments.slice(-200);
+  });
   return ok({ comment });
 }
 
@@ -1821,21 +2212,26 @@ async function commentFeed(req, user, id, itemId) {
    who submitted what. _raters tracks who already voted so one person can't
    skew it, without linking any stored value to their identity. */
 async function rateFeed(req, user, id, itemId) {
-  const g = await memberGroup(user, id);
-  const item = g.feed.find((f) => f.id === itemId);
-  if (!item) return fail(404, "That post is gone.");
-  if (!item._raters) item._raters = [];
-  if (item._raters.includes(user.id)) return fail(409, "You already rated this one.");
   const b = await body(req);
   const mins = Number(b.actualMinutes);
   if (!Number.isFinite(mins) || mins <= 0 || mins > 1440) return fail(400, "Enter a realistic number of minutes.");
-  if (!item.ratings) item.ratings = [];
-  item.ratings.push(Math.round(mins));
-  item._raters.push(user.id);
-  if (item.ratings.length > 200) { item.ratings = item.ratings.slice(-200); item._raters = item._raters.slice(-200); }
-  await writeJSON("groups", g.id, g);
-  const avg = Math.round(item.ratings.reduce((a, b2) => a + b2, 0) / item.ratings.length);
-  return ok({ count: item.ratings.length, avgMinutes: avg });
+
+  let count = 0, avg = 0;
+  await updateGroup(user, id, (g) => {
+    const item = (g.feed || []).find((f) => f.id === itemId);
+    if (!item) throw { status: 404, message: "That post is gone." };
+    if (!Array.isArray(item._raters)) item._raters = [];
+    // Inside the conditional write, so two ratings racing can't both pass the
+    // "already rated" check and land — the loser re-reads and is rejected.
+    if (item._raters.includes(user.id)) throw { status: 409, message: "You already rated this one." };
+    if (!Array.isArray(item.ratings)) item.ratings = [];
+    item.ratings.push(Math.round(mins));
+    item._raters.push(user.id);
+    if (item.ratings.length > 200) { item.ratings = item.ratings.slice(-200); item._raters = item._raters.slice(-200); }
+    count = item.ratings.length;
+    avg = Math.round(item.ratings.reduce((sum, x) => sum + x, 0) / count);
+  });
+  return ok({ count, avgMinutes: avg });
 }
 
 async function leaveGroup(user, id) {
@@ -1852,8 +2248,8 @@ async function leaveGroup(user, id) {
     // Last one out deletes the group. Nothing is left to own it.
     await remove("groups", id);
     await remove("codes", g.code);
-    user.groups = (user.groups || []).filter((x) => x !== id);
-    await writeJSON("profiles", user.id, user);
+    await updateJSON("profiles", user.id, (cur) =>
+      cur ? { ...cur, groups: (cur.groups || []).filter((x) => x !== id) } : undefined);
     return ok({ deleted: true });
   }
 
@@ -1873,8 +2269,8 @@ async function leaveGroup(user, id) {
     return { ...cur, members, ownerId };
   });
 
-  user.groups = (user.groups || []).filter((x) => x !== id);
-  await writeJSON("profiles", user.id, user);
+  await updateJSON("profiles", user.id, (cur) =>
+    cur ? { ...cur, groups: (cur.groups || []).filter((x) => x !== id) } : undefined);
   return ok({ left: true });
 }
 
@@ -1941,7 +2337,7 @@ export default async (req) => {
     // otherwise a leaked token could mint more tokens for itself and quietly
     // survive the one being revoked.
     if (parts[0] === "tokens" || parts[0] === "webhooks") {
-      if (user._viaApiToken) {
+      if (user[VIA_API_TOKEN]) {
         return fail(403, "API tokens can't manage tokens or webhooks. Sign in to do that.");
       }
     }
@@ -1961,7 +2357,10 @@ export default async (req) => {
       if (method === "POST") {
         const b = await body(req);
         const name = String(b.name || "").trim().slice(0, 80);
-        if (name) { user.name = name; await writeJSON("profiles", user.id, user); }
+        if (name) {
+          user.name = name;
+          await updateJSON("profiles", user.id, (cur) => (cur ? { ...cur, name } : undefined));
+        }
         return ok({ user: publicUser(user) });
       }
     }
@@ -2020,7 +2419,13 @@ export default async (req) => {
       if (parts[1] && !parts[2] && method === "GET") return await getGroup(user, parts[1]);
       if (parts[1] && parts[2] === "deck" && method === "POST") return await shareDeck(req, user, parts[1]);
       if (parts[1] && parts[2] === "deck" && parts[3] && method === "GET") return await getDeck(user, parts[1], parts[3]);
-      if (parts[1] && parts[2] === "feed" && method === "POST") return await postFeed(req, user, parts[1]);
+      // `!parts[3]` matters: without it this line matched every POST under
+      // /feed/*, so /feed/:itemId/comment, /rate and the bare confirm route
+      // below were all unreachable — the three lines after this one were dead
+      // code. The client called them and got postFeed's "Say what the
+      // assignment is." 400 back, which reads as a validation bug in the
+      // comment box rather than a route that never ran.
+      if (parts[1] && parts[2] === "feed" && !parts[3] && method === "POST") return await postFeed(req, user, parts[1]);
       if (parts[1] && parts[2] === "feed" && parts[3] && parts[4] === "comment" && method === "POST") return await commentFeed(req, user, parts[1], parts[3]);
       if (parts[1] && parts[2] === "feed" && parts[3] && parts[4] === "rate" && method === "POST") return await rateFeed(req, user, parts[1], parts[3]);
       if (parts[1] && parts[2] === "feed" && parts[3] && !parts[4] && method === "POST") return await confirmFeed(req, user, parts[1], parts[3]);

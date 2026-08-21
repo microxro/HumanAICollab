@@ -426,7 +426,10 @@ App.views.sharing = (function () {
       okLabel: "Send request",
       onSubmit(email) {
         App.sync.requestFriend(email).then(() => {
-          UI.toast("Request sent", email, "ok");
+          // The server answers the same way whether or not that address has
+          // an account, so it can't be used to check who's on Scholar. The
+          // copy has to match that, rather than claim delivery it can't know.
+          UI.toast("Request sent", `If ${email} has a Scholar account, they'll see it.`, "ok");
           loadRealFriends();
         }).catch((e) => UI.toast("Couldn't send request", e.message, "danger"));
       }

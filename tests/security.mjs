@@ -277,6 +277,70 @@ console.log("\nsecurity: API responses are not readable cross-origin");
      r.res.headers.get("access-control-allow-origin"));
 }
 
+/* ----------------------------------------- summary round-trip fidelity -- */
+console.log("\nsecurity: validating the shared summary must not narrow it");
+{
+  stub.__reset();
+  const u = await makeUser("summary@x.com");
+  const t = u.data.token;
+
+  // Exactly what js/sync.js pushLocation() sends. If a field is added there
+  // and not to cleanSummary(), the parent portal renders an em dash forever
+  // with no error anywhere — which is how per-class grades, grade alerts,
+  // study time and screen time were silently disabled once already.
+  const sent = {
+    name: "Sam Rivera",
+    usageToday: 42,
+    usageWeek: 310,
+    studyWeek: 275,
+    openAssignments: 7,
+    overdue: 2,
+    attendance: 96.4,
+    streak: 12,
+    gpa: 3.82,
+    classes: [{ name: "AP Biology", grade: 91.5 }, { name: "US History", grade: 88 }],
+    upcoming: [{ title: "Cell lab", className: "AP Biology", due: "2026-09-01" }],
+    gradeAlerts: [{ classId: "c1", className: "AP Biology", delta: -7.5 }]
+  };
+
+  const push = await call("location", { method: "POST", token: t, body: { summary: sent } });
+  ok("the push is accepted", push.status === 200, `${push.status}`);
+
+  const stored = (await stub.readJSON("locations", u.data.user.id)).summary;
+
+  // Every field the parent portal reads.
+  for (const k of ["attendance", "classes", "gpa", "gradeAlerts", "openAssignments",
+                   "overdue", "studyWeek", "upcoming", "usageWeek"]) {
+    ok(`survives validation: ${k}`, stored[k] != null, `${k} = ${JSON.stringify(stored[k])}`);
+  }
+
+  ok("numbers keep their value", stored.studyWeek === 275 && stored.usageWeek === 310 && stored.gpa === 3.82,
+     JSON.stringify({ studyWeek: stored.studyWeek, usageWeek: stored.usageWeek, gpa: stored.gpa }));
+  ok("per-class grades survive with their values",
+     stored.classes.length === 2 && stored.classes[0].name === "AP Biology" && stored.classes[0].grade === 91.5,
+     JSON.stringify(stored.classes));
+  ok("grade alerts survive, including a negative delta",
+     stored.gradeAlerts.length === 1 && stored.gradeAlerts[0].delta === -7.5,
+     JSON.stringify(stored.gradeAlerts));
+
+  // And it still refuses hostile content — the reason the validator exists.
+  const evil = await call("location", {
+    method: "POST", token: t,
+    body: { summary: { ...sent, attendance: "<img src=x onerror=1>", classes: [{ name: "<script>", grade: "abc" }] } }
+  });
+  ok("hostile push still accepted without error", evil.status === 200);
+  const after = (await stub.readJSON("locations", u.data.user.id)).summary;
+  ok("markup never reaches storage in a numeric field", after.attendance === null || typeof after.attendance === "number",
+     JSON.stringify(after.attendance));
+  ok("a non-numeric grade becomes null rather than a string",
+     after.classes[0].grade === null, JSON.stringify(after.classes[0]));
+
+  // Grade sharing off sends null, which must stay distinguishable from [].
+  await call("location", { method: "POST", token: t, body: { summary: { ...sent, classes: null } } });
+  const off = (await stub.readJSON("locations", u.data.user.id)).summary;
+  ok("classes: null stays null, not an empty array", off.classes === null, JSON.stringify(off.classes));
+}
+
 /* ------------------------------------------------- capability reporting -- */
 console.log("\nsecurity: the public health route reports capability, not configuration");
 {

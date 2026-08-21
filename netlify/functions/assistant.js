@@ -94,6 +94,18 @@ async function body(req) {
   }
 }
 
+/**
+ * Whether this account runs the deploy, and may see its configuration.
+ * Mirrors the same check in api.js — one environment variable, so only
+ * whoever can set Netlify env vars can name the operator, and nobody is one
+ * until they do.
+ */
+function isOperator(user) {
+  const admin = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  if (!admin) return false;
+  return String((user && user.email) || "").trim().toLowerCase() === admin;
+}
+
 function requireConfigured() {
   if (!configured()) {
     throw { status: 503, message: "The AI assistant isn't set up yet — add a GEMINI_API_KEY in the Netlify environment." };
@@ -477,14 +489,22 @@ async function health(req) {
   const user = await currentUser(req);
   if (!user) return ok({ configured: !!key });
 
-  const out = {
-    configured: !!key,
-    keyPresent: !!key,
-    keyLength: key.length,
-    keyLooksTrimmed: key === key.trim(),
-    model,
-    modelSource: process.env.GEMINI_MODEL ? "GEMINI_MODEL env var" : "built-in default"
-  };
+  // The key's length and the model name are this deploy's configuration.
+  // Signing up is not authorisation to read it — anyone can sign up, and
+  // "authenticated" is a low bar the moment the app is public. The operator
+  // (ADMIN_EMAIL) gets the full picture; everyone else gets the on/off fact
+  // the UI needs plus a probe that says whether the round-trip worked.
+  const operator = isOperator(user);
+  const out = { configured: !!key, operator };
+  if (operator) {
+    Object.assign(out, {
+      keyPresent: !!key,
+      keyLength: key.length,
+      keyLooksTrimmed: key === key.trim(),
+      model,
+      modelSource: process.env.GEMINI_MODEL ? "GEMINI_MODEL env var" : "built-in default"
+    });
+  }
 
   const probe = new URL(req.url).searchParams.get("probe");
   if (probe && key) {
@@ -499,13 +519,11 @@ async function health(req) {
       });
       out.probe = { ok: true, ms: Date.now() - started, reply: String(answer).trim().slice(0, 40) };
     } catch (e) {
-      out.probe = {
-        ok: false,
-        ms: Date.now() - started,
-        code: e.code || "unknown",
-        status: e.status || null,
-        error: e.message
-      };
+      // Google's own error text carries the Cloud project number on a quota
+      // rejection and the model name on a bad-model one. Operator only.
+      out.probe = operator
+        ? { ok: false, ms: Date.now() - started, code: e.code || "unknown", status: e.status || null, error: e.message }
+        : { ok: false, ms: Date.now() - started, error: "The AI service didn't answer." };
     }
   } else if (probe) {
     out.probe = { ok: false, code: "not-configured", error: "GEMINI_API_KEY isn't set on this deploy." };

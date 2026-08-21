@@ -1,10 +1,10 @@
 # Testing
 
-`npm test` runs everything. Fifteen suites, roughly three minutes.
+`npm test` runs everything. Seventeen suites, roughly three minutes.
 
 Individual suites: `npm run test:node`, `test:security`, `test:api`,
 `test:teacher`, `test:browser`, `test:a11y`, `test:abuse`, `test:controls`,
-`test:inventory`.
+`test:inventory`, `test:concurrency`, `test:hardening`.
 
 Browser suites need a static server on port 8899; the runner starts one if
 nothing is already listening, and stops it afterwards.
@@ -28,6 +28,8 @@ nothing is already listening, and stops it afterwards.
 | `abuse` | Oversized/RTL/emoji/injection text, NaN and Infinity scores, dates from 1900 to 9999, 500 assignments, an empty database, a prototype-pollution import, and all eight theme combinations. |
 | `controls` | Clicks all ~184 interactive controls in all 21 views and asserts each observably does something. Catches the "renders but does nothing" defect. |
 | `inventory` | Every one of the 150 roadmap items is either marked in source or documented as blocked. Prints the built/blocked/unaccounted table. |
+| `concurrency` | Two people writing the same blob in the same instant. Every case fires both requests with `Promise.all` and asserts **both** edits survived — group notes, tasks, comments, joins, challenge totals, guardian notes, check-ins and friend requests. This is the failure mode that returns 200 twice and silently loses one of them. |
+| `hardening` | One test per finding from the line-by-line read of the backend: the API-token flag that used to be persisted and lock an account out, tokens hashed at rest, webhook screening that must reject `fd00::` without rejecting `fda.gov`, `/v1` answering identically for empty and populated accounts, deployment configuration withheld from non-operator accounts, link-code and friend-request guessing limits, the byte-accurate body cap, and every feed sub-route reaching its own handler. |
 
 ## The standard
 

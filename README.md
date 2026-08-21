@@ -25,11 +25,12 @@ npm install
 npx netlify dev                 # local, with functions
 ```
 
-To deploy, connect the repo to Netlify and **set one required environment variable**:
+To deploy, connect the repo to Netlify and **set two required environment variables**:
 
 | Variable | Value |
 |---|---|
-| `SCHOLAR_SECRET` | A long random string (≥16 chars). Used to sign session tokens and derive email lookup keys. |
+| `SCHOLAR_SECRET` | A long random string (≥16 chars). Used to sign session tokens, derive email lookup keys and hash API tokens at rest. |
+| `SITE_URL` | This deploy's own origin, e.g. `https://yoursite.netlify.app`. Password-reset links are built from it, and it is the only origin allowed to call the API cross-site. |
 
 ```bash
 # generate one
@@ -44,9 +45,23 @@ Netlify Blobs needs no setup — it's provisioned automatically. The API refuses
 |---|---|
 | `RESEND_API_KEY` | From [resend.com](https://resend.com) → API Keys. |
 | `EMAIL_FROM` | An address on a domain you've **verified** in Resend (Domains → Add Domain). Falls back to `onboarding@resend.dev`, which is fine for testing but gets flagged by real inboxes — don't ship with it. |
-| `SITE_URL` | Only needed if the deploy's own URL isn't right for links inside emails (custom domain, preview deploys). Falls back to the request's own origin. |
 
 The weekly digest (`netlify/functions/weekly-digest.js`) runs on Netlify's scheduler — no extra setup, but you can change the cron expression at the bottom of that file if Monday 13:00 UTC isn't the right time for your users.
+
+**Optional — operator diagnostics.**
+
+| Variable | Value |
+|---|---|
+| `ADMIN_EMAIL` | The address of the account that runs this deploy. |
+
+`/api/email-health` and `/assistant/health` report configuration — the sending
+address, the key's length and shape, the model in use, and the provider's own
+rejection text. That is useful to whoever runs the deploy and is free
+reconnaissance for anyone else, and once the app is public "has an account" is
+not a meaningful privilege. With `ADMIN_EMAIL` set, that account sees the full
+report; every other signed-in account sees only whether the feature is on. With
+it unset, nobody sees the detail — including you, so set it before you need to
+debug email or the assistant.
 
 **Optional — AI features** ("Add with AI" on the Activities page, and the private Assistant chat). Without a key set, both show a plain "AI assistant isn't set up yet" message instead of erroring — manual entry works exactly the same either way, and nothing about this is required to use the rest of the app.
 
