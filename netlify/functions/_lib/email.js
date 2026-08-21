@@ -10,8 +10,22 @@
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
+/** Resend's shared sandbox sender. Only deliverable to the key owner's own
+ *  address — every other recipient is rejected 403. Using it in production
+ *  looks exactly like "a valid key that doesn't send". */
+const SANDBOX_FROM = "onboarding@resend.dev";
+
 function configured() {
   return !!process.env.RESEND_API_KEY;
+}
+
+function fromAddress() {
+  return process.env.EMAIL_FROM || SANDBOX_FROM;
+}
+
+/** Whether this deploy can actually reach arbitrary recipients. */
+function deliverable() {
+  return configured() && fromAddress() !== SANDBOX_FROM;
 }
 
 /**
@@ -27,26 +41,52 @@ async function sendEmail({ to, subject, html, from }) {
     return { sent: false, reason: "not-configured" };
   }
 
-  const res = await fetch(RESEND_ENDPOINT, {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + process.env.RESEND_API_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: from || process.env.EMAIL_FROM || "onboarding@resend.dev",
-      to,
-      subject,
-      html
-    })
-  });
+  const sender = from || fromAddress();
+
+  let res;
+  try {
+    res = await fetch(RESEND_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + process.env.RESEND_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ from: sender, to, subject, html })
+    });
+  } catch (e) {
+    console.error("[email] Resend request failed", e);
+    return { sent: false, reason: "network-error", detail: String(e && e.message || e) };
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     console.error("[email] Resend send failed", res.status, text);
-    return { sent: false, reason: "provider-error", status: res.status };
+
+    // Surface what Resend actually said. Collapsing this into a bare
+    // {sent:false} made the single most common misconfiguration — sending
+    // from the sandbox address to somebody else — indistinguishable from a
+    // bad key, an unverified domain, or a transient outage.
+    let detail = "";
+    try {
+      const parsed = JSON.parse(text);
+      detail = (parsed && (parsed.message || (parsed.error && parsed.error.message))) || "";
+    } catch (e) { detail = String(text || "").slice(0, 300); }
+
+    let hint = "";
+    if (res.status === 403 && sender === SANDBOX_FROM) {
+      hint = "EMAIL_FROM is not set, so this deploy is sending from Resend's sandbox address, " +
+             "which can only deliver to the API key owner's own email. Verify a domain in Resend " +
+             "and set EMAIL_FROM to an address on it.";
+    } else if (res.status === 401 || res.status === 403) {
+      hint = "Resend rejected the credentials or the sender. Check RESEND_API_KEY, and that " +
+             "EMAIL_FROM uses a domain verified in Resend.";
+    } else if (res.status === 422) {
+      hint = "Resend rejected the payload — usually an unverified or malformed From address.";
+    }
+
+    return { sent: false, reason: "provider-error", status: res.status, detail, hint, from: sender };
   }
-  return { sent: true };
+  return { sent: true, from: sender };
 }
 
 /** Shared wrapper so every email looks like it came from the same app. */
@@ -64,4 +104,4 @@ function layout(title, bodyHtml) {
   </div>`;
 }
 
-export { sendEmail, layout, configured };
+export { sendEmail, layout, configured, deliverable, fromAddress, SANDBOX_FROM };

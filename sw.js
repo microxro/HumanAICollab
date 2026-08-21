@@ -9,7 +9,11 @@
      • everything else: cache-first with a network fallback
    ========================================================================== */
 
-const VERSION = "scholar-v2.0.0";
+// Bump on every deploy. `activate` deletes any cache whose key doesn't start
+// with the current VERSION, so this string is the only thing that evicts a
+// stale shell. It sat at v2.0.0 across every release, which meant returning
+// users kept whatever they first cached.
+const VERSION = "scholar-v2.1.0";
 const SHELL_CACHE = VERSION + "-shell";
 const RUNTIME_CACHE = VERSION + "-runtime";
 
@@ -23,6 +27,8 @@ const SHELL = [
   "./css/views.css",
   "./js/utils.js",
   "./js/store.js",
+  "./js/store2.js",
+  "./js/i18n.js",
   "./js/ui.js",
   "./js/charts.js",
   "./js/md.js",
@@ -33,6 +39,8 @@ const SHELL = [
   "./js/geo.js",
   "./js/sync.js",
   "./js/planner.js",
+  "./js/assistant.js",
+  "./js/aiadd.js",
   "./js/views/dashboard.js",
   "./js/views/calendar.js",
   "./js/views/schedule.js",
@@ -53,6 +61,7 @@ const SHELL = [
   "./js/views/groups.js",
   "./js/views/parent.js",
   "./js/views/settings.js",
+  "./js/views/assistant.js",
   "./js/app.js"
 ];
 
@@ -114,21 +123,25 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // App shell: stale-while-revalidate.
+  // App shell: network-first, falling back to cache when offline.
+  //
+  // This used to be stale-while-revalidate, which returns the cached copy
+  // immediately. Navigations are already network-first, so a returning user
+  // got a *fresh* index.html paired with *stale* JS from an earlier deploy —
+  // modules missing, handlers unbound, an app that looks alive and responds
+  // to nothing. Correctness beats the few hundred ms: an offline load still
+  // works, and a warm HTTP cache makes the repeat cost small.
   if (isShell(url)) {
     event.respondWith(
-      caches.match(req).then((cached) => {
-        const network = fetch(req)
-          .then((res) => {
-            if (res && res.status === 200) {
-              const copy = res.clone();
-              caches.open(SHELL_CACHE).then((c) => c.put(req, copy));
-            }
-            return res;
-          })
-          .catch(() => cached);
-        return cached || network;
-      })
+      fetch(req)
+        .then((res) => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(SHELL_CACHE).then((c) => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req))
     );
     return;
   }

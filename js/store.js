@@ -405,13 +405,28 @@ App.store = (function () {
     if (!out.streak) out.streak = { count: 0, last: null, xp: 0 };
     if (!out.ui) out.ui = { view: "dashboard", lastSeen: Date.now() };
 
-    const currentTerm = (out.terms.find((t) => t.current) || out.terms[0] || {}).id;
+    // A single malformed element used to throw here, and load()'s catch
+    // treats any throw as "unreadable data" and reseeds — so one null in an
+    // imported array silently destroyed the whole dataset. Drop the junk
+    // rows instead; a lost bad record beats a lost account.
+    ["classes", "assignments", "terms", "events", "notes", "activities",
+     "teachers", "periods", "goals", "habits", "studySessions",
+     "attendance", "decks", "reading", "collegeApps"].forEach((k) => {
+      if (Array.isArray(out[k])) out[k] = out[k].filter((r) => r && typeof r === "object");
+    });
+
+    const currentTerm = (out.terms.find((t) => t && t.current) || out.terms[0] || {}).id;
 
     out.classes.forEach((c) => {
       if (!c.termId) c.termId = currentTerm;
       if (!Array.isArray(c.patternDays)) c.patternDays = ["A"];
       if (!c.rules) c.rules = { dropLowest: {}, curve: 0 };
       if (!Array.isArray(c.categories)) c.categories = [];
+      // days drives every schedule computation (classesOn, the timetable,
+      // the week view). It was never backfilled, so an import without it
+      // threw on c.days.join / c.days.includes across half the app.
+      if (!Array.isArray(c.days)) c.days = [];
+      if (typeof c.name !== "string") c.name = String(c.name == null ? "Untitled class" : c.name);
     });
     out.assignments.forEach((a) => {
       if (!a.termId) a.termId = currentTerm;
@@ -419,6 +434,8 @@ App.store = (function () {
       if (a.scheduledMin === undefined) a.scheduledMin = null;
       if (a.missing === undefined) a.missing = false;
       if (a.actualMinutes == null) a.actualMinutes = 0;
+      // Searching and sorting both call a.title.toLowerCase() unguarded.
+      if (typeof a.title !== "string") a.title = String(a.title == null ? "Untitled" : a.title);
     });
 
     return out;

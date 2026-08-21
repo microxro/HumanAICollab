@@ -60,7 +60,7 @@ import {
   randomId, randomCode
 } from "./_lib/auth.js";
 import { readJSON, writeJSON, remove } from "./_lib/blobs.js";
-import { sendEmail, layout } from "./_lib/email.js";
+import { sendEmail, layout, configured as emailConfigured, deliverable as emailDeliverable, fromAddress, SANDBOX_FROM } from "./_lib/email.js";
 
 const MAX_STATE_BYTES = 5 * 1024 * 1024;
 const MAX_FAILED_LOGINS = 8;
@@ -204,12 +204,83 @@ function siteOrigin(req) {
   return process.env.SITE_URL || new URL(req.url).origin;
 }
 
+/**
+ * GET /api/email-health[?probe=1]
+ *
+ * Answers "why didn't the email arrive" without needing the Netlify function
+ * logs. Requires a session, because ?probe=1 sends a real message and an
+ * anonymous trigger would be a free spam relay. Never returns the API key —
+ * only whether one is present and how long it is, which is enough to catch a
+ * truncated or whitespace-padded paste.
+ */
+async function emailHealth(req, user) {
+  const key = process.env.RESEND_API_KEY || "";
+  const from = fromAddress();
+  const out = {
+    configured: emailConfigured(),
+    deliverable: emailDeliverable(),
+    keyPresent: !!key,
+    keyLength: key.length,
+    keyLooksTrimmed: key === key.trim(),
+    keyPrefixOk: key.startsWith("re_"),
+    from,
+    usingSandboxSender: from === SANDBOX_FROM,
+    siteUrlSet: !!process.env.SITE_URL
+  };
+
+  if (!out.configured) {
+    out.diagnosis = "RESEND_API_KEY is not set in this deploy's environment.";
+  } else if (out.usingSandboxSender) {
+    out.diagnosis = "EMAIL_FROM is unset, so mail goes out from " + SANDBOX_FROM + ". Resend only " +
+      "delivers from that address to the API key owner's own email — every other recipient is " +
+      "rejected 403. Verify a domain in Resend, then set EMAIL_FROM to an address on it.";
+  } else if (!out.keyPrefixOk) {
+    out.diagnosis = "RESEND_API_KEY doesn't start with 're_', which Resend keys do. Check for a truncated paste.";
+  } else {
+    out.diagnosis = "Configuration looks right. Add ?probe=1 to send a real test message to your own address.";
+  }
+
+  const url = new URL(req.url);
+  if (url.searchParams.get("probe") === "1") {
+    const to = user.email;
+    if (!to) {
+      out.probe = { ok: false, error: "This account has no email address on file." };
+    } else {
+      const r = await sendEmail({
+        to,
+        subject: "Scholar email test",
+        html: layout("Email is working", "<p>This is a test message from your Scholar deploy. " +
+          "If you're reading it, password resets and weekly digests can reach you.</p>")
+      }).catch((e) => ({ sent: false, reason: "exception", detail: String(e && e.message || e) }));
+      out.probe = r.sent
+        ? { ok: true, to, from: r.from }
+        : { ok: false, to, status: r.status, error: r.detail || r.reason, hint: r.hint || "" };
+    }
+  }
+
+  return ok(out);
+}
+
 async function forgotPassword(req) {
   const b = await body(req);
   const email = normalizeEmail(b.email);
   // Same response whether or not the account exists, so this endpoint
   // can't be used to check who has a Scholar account.
   const generic = () => ok({ sent: true });
+
+  // Deployment-level problems are checked *before* the account lookup and
+  // reported for every address alike, so saying "email isn't configured"
+  // reveals nothing about who has an account. Previously this returned
+  // {sent:true} no matter what happened, so a deploy that could not send a
+  // single email looked identical to one that just had.
+  if (!emailConfigured()) {
+    return fail(503, "Email isn't configured on this deploy — set RESEND_API_KEY in the Netlify environment.");
+  }
+  if (!emailDeliverable()) {
+    return fail(503, "Email is only half-configured: EMAIL_FROM is unset, so mail would be sent from " +
+      "Resend's sandbox address, which can only reach the API key owner. Verify a domain in Resend and set EMAIL_FROM.");
+  }
+
   if (!validEmail(email)) return generic();
 
   const key = await emailKey(email);
@@ -223,7 +294,7 @@ async function forgotPassword(req) {
   // ?resetToken=... (not a hash route) — same pattern as the existing
   // ?join=CODE group-invite link, read once at boot in js/app.js.
   const resetUrl = `${siteOrigin(req)}/?resetToken=${encodeURIComponent(token)}`;
-  await sendEmail({
+  const result = await sendEmail({
     to: email,
     subject: "Reset your Scholar password",
     html: layout("Reset your password", `
@@ -231,7 +302,18 @@ async function forgotPassword(req) {
       <p style="margin:24px 0"><a href="${resetUrl}" style="background:#4f46e5;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Reset password</a></p>
       <p style="color:#4b5568;font-size:.85rem">This link works once and expires in 30 minutes. If you didn't request this, ignore this email — your password hasn't changed.</p>
     `)
-  }).catch((e) => console.error("[forgotPassword] send failed", e));
+  }).catch((e) => {
+    console.error("[forgotPassword] send failed", e);
+    return { sent: false, reason: "exception", detail: String(e && e.message || e) };
+  });
+
+  // A per-account send failure still can't be reported specifically without
+  // leaking whether the account exists, so it stays generic — but it is now
+  // logged with the provider's own words, and /api/email-health reproduces
+  // it on demand without any account involved.
+  if (result && result.sent === false) {
+    console.error("[forgotPassword] delivery failed", result.status || "", result.detail || "", result.hint || "");
+  }
 
   return generic();
 }
@@ -1145,6 +1227,9 @@ export default async (req) => {
 
     // --- everything below needs a valid token
     const user = await requireUser(req);
+
+    // Diagnostics for outbound email. Authenticated because ?probe=1 sends.
+    if (parts[0] === "email-health" && method === "GET") return await emailHealth(req, user);
 
     if (parts[0] === "me") {
       if (method === "GET") return ok({ user: publicUser(user) });

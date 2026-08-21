@@ -115,6 +115,46 @@
    * `root.contains(target)` check fails and the click silently does nothing.
    * Throwing the node away drops its listeners with it.
    */
+  /**
+   * Renders a view failure in place instead of leaving a blank or half-built
+   * page. The shell (nav, sync badge, today strip, tab bar) is still painted
+   * by the caller, so a broken view stays navigable — you can move to another
+   * page, export a backup, or reset, rather than being stuck.
+   */
+  function errorPanelHTML(viewName, err) {
+    const msg = (err && (err.message || String(err))) || "Unknown error";
+    const stack = (err && err.stack) || "";
+    return `<div class="card" style="max-width:640px;margin:32px auto">
+      <h3 style="margin-top:0">This page hit an error</h3>
+      <p class="muted">The <strong>${U.esc(viewName)}</strong> view couldn't render. The rest of
+      the app still works — you can switch pages using the sidebar.</p>
+      <pre class="small" style="white-space:pre-wrap;overflow-x:auto;background:var(--surface);padding:10px;border-radius:8px">${U.esc(msg)}</pre>
+      <div class="row gap-8" style="margin-top:14px;flex-wrap:wrap">
+        <button type="button" class="btn btn-primary" data-err-reload>Reload</button>
+        <button type="button" class="btn" data-err-export>Export a backup</button>
+        <button type="button" class="btn" data-err-copy>Copy details</button>
+      </div>
+      <p class="small dim" style="margin-top:12px">If this keeps happening, Settings → Data →
+      Start over resets the app without touching your exported backup.</p>
+      <textarea data-err-detail hidden>${U.esc(viewName + ": " + msg + "\n" + stack)}</textarea>
+    </div>`;
+  }
+
+  function bindErrorPanel(root) {
+    U.on(root, "click", "[data-err-reload]", () => location.reload());
+    U.on(root, "click", "[data-err-export]", () => {
+      try { S.exportJSON ? S.exportJSON() : App.views.settings.exportData(); }
+      catch (e) { UI.toast("Export failed", "Copy the details instead.", "danger"); }
+    });
+    U.on(root, "click", "[data-err-copy]", () => {
+      const t = root.querySelector("[data-err-detail]");
+      if (!t) return;
+      navigator.clipboard && navigator.clipboard.writeText(t.value)
+        .then(() => UI.toast("Copied", "Error details are on your clipboard.", "ok"))
+        .catch(() => {});
+    });
+  }
+
   function paint() {
     const view = App.views[current] || App.views.dashboard;
     const page = document.getElementById("page");
@@ -122,9 +162,20 @@
 
     const root = document.createElement("div");
     root.className = "view-root";
-    root.innerHTML = view.render();
+    // A throw in render() used to abort paint() entirely, so nav, the sync
+    // badge and the today strip never repainted and nothing below rebound —
+    // an app that looked alive but where no button worked.
+    let renderFailed = false;
+    try {
+      root.innerHTML = view.render();
+    } catch (err) {
+      renderFailed = true;
+      console.error("[scholar] render failed in view:", current, err);
+      root.innerHTML = errorPanelHTML(view.title || current, err);
+    }
 
     page.replaceChildren(root);
+    if (renderFailed) bindErrorPanel(root);
 
     // Cross-view shortcuts any page can emit — bound before the view's own
     // handlers so a view can still stopPropagation if it needs to override.
@@ -142,7 +193,18 @@
       if (el.checked) UI.toast("Done ✅", a.title, "ok");
     });
 
-    if (view.mount) view.mount(root);
+    if (!renderFailed && view.mount) {
+      try {
+        view.mount(root);
+      } catch (err) {
+        // Handlers are half-bound at this point, which is worse than a clean
+        // failure — replace the body so the user gets an explanation rather
+        // than a page where some controls silently do nothing.
+        console.error("[scholar] mount failed in view:", current, err);
+        root.innerHTML = errorPanelHTML(view.title || current, err);
+        bindErrorPanel(root);
+      }
+    }
 
     renderNav();
     paintSyncBadge();
@@ -628,6 +690,18 @@
   // step reuses the real form (classForm, periodsEditor, homework.form),
   // just chained by an onDone callback rather than built from scratch.
 
+  /**
+   * Records that the first-run wizard has been dealt with. Idempotent, and
+   * deliberately fired from *every* exit path rather than only the two happy
+   * ones: previously this ran only on "Skip" or on finishing all three steps,
+   * so closing the class form at step 1 left `onboarded` false and the
+   * wizard reappeared on every single reload, forever.
+   */
+  function markOnboarded() {
+    if (S.settings.onboarded === true) return;
+    S.commit((db) => { db.settings.onboarded = true; });
+  }
+
   function runOnboarding() {
     UI.modal({
       title: "Welcome to Scholar",
@@ -639,13 +713,31 @@
         <p class="muted">You can stop at any step — Settings has a link to pick this back up.</p>
       </div>`,
       onMount(root) {
-        root.querySelector("[data-skip]").addEventListener("click", () => { UI.closeModal(); finishOnboarding(); });
+        // Any dismissal counts, including the ✕, Escape and a scrim click,
+        // which all route through [data-close].
+        root.addEventListener("click", (e) => {
+          if (e.target === root || e.target.closest("[data-close]")) markOnboarded();
+        });
+        root.querySelector("[data-skip]").addEventListener("click", () => {
+          markOnboarded();
+          UI.closeModal();
+          UI.toast("No problem", "Settings → Get started re-runs this any time.", "ok");
+        });
         root.querySelector("[data-next]").addEventListener("click", () => {
+          // Mark before the chain rather than after it: abandoning step 2 or
+          // 3 should not resurrect the welcome screen on the next load.
+          markOnboarded();
           UI.closeModal();
           setTimeout(() => App.views.classes.classForm(null, onboardStep2), 60);
         });
       }
     });
+    // Escape closes via the document-level handler in ui.js, which never
+    // reaches the click listener above.
+    const onEsc = (e) => {
+      if (e.key === "Escape") { markOnboarded(); document.removeEventListener("keydown", onEsc); }
+    };
+    document.addEventListener("keydown", onEsc);
   }
   function onboardStep2() {
     UI.toast("Nice, one class added", "Next: your bell schedule.", "ok");
@@ -656,7 +748,7 @@
     setTimeout(() => App.views.homework.form(null, finishOnboarding), 300);
   }
   function finishOnboarding() {
-    S.commit((db) => { db.settings.onboarded = true; });
+    markOnboarded();
     UI.toast("You're set up 🎉", "Explore the dashboard whenever you're ready.", "ok");
     router.go("dashboard");
   }
@@ -867,6 +959,109 @@
       <span class="dim">⚙</span>`;
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-  else boot();
+  /* ------------------------------------------------------ crash recovery -- */
+
+  /**
+   * Last-resort screen when boot() itself fails. Nothing is bound at that
+   * point — no nav, no router — so this has to be self-contained HTML with
+   * its own listeners, and it must not depend on any app module having
+   * loaded successfully.
+   */
+  function fatal(err) {
+    console.error("[scholar] boot failed", err);
+    const msg = (err && (err.message || String(err))) || "Unknown error";
+    const stack = (err && err.stack) || "";
+    const host = document.getElementById("page") || document.body;
+    host.innerHTML = `
+      <div style="max-width:620px;margin:48px auto;padding:24px;font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.55">
+        <h2 style="margin:0 0 8px">Scholar couldn't start</h2>
+        <p style="color:#5b6478;margin:0 0 16px">Your saved data is still on this device — the app just
+        couldn't load it. Try these in order.</p>
+        <pre style="white-space:pre-wrap;background:#f4f5f8;color:#10141f;padding:10px;border-radius:8px;font-size:12px;overflow-x:auto">${msg
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
+          <button id="fatalBackup" style="padding:9px 14px;border-radius:8px;border:1px solid #c9cfda;background:#fff;cursor:pointer">1. Download a backup</button>
+          <button id="fatalCache" style="padding:9px 14px;border-radius:8px;border:1px solid #c9cfda;background:#fff;cursor:pointer">2. Clear cached app files</button>
+          <button id="fatalReset" style="padding:9px 14px;border-radius:8px;border:1px solid #d94a5a;background:#d94a5a;color:#fff;cursor:pointer">3. Reset local data</button>
+        </div>
+        <p style="color:#8791a5;font-size:12px;margin-top:16px">Step 2 keeps your data and just re-fetches the
+        app. Only step 3 erases anything — take the backup first.</p>
+        <details style="margin-top:12px"><summary style="cursor:pointer;color:#5b6478;font-size:13px">Technical details</summary>
+        <pre style="white-space:pre-wrap;font-size:11px;color:#5b6478;overflow-x:auto">${stack
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre></details>
+      </div>`;
+
+    const dl = document.getElementById("fatalBackup");
+    if (dl) dl.addEventListener("click", () => {
+      try {
+        const raw = localStorage.getItem("scholar.db.v2") || localStorage.getItem("scholar.db.v1") || "{}";
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([raw], { type: "application/json" }));
+        a.download = "scholar-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+        a.click();
+      } catch (e) { alert("Couldn't build a backup: " + e.message); }
+    });
+
+    const cc = document.getElementById("fatalCache");
+    if (cc) cc.addEventListener("click", async () => {
+      try {
+        if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+        if (navigator.serviceWorker) {
+          for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+        }
+        location.reload();
+      } catch (e) { alert("Couldn't clear the cache: " + e.message); }
+    });
+
+    const rs = document.getElementById("fatalReset");
+    if (rs) rs.addEventListener("click", () => {
+      if (!window.confirm("Erase all Scholar data on this device? This cannot be undone.")) return;
+      try {
+        localStorage.removeItem("scholar.db.v2");
+        localStorage.removeItem("scholar.db.v1");
+      } catch (e) { /* nothing left to do */ }
+      location.href = location.pathname;
+    });
+  }
+
+  App.fatal = fatal;
+
+  // Nothing reported a failure before this: an async throw anywhere in the
+  // app produced a silent no-op, which is how a one-line bug became an
+  // unreproducible bug report.
+  window.addEventListener("error", (e) => {
+    console.error("[scholar] uncaught error", e.error || e.message);
+    if (App.ui && App.ui.toast) {
+      App.ui.toast("Something went wrong", (e.error && e.error.message) || e.message || "", "danger");
+    }
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    console.error("[scholar] unhandled rejection", e.reason);
+    if (App.ui && App.ui.toast) {
+      const r = e.reason;
+      App.ui.toast("Something went wrong", (r && (r.message || String(r))) || "", "danger");
+    }
+  });
+
+  function startup() {
+    // ?reset=1 recovers an app that won't boot without needing devtools.
+    try {
+      if (new URL(location.href).searchParams.get("reset") === "1") {
+        if (window.confirm("Reset Scholar's local data on this device? Export a backup first if you need one.")) {
+          localStorage.removeItem("scholar.db.v2");
+          localStorage.removeItem("scholar.db.v1");
+        }
+        history.replaceState(null, "", location.pathname);
+      }
+    } catch (e) { /* a malformed URL is not a reason to refuse to start */ }
+
+    try {
+      boot();
+    } catch (err) {
+      fatal(err);
+    }
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startup);
+  else startup();
 })();

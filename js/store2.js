@@ -20,9 +20,32 @@
 
   /* ============================================================ ensureV3 */
 
+  /**
+   * Brings any stored dataset up to the current v3 shape. Safe to call on
+   * every boot and after any wholesale data swap (import/restore).
+   *
+   * There is deliberately NO `if (db.schemaV3) return` fast path. That guard
+   * used to exist and it was a live crash: `schemaV3` is set the first time
+   * this runs, but fields keep being *added* to this function over time, so
+   * a dataset written by an older build carried `schemaV3: true` while
+   * missing everything added since. The guard then skipped the backfill, and
+   * boot() -> S.autoArchive() dereferenced settings.retention.autoArchiveDays
+   * on undefined and threw before any handler was bound — a dead app that
+   * survived reloads, because the bad payload was already in localStorage.
+   *
+   * Every assignment below is idempotent, so re-running costs one cheap pass
+   * and nothing else. `dirty` keeps us from writing to disk when there was
+   * genuinely nothing to fill in.
+   */
   function ensureV3() {
     const db = S.db;
-    if (db.schemaV3) return;
+    let dirty = false;
+    // Assign-if-absent that also treats null as absent: `typeof null` is
+    // "object", so a null in an imported payload used to slip through the
+    // collection check below and blow up on first use.
+    const need = (obj, key, value) => {
+      if (obj[key] == null) { obj[key] = value; dirty = true; }
+    };
 
     // ---- new top-level collections
     const coll = {
@@ -33,52 +56,82 @@
       assistantChat: [],  // [{role: "user"|"assistant", text, at}] — the private assistant's thread
       feedComments: {}   // { feedItemId: [{id, byName, text, at}] }
     };
-    Object.entries(coll).forEach(([k, v]) => { if (!Array.isArray(db[k]) && typeof db[k] !== "object") db[k] = v; });
-    if (!db.navVisits) db.navVisits = {};    // { navId: count } — powers U02 auto-float-to-top
-    if (!db.recentViews) db.recentViews = []; // U03 — most-recent-first nav ids
-    if (!db.moodLog) db.moodLog = {};        // { "YYYY-MM-DD": {mood, energy} }
-    if (!db.sleepLog) db.sleepLog = {};      // { "YYYY-MM-DD": {bed, wake, hours} }
-    if (!db.sessionRatings) db.sessionRatings = []; // [{id, sessionId, quality, at}]
-    if (!db.changeAlerts) db.changeAlerts = []; // dismissed/seen change-detection alerts
-    if (db.streak.freezes === undefined) db.streak.freezes = 0; // F040
+    // A stored value of the wrong *kind* is as bad as a missing one — an
+    // imported payload with `"notifications": null` (or a string where a list
+    // belongs) used to reach .unshift/.forEach and throw on first use.
+    Object.entries(coll).forEach(([k, v]) => {
+      const wantArray = Array.isArray(v);
+      const got = db[k];
+      const ok = got != null && (wantArray ? Array.isArray(got) : typeof got === "object" && !Array.isArray(got));
+      if (!ok) { db[k] = v; dirty = true; }
+    });
+    need(db, "navVisits", {});      // { navId: count } — powers U02 auto-float-to-top
+    need(db, "recentViews", []);    // U03 — most-recent-first nav ids
+    need(db, "moodLog", {});        // { "YYYY-MM-DD": {mood, energy} }
+    need(db, "sleepLog", {});       // { "YYYY-MM-DD": {bed, wake, hours} }
+    need(db, "sessionRatings", []); // [{id, sessionId, quality, at}]
+    need(db, "changeAlerts", []);   // dismissed/seen change-detection alerts
+    need(db, "streak", { count: 0, last: null });
+    need(db.streak, "freezes", 0);  // F040
 
     // ---- settings additions
+    need(db, "settings", {});
     const s = db.settings;
-    if (!s.pinnedNav) s.pinnedNav = []; // U02 — empty by default; top-3 most-visited float up automatically (see effectivePinnedNav)
-    if (s.sidebarCollapsed === undefined) s.sidebarCollapsed = false;   // U01
-    if (!s.density) s.density = "comfortable";                          // U10
-    if (!s.accent) s.accent = "indigo";                                 // U09
-    if (!s.cvdPreview) s.cvdPreview = "none";                            // U46
-    if (!s.fontSize) s.fontSize = "normal";                              // U11
-    if (s.dyslexicFont === undefined) s.dyslexicFont = false;            // U11
-    if (s.trueBlack === undefined) s.trueBlack = false;                  // U13
-    if (!s.collapsedNavGroups) s.collapsedNavGroups = [];                 // U07
-    if (s.onboarded === undefined) s.onboarded = true;                   // U49 — only for data predating the flag; a fresh seed sets it false explicitly
-    if (!s.emptyStateStyle) s.emptyStateStyle = "drawn";                  // U16 — "drawn" or "emoji"
-    if (!s.dashboardLayout) s.dashboardLayout = ["hero", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]; // F083
-    if (!s.locale) s.locale = "en";                                     // F099
-    if (!s.wellbeing) s.wellbeing = { hideGPA: false, breakEveryMin: 50, breakLenMin: 8 };
+    need(s, "pinnedNav", []);          // U02 — top-3 most-visited float up automatically (see effectivePinnedNav)
+    need(s, "sidebarCollapsed", false); // U01
+    need(s, "density", "comfortable");  // U10
+    need(s, "accent", "indigo");        // U09
+    need(s, "cvdPreview", "none");      // U46
+    need(s, "fontSize", "normal");      // U11
+    need(s, "dyslexicFont", false);     // U11
+    need(s, "trueBlack", false);        // U13
+    need(s, "collapsedNavGroups", []);  // U07
+    need(s, "onboarded", true);         // U49 — only for data predating the flag; a fresh seed sets it false explicitly
+    need(s, "emptyStateStyle", "drawn"); // U16 — "drawn" or "emoji"
+    need(s, "dashboardLayout", ["hero", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]); // F083
+    need(s, "locale", "en");            // F099
+    need(s, "wellbeing", { hideGPA: false, breakEveryMin: 50, breakLenMin: 8 });
     // Custom GPA weighting — defaults reproduce the old hardcoded +1.0/cap-5.
-    if (!s.gpaScale) s.gpaScale = { ap: 1, honors: 1, max: 5 };
-    if (!s.retention) s.retention = { studyDays: 365, usageDays: 180, autoArchiveDays: 30 };
-    if (!s.bellVariant) s.bellVariant = {}; // { "YYYY-MM-DD": "assembly"|"early"|"delayed"|"exam" }
-    if (!s.bellVariants) {
-      s.bellVariants = {
-        assembly: { label: "Assembly schedule", shiftMin: -20 },
-        early: { label: "Early release", shiftMin: -90 },
-        delayed: { label: "Delayed start", shiftMin: 60 },
-        exam: { label: "Exam schedule", shiftMin: 0 }
-      };
-    }
-    if (!s.passingTimeMin) s.passingTimeMin = 5;   // F043
-    if (!s.commute) s.commute = { toMin: 20, fromMin: 20, lastBus: "" }; // F051
+    need(s, "gpaScale", { ap: 1, honors: 1, max: 5 });
+    need(s, "retention", { studyDays: 365, usageDays: 180, autoArchiveDays: 30 });
+    need(s, "bellVariant", {}); // { "YYYY-MM-DD": "assembly"|"early"|"delayed"|"exam" }
+    need(s, "bellVariants", {
+      assembly: { label: "Assembly schedule", shiftMin: -20 },
+      early: { label: "Early release", shiftMin: -90 },
+      delayed: { label: "Delayed start", shiftMin: 60 },
+      exam: { label: "Exam schedule", shiftMin: 0 }
+    });
+    need(s, "passingTimeMin", 5);   // F043
+    need(s, "commute", { toMin: 20, fromMin: 20, lastBus: "" }); // F051
+    // Nested defaults, in case an older payload has the parent but not the leaf.
+    need(s.wellbeing, "hideGPA", false);
+    need(s.wellbeing, "breakEveryMin", 50);
+    need(s.wellbeing, "breakLenMin", 8);
+    need(s.gpaScale, "ap", 1);
+    need(s.gpaScale, "honors", 1);
+    need(s.gpaScale, "max", 5);
+    need(s.retention, "studyDays", 365);
+    need(s.retention, "usageDays", 180);
+    need(s.retention, "autoArchiveDays", 30);
+    need(s.commute, "toMin", 20);
+    need(s.commute, "fromMin", 20);
+    need(s.commute, "lastBus", "");
 
     // ---- account additions
-    if (!db.account.linkedFriends) db.account.linkedFriends = []; // real accept/decline friend state (F053)
-    if (!db.account.sessions) db.account.sessions = []; // client-side cache of backend session list (F092)
+    need(db, "account", {});
+    need(db.account, "linkedFriends", []); // real accept/decline friend state (F053)
+    need(db.account, "sessions", []);      // client-side cache of backend session list (F092)
 
     // ---- per-record field defaults
+    // These three are v1/v2 collections, so migrate() normally guarantees
+    // them — but a hand-edited or truncated import can still arrive without
+    // them, and a throw here is a dead app rather than a bad record.
+    ["classes", "assignments", "terms"].forEach((k) => {
+      if (!Array.isArray(db[k])) { db[k] = []; dirty = true; }
+    });
+
     db.classes.forEach((c) => {
+      if (!c || typeof c !== "object") return;
       if (!c.subject) c.subject = guessSubject(c.name);
       if (c.gradingMode === undefined) c.gradingMode = "percentage"; // "percentage" | "standards"
       if (c.passFail === undefined) c.passFail = false;
@@ -94,6 +147,7 @@
     });
 
     db.assignments.forEach((a) => {
+      if (!a || typeof a !== "object") return;
       if (!a.dependsOn) a.dependsOn = [];        // F014
       if (a.actualStart === undefined) a.actualStart = null;   // F017 start/stop timer
       if (a.timeLog === undefined) a.timeLog = []; // [{start,end,minutes}]
@@ -108,10 +162,14 @@
       if (a.rubricScores === undefined) a.rubricScores = {};   // {criterionId: levelId}
     });
 
-    db.terms.forEach((t) => { if (t.parentId === undefined) t.parentId = null; }); // F007
+    db.terms.forEach((t) => { if (t && t.parentId === undefined) t.parentId = null; }); // F007
 
-    db.schemaV3 = true;
-    S.commit();
+    if (!db.schemaV3) { db.schemaV3 = true; dirty = true; }
+    // Only write when we actually filled something in. Without this, running
+    // on every boot would mean a full JSON.stringify + save + repaint on a
+    // dataset that needed nothing.
+    if (dirty) S.commit();
+    return dirty;
   }
 
   function guessSubject(name) {
