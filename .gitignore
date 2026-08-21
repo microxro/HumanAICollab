@@ -1,0 +1,15 @@
+# Installed by `npm install` — reproducible from package.json + the lockfile.
+node_modules/
+
+# Netlify build/dev artifacts
+.netlify/
+
+# Local environment overrides — never commit real keys.
+.env
+.env.*
+!.env.example
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
