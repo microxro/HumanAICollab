@@ -385,7 +385,7 @@ App.views.homework = (function () {
             </div>`).join("")}
           </div>` : ""}
         <div class="row gap-6 mb-12">
-          <button type="button" class="btn btn-sm" data-split>+ Split into parts</button>
+          <button type="button" class="btn btn-sm" data-split>+ Break into checkpoints</button>
         </div>
 
         ${linkedNotes.length ? `<h4 class="mb-8">Linked notes</h4>
@@ -464,37 +464,65 @@ App.views.homework = (function () {
   /* --------------------------------------------------------- F018/F026 -- */
 
   function splitForm(assignmentId) {
+    const parent = S.byId("assignments", assignmentId);
+    const parentDue = parent ? parent.due : U.today();
+
+    const rowHTML = (due) => `<div class="row gap-8 mb-8 wrap">
+      <input class="input grow" style="min-width:160px" data-split-title placeholder="Checkpoint title" />
+      <input class="input" type="date" style="width:150px" data-split-due value="${U.esc(due || parentDue)}"
+             title="When this checkpoint is due" />
+      <input class="input" style="width:130px" data-split-assignee placeholder="Who (optional)" />
+      <input class="input" type="number" style="width:88px" data-split-points placeholder="Pts" />
+    </div>`;
+
     UI.modal({
-      title: "Split into parts",
-      sub: "Great for group projects — assign parts to people, or just break up the work",
+      title: "Break into checkpoints",
+      sub: "Give each part its own deadline so the planner can pace the work — and assign parts to people on a group project",
       size: "wide",
-      okLabel: "Create parts",
-      body: `<div id="splitRows">
-          ${[1, 2].map(() => `<div class="row gap-8 mb-8">
-            <input class="input grow" data-split-title placeholder="Part title" />
-            <input class="input" style="width:150px" data-split-assignee placeholder="Assigned to (optional)" />
-            <input class="input" type="number" style="width:90px" data-split-points placeholder="Points" />
-          </div>`).join("")}
-        </div>
-        <button type="button" class="btn btn-sm" id="addSplitRow">+ Add another part</button>`,
+      okLabel: "Create checkpoints",
+      body: `<div id="splitRows">${[1, 2].map(() => rowHTML()).join("")}</div>
+        <div class="row gap-8">
+          <button type="button" class="btn btn-sm" id="addSplitRow">+ Add another</button>
+          <button type="button" class="btn btn-sm" id="spreadDates" title="Space the checkpoint dates evenly between now and the final due date">📅 Space them out</button>
+        </div>`,
       onMount(root) {
         root.querySelector("#addSplitRow").addEventListener("click", () => {
-          root.querySelector("#splitRows").insertAdjacentHTML("beforeend", `<div class="row gap-8 mb-8">
-            <input class="input grow" data-split-title placeholder="Part title" />
-            <input class="input" style="width:150px" data-split-assignee placeholder="Assigned to (optional)" />
-            <input class="input" type="number" style="width:90px" data-split-points placeholder="Points" /></div>`);
+          root.querySelector("#splitRows").insertAdjacentHTML("beforeend", rowHTML());
+        });
+
+        // Evenly distribute checkpoint dates from today up to the parent's due
+        // date, so a three-week project doesn't land every part on the deadline.
+        root.querySelector("#spreadDates").addEventListener("click", () => {
+          const dateInputs = U.$$("[data-split-due]", root);
+          if (dateInputs.length < 2) {
+            UI.toast("Add another checkpoint first", "There's nothing to space out yet.", "warn");
+            return;
+          }
+          const total = U.diffDays(parentDue, U.today());
+          if (total <= 0) {
+            // Nothing to spread across — say so rather than appearing to work.
+            UI.toast("No room to space these out",
+              `This is due ${total === 0 ? "today" : "already"}, so every checkpoint lands on the same day.`, "warn");
+            return;
+          }
+          dateInputs.forEach((inp, i) => {
+            const frac = (i + 1) / dateInputs.length;
+            inp.value = U.dateKey(U.addDays(new Date(), Math.max(1, Math.round(total * frac))));
+          });
+          UI.toast("Spaced out", `Across the next ${U.plural(total, "day")}.`, "ok");
         });
       },
       onSubmit(_d, root) {
         const rows = U.$$("#splitRows > div", root);
         const parts = rows.map((row) => ({
           title: row.querySelector("[data-split-title]").value.trim(),
+          due: row.querySelector("[data-split-due]").value || parentDue,
           assignee: row.querySelector("[data-split-assignee]").value.trim() || null,
           points: Number(row.querySelector("[data-split-points]").value) || 0
         })).filter((p) => p.title);
         if (!parts.length) return false;
         const made = S.splitAssignment(assignmentId, parts);
-        UI.toast("Parts created", `${made.length} added`, "ok");
+        UI.toast("Checkpoints created", `${made.length} added`, "ok");
       }
     });
   }

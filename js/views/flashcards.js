@@ -482,6 +482,123 @@ App.views.flashcards = (function () {
 
   /* ------------------------------------------------------------- forms -- */
 
+  /**
+   * Import a deck from pasted text — most usefully a Quizlet set.
+   *
+   * Quizlet has no public API for third-party sync, so the reliable path is
+   * its own Export feature: open a set → ⋯ → Export → copy. That gives
+   * term/definition pairs with a chosen separator, which is what this parses.
+   * The same parser handles any tab- or comma-delimited list, so it doubles as
+   * a generic importer for anything a student already has in a spreadsheet.
+   */
+  function quizletImportDialog() {
+    const SEPS = {
+      tab: { label: "Tab (Quizlet default)", value: "\t" },
+      comma: { label: "Comma", value: "," },
+      dash: { label: "Hyphen  -", value: "-" },
+      semicolon: { label: "Semicolon  ;", value: ";" }
+    };
+
+    // Splits on the first occurrence only, so a definition containing the
+    // separator doesn't get chopped in half.
+    function parse(text, sep, rowSep) {
+      const rows = rowSep === "blank"
+        ? text.split(/\n\s*\n/)
+        : text.split(/\r?\n/);
+      return rows.map((r) => r.trim()).filter(Boolean).map((row) => {
+        const i = row.indexOf(sep);
+        if (i < 0) return null;
+        const front = row.slice(0, i).trim();
+        const back = row.slice(i + sep.length).trim();
+        return front && back ? { front, back } : null;
+      }).filter(Boolean);
+    }
+
+    UI.modal({
+      title: "Import from Quizlet",
+      size: "wide",
+      okLabel: "Create deck",
+      body: `<details class="mb-12">
+          <summary class="small bold" style="cursor:pointer">How to get your set out of Quizlet</summary>
+          <ol class="small dim" style="margin:8px 0 0 18px;line-height:1.6">
+            <li>Open your set on Quizlet</li>
+            <li>Click the <strong>⋯</strong> (more) menu → <strong>Export</strong></li>
+            <li>Leave the separators as they are and click <strong>Copy text</strong></li>
+            <li>Paste it below</li>
+          </ol>
+          <p class="tiny dim mt-8">Quizlet doesn't offer a public API for automatic syncing, so this copy-paste route is the dependable way to bring a set across.</p>
+        </details>
+        <div class="form-grid">
+          <div class="field">
+            <label>Deck name</label>
+            <input class="input" name="name" placeholder="e.g. Bio Unit 3 vocab" required />
+          </div>
+          <div class="field">
+            <label>Class</label>
+            <select class="select" name="classId">${UI.classOptions(null, true)}</select>
+          </div>
+          <div class="field">
+            <label>Between term and definition</label>
+            <select class="select" id="qSep">
+              ${Object.entries(SEPS).map(([k, s]) => `<option value="${k}">${U.esc(s.label)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label>Between cards</label>
+            <select class="select" id="qRowSep">
+              <option value="newline">New line (default)</option>
+              <option value="blank">Blank line</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label>Paste your set</label>
+            <textarea class="textarea" id="qText" rows="9"
+              placeholder="mitochondria&#9;the powerhouse of the cell&#10;ribosome&#9;makes proteins"></textarea>
+          </div>
+        </div>
+        <div id="qPreview" class="small mt-8"></div>`,
+      onMount(root) {
+        const ta = root.querySelector("#qText");
+        const sepSel = root.querySelector("#qSep");
+        const rowSel = root.querySelector("#qRowSep");
+        const prev = root.querySelector("#qPreview");
+
+        const refresh = () => {
+          const cards = parse(ta.value, SEPS[sepSel.value].value, rowSel.value);
+          if (!ta.value.trim()) { prev.innerHTML = ""; return; }
+          if (!cards.length) {
+            prev.innerHTML = `<span style="color:var(--warn)">No cards found — try a different separator above.</span>`;
+            return;
+          }
+          prev.innerHTML = `<span class="badge ok">${cards.length} card${cards.length === 1 ? "" : "s"} found</span>
+            <div class="tiny dim mt-4">First: <strong>${U.esc(cards[0].front)}</strong> → ${U.esc(cards[0].back.slice(0, 80))}</div>`;
+        };
+
+        ta.addEventListener("input", refresh);
+        sepSel.addEventListener("change", refresh);
+        rowSel.addEventListener("change", refresh);
+      },
+      onSubmit(d, root) {
+        const sep = SEPS[root.querySelector("#qSep").value].value;
+        const rowSep = root.querySelector("#qRowSep").value;
+        const cards = parse(root.querySelector("#qText").value, sep, rowSep);
+        if (!cards.length) { UI.toast("Nothing to import", "No term/definition pairs found.", "warn"); return false; }
+        if (!d.name.trim()) return false;
+
+        const deck = S.insert("decks", {
+          name: d.name.trim(),
+          classId: d.classId || null,
+          cards: cards.map((c) => ({
+            id: U.uid("cd"), front: c.front, back: c.back,
+            box: 1, next: U.today(), reps: 0, lapses: 0
+          }))
+        });
+        UI.toast("Deck imported", `${deck.name} · ${deck.cards.length} cards`, "ok");
+        App.router.refresh();
+      }
+    });
+  }
+
   function deckForm(dk) {
     const d = dk || {};
     UI.modal({
@@ -728,6 +845,7 @@ App.views.flashcards = (function () {
         <div class="page-actions">
           <button class="btn" data-interleave title="Round-robin due cards across every deck">🔀 Interleaved</button>
           <button class="btn" data-practice-test>⏱ Practice test</button>
+          <button class="btn" data-import-quizlet title="Paste an exported Quizlet set (or any term/definition list)">📋 Import from Quizlet</button>
           <button class="btn" data-import-deck>⇩ Import deck</button>
           <button class="btn btn-primary" data-new-deck>+ New deck</button>
         </div>
@@ -851,6 +969,7 @@ App.views.flashcards = (function () {
       const json = S.exportDeck(d.id);
       U.download(`${d.name.replace(/[^\w\- ]/g, "")}.json`, json, "application/json");
     });
+    U.on(root, "click", "[data-import-quizlet]", () => quizletImportDialog());
     U.on(root, "click", "[data-import-deck]", () => {
       const input = document.createElement("input");
       input.type = "file"; input.accept = "application/json,.json";

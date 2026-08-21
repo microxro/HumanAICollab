@@ -151,6 +151,28 @@ App.views.schedule = (function () {
         </div>
       </div>
 
+      ${(() => {
+        // F041/F042 — a special schedule is a *today* problem, so say so at the
+        // top rather than only inside the day-by-day list further down.
+        const v = S.bellVariantFor(U.today());
+        const cfg = v ? S.settings.bellVariants[v] : null;
+        return `<div class="card mb-16"><div class="card-body tight">
+          <div class="row wrap gap-8" style="align-items:center">
+            <span class="small bold">Today's bell schedule</span>
+            ${cfg
+              ? `<span class="badge warn">${U.esc(cfg.label)}</span>
+                 <span class="tiny dim">periods shift ${cfg.shiftMin > 0 ? "later" : "earlier"} by ${Math.abs(cfg.shiftMin)} min</span>`
+              : `<span class="badge">Normal</span>`}
+            <span class="grow"></span>
+            <select class="select input-sm" data-bell-variant="${U.today()}" style="max-width:190px">
+              <option value="">Normal schedule</option>
+              ${Object.entries(S.settings.bellVariants).map(([k, cv]) =>
+                `<option value="${k}" ${v === k ? "selected" : ""}>${U.esc(cv.label)}</option>`).join("")}
+            </select>
+          </div>
+        </div></div>`;
+      })()}
+
       <div class="card mb-16 print-sheet">
         <div class="card-head">
           <h3>Weekly timetable</h3>
@@ -173,7 +195,9 @@ App.views.schedule = (function () {
     U.on(root, "click", "[data-class]", (_e, el) => App.views.classes.detail(el.dataset.class));
     U.on(root, "click", "[data-activity]", (_e, el) => App.views.activities.detail(el.dataset.activity));
     U.on(root, "click", "[data-add]", () => App.views.classes.classForm(null));
-    U.on(root, "click", "[data-periods]", () => App.router.go("classes"));
+    // Open the editor directly. This used to just navigate to Classes and
+    // leave the student to find the button again.
+    U.on(root, "click", "[data-periods]", () => App.views.classes.periodsEditor());
     U.on(root, "click", "[data-weekend]", () => { showWeekend = !showWeekend; App.router.refresh(); });
     U.on(root, "click", "[data-print]", () => window.print());
     U.on(root, "change", "[data-bell-variant]", (_e, el) => {
