@@ -430,6 +430,20 @@ App.sync = (function () {
     return call("/groups/broadcast", { method: "POST", body: { ...payload, groupIds } });
   }
 
+  /**
+   * Server capabilities, readable without signing in.
+   *
+   * Cached for the session: the sign-in modal asks on every open, and the
+   * answer only changes when the deploy's environment changes.
+   */
+  let capCache = null;
+  function serverHealth() {
+    if (capCache) return Promise.resolve(capCache);
+    return call("/health")
+      .then((r) => { capCache = r; return r; })
+      .catch(() => ({ ok: false, email: { deliverable: false } }));
+  }
+
   function icsFeedUrl(token) { return `${location.origin}${base()}/ics-feed/${encodeURIComponent(token)}`; }
 
   /* ------------------------------------------------------ F070 focus windows */
@@ -568,7 +582,7 @@ App.sync = (function () {
     requestFriend, respondFriend, listFriends, removeFriend,
     requestCheckin, listCheckins, respondCheckin, sendGuardianNote, listGuardianNotes,
     proposeFocusWindow, listFocusWindows, respondFocusWindow, endFocusWindow,
-    pushIcsFeed, icsFeedUrl,
+    pushIcsFeed, icsFeedUrl, serverHealth,
     listApiTokens, mintApiToken, revokeApiToken,
     listWebhooks, addWebhook, removeWebhook, apiBaseUrl,
     listGroups, createGroup, joinGroup, getGroup, broadcastFeed,

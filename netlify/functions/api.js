@@ -1896,7 +1896,22 @@ export default async (req) => {
     }
 
     // --- public
-    if (parts[0] === "health") return ok({ ok: true, time: Date.now() });
+    // Public. Reports only whether a *capability* is available, never any
+    // configuration detail — the sign-in screen needs this to decide whether
+    // to offer password reset at all, and it is asked before anyone signs in.
+    if (parts[0] === "health") {
+      return ok({
+        ok: true,
+        time: Date.now(),
+        email: {
+          // False when RESEND_API_KEY is missing, and also when EMAIL_FROM is
+          // unset: mail then goes from Resend's sandbox address, which only
+          // delivers to the API key owner. Offering "reset my password" that
+          // silently cannot arrive is worse than not offering it.
+          deliverable: emailDeliverable()
+        }
+      });
+    }
     if (parts[0] === "auth" && parts[1] === "signup" && method === "POST") return await signup(req);
     if (parts[0] === "auth" && parts[1] === "login" && method === "POST") return await login(req);
     // F098 — forgotten-password flow is necessarily unauthenticated.

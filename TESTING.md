@@ -68,4 +68,26 @@ fallback for it.
 | `SITE_URL` | Password reset, CORS | Reset emails refuse to send |
 | `RESEND_API_KEY` | Password reset, weekly digest | Those features report "not configured" |
 | `EMAIL_FROM` | Reaching anyone but yourself | Mail is sent from Resend's sandbox address, which only delivers to the API key owner |
+
+### Running without a custom domain
+
+Resend — like every reputable transactional provider — will not deliver to
+arbitrary recipients until you verify a domain you control, and a
+`*.netlify.app` subdomain cannot be verified because you don't hold its DNS.
+
+Without one, `EMAIL_FROM` has nothing valid to point at, so the two
+email-dependent features degrade rather than fail:
+
+- **Password reset (F098)** — the sign-in dialog asks `GET /api/health`,
+  sees `email.deliverable: false`, and replaces the "Forgot your password?"
+  link with a short explanation. A link that leads nowhere is worse than an
+  honest absence. `/api/auth/forgot` also refuses with a 503 naming the cause
+  rather than reporting a send that never happened.
+- **Weekly parent digest (F066)** — the scheduled function runs, finds mail
+  unconfigured, and records every recipient as skipped. Nothing in the UI
+  advertises it, so nothing is left promising something that can't arrive.
+
+Everything else — sync, study groups, the AI features, the public API,
+teacher accounts — is unaffected. A domain (roughly $10-12/year) is the only
+thing that turns those two back on.
 | `GEMINI_API_KEY` | The AI features | They report "not set up" rather than failing oddly |

@@ -76,16 +76,36 @@ App.views.settings = (function () {
           Neither tracks homework of its own.</span>
         </div>` : ""}
       </div>
-      ${!isSignup ? `<p class="mt-8"><button type="button" class="btn-link small" data-forgot>Forgot your password?</button></p>` : ""}
+      ${!isSignup ? `<p class="mt-8" data-forgot-slot><button type="button" class="btn-link small" data-forgot hidden>Forgot your password?</button></p>` : ""}
       <p class="hint mt-12">Your data is stored under your account so it follows you between devices.
         Sign out any time — the local copy stays on this device.</p>`,
       onMount(root) {
         const forgot = root.querySelector("[data-forgot]");
-        if (forgot) forgot.addEventListener("click", () => {
-          const email = root.querySelector('[name="email"]').value.trim();
-          UI.closeModal();
-          setTimeout(() => forgotPasswordForm(email), 60);
-        });
+        if (forgot) {
+          forgot.addEventListener("click", () => {
+            const email = root.querySelector('[name="email"]').value.trim();
+            UI.closeModal();
+            setTimeout(() => forgotPasswordForm(email), 60);
+          });
+
+          // Password reset needs outbound mail this deploy can actually
+          // deliver. Sending from a provider's shared sandbox address only
+          // reaches the account owner, so offering the link to everyone else
+          // is a promise the server can't keep — and a dead link is worse
+          // than an honest absence. Hidden until the server confirms.
+          App.sync.serverHealth().then((h) => {
+            const deliverable = !!(h && h.email && h.email.deliverable);
+            const slot = root.querySelector("[data-forgot-slot]");
+            if (!slot || !document.contains(slot)) return;
+            if (deliverable) {
+              forgot.hidden = false;
+            } else {
+              slot.innerHTML = `<span class="hint">Password reset by email isn't available on this
+                deployment. Your data lives on this device, so you can keep using Scholar signed out —
+                or sign up again with a different address.</span>`;
+            }
+          });
+        }
       },
       onSubmit(d, root) {
         // Returning undefined closes the modal immediately, so on a slow

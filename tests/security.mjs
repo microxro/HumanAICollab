@@ -277,5 +277,47 @@ console.log("\nsecurity: API responses are not readable cross-origin");
      r.res.headers.get("access-control-allow-origin"));
 }
 
+/* ------------------------------------------------- capability reporting -- */
+console.log("\nsecurity: the public health route reports capability, not configuration");
+{
+  stub.__reset();
+  const before = process.env.EMAIL_FROM;
+  const beforeKey = process.env.RESEND_API_KEY;
+
+  // No key at all.
+  delete process.env.RESEND_API_KEY;
+  delete process.env.EMAIL_FROM;
+  let h = await call("health");
+  ok("health is public", h.status === 200);
+  ok("email is not deliverable with no key", h.data.email.deliverable === false);
+
+  // A key but no verified sender — the case a deploy without a custom domain
+  // is in. Mail would go from the provider's sandbox address, which only
+  // reaches the account owner, so this must still read as undeliverable.
+  process.env.RESEND_API_KEY = "re_test_key_123456";
+  h = await call("health");
+  ok("a key alone is still not deliverable", h.data.email.deliverable === false,
+     JSON.stringify(h.data.email));
+
+  process.env.EMAIL_FROM = "noreply@scholar.example";
+  h = await call("health");
+  ok("deliverable once a real sender is set", h.data.email.deliverable === true);
+
+  ok("no configuration detail is exposed",
+     !JSON.stringify(h.data).includes("re_test_key") &&
+     !JSON.stringify(h.data).includes("noreply@scholar.example"),
+     JSON.stringify(h.data));
+
+  // And the reset endpoint refuses rather than pretending, in that state.
+  delete process.env.EMAIL_FROM;
+  const forgot = await call("auth/forgot", { method: "POST", body: { email: "someone@x.com" } });
+  ok("password reset refuses when mail can't reach anyone", forgot.status === 503, `${forgot.status}`);
+  ok("and the reason names EMAIL_FROM", /EMAIL_FROM/.test((forgot.data && forgot.data.error) || ""),
+     (forgot.data || {}).error);
+
+  if (before) process.env.EMAIL_FROM = before; else delete process.env.EMAIL_FROM;
+  if (beforeKey) process.env.RESEND_API_KEY = beforeKey; else delete process.env.RESEND_API_KEY;
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
