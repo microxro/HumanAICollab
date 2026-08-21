@@ -31,17 +31,29 @@ App.views.notes = (function () {
     });
   }
 
+  /**
+   * `nt` may be an existing note (has an id — edit mode), or a prefilled draft
+   * with no id (e.g. an AI transcription), which is still a *new* note. Keying
+   * off the id rather than mere truthiness keeps the draft from trying to
+   * update a record that was never saved.
+   */
   function form(nt) {
     const n = nt || {};
+    const editing = !!(nt && nt.id);
     UI.modal({
-      title: nt ? "Edit note" : "New note",
+      title: editing ? "Edit note" : "New note",
       size: "wide",
-      okLabel: nt ? "Save" : "Create note",
-      footer: nt ? `<button type="button" class="btn btn-danger left" data-del>Delete</button>
+      okLabel: editing ? "Save" : "Create note",
+      footer: editing ? `<button type="button" class="btn btn-danger left" data-del>Delete</button>
                     <button type="button" class="btn" data-pin>${n.pinned ? "Unpin" : "📌 Pin"}</button>
                     <button type="button" class="btn" data-close>Cancel</button>
                     <button type="submit" class="btn btn-primary">Save</button>` : undefined,
       body: `<div class="form-grid">
+        ${n._aiNotice ? `<div class="field full">
+          <div class="small" style="padding:10px 12px;border-radius:var(--radius-sm);background:var(--warn-bg);color:var(--warn)">
+            ⚠ ${U.esc(n._aiNotice)}
+          </div>
+        </div>` : ""}
         <div class="field full">
           <label>Title</label>
           <input class="input" name="title" required value="${U.esc(n.title || "")}" placeholder="e.g. Unit 4 study guide" />
@@ -104,8 +116,8 @@ App.views.notes = (function () {
           tags: d.tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean),
           updated: U.today()
         };
-        if (nt) { S.update("notes", nt.id, patch); UI.toast("Note saved", patch.title); }
-        else { S.insert("notes", Object.assign({ pinned: false }, patch)); UI.toast("Note created", patch.title, "ok"); }
+        if (editing) { S.update("notes", nt.id, patch); UI.toast("Note saved", patch.title); }
+        else { S.insert("notes", Object.assign({ pinned: false, created: U.today() }, patch)); UI.toast("Note created", patch.title, "ok"); }
       }
     });
   }
@@ -547,6 +559,75 @@ Ribosome: makes proteins
     });
   }
 
+  /**
+   * Photo → note. Like every other AI path in the app, the transcription
+   * lands in the normal note form for review; it's never saved straight from
+   * the model's output.
+   */
+  function photoNoteDialog() {
+    let busy = false;
+
+    UI.modal({
+      title: "Notes from a photo",
+      sub: "Handwritten, printed, a textbook page, or a whiteboard",
+      footer: `<button type="button" class="btn" data-close>Cancel</button>
+               <button type="button" class="btn btn-primary" data-go>Read it</button>`,
+      body: `<div class="field">
+          <label>Choose a photo</label>
+          <input class="input" type="file" accept="image/*" id="noteImg" />
+          <div class="tiny dim mt-4">It'll be transcribed into a note you can edit before saving.</div>
+        </div>
+        <div id="noteImgStatus" class="small mt-12"></div>`,
+      onMount(root) {
+        const status = root.querySelector("#noteImgStatus");
+        const btn = root.querySelector("[data-go]");
+
+        btn.addEventListener("click", async () => {
+          if (busy) return;
+          const file = root.querySelector("#noteImg").files[0];
+          if (!file) { status.innerHTML = `<span style="color:var(--warn)">Choose a photo first.</span>`; return; }
+
+          busy = true;
+          btn.disabled = true;
+          status.innerHTML = `<span class="dim">Reading the photo…</span>`;
+          try {
+            const r = await App.assistant.parseNoteImage(file);
+            UI.closeModal();
+            // Hand off to the real note form, pre-filled, so the student edits
+            // and saves through the exact path a hand-written note takes.
+            setTimeout(() => {
+              form({
+                title: r.title || "Notes",
+                body: r.body || "",
+                tags: Array.isArray(r.tags) ? r.tags : [],
+                classId: guessClassId(r.subject),
+                _aiNotice: r.clarify || (r.confidence === "low"
+                  ? "Some of that photo was hard to read — check it against the original."
+                  : "")
+              });
+              if (r.clarify) UI.toast("Check this bit", r.clarify, "warn");
+            }, 80);
+          } catch (e) {
+            status.innerHTML = `<span style="color:var(--danger)">${U.esc(e.message)}</span>`;
+            busy = false;
+            btn.disabled = false;
+          }
+        });
+      }
+    });
+  }
+
+  /** Best-effort match of an AI-guessed subject to one of the student's classes. */
+  function guessClassId(subject) {
+    if (!subject) return null;
+    const want = String(subject).toLowerCase();
+    const hit = S.termClasses().find((c) => {
+      const n = c.name.toLowerCase();
+      return n.includes(want) || want.includes(n.split(/\s+/)[0]);
+    });
+    return hit ? hit.id : null;
+  }
+
   function render() {
     const rows = visible();
     const tags = allTags();
@@ -563,6 +644,7 @@ Ribosome: makes proteins
           <button class="btn" data-formula-sheets>📐 Formula sheets</button>
           <button class="btn" data-vocab-lists>🔤 Vocabulary</button>
           <button class="btn" data-concept-maps>🕸 Concept maps</button>
+          <button class="btn" data-photo-note title="Photograph handwritten or printed notes and turn them into a note">📷 From a photo</button>
           <button class="btn btn-primary" data-new>+ New note</button>
         </div>
       </div>
@@ -607,6 +689,7 @@ Ribosome: makes proteins
 
   function mount(root) {
     U.on(root, "click", "[data-new]", () => form(null));
+    U.on(root, "click", "[data-photo-note]", () => photoNoteDialog());
     U.on(root, "click", "[data-note]", (_e, el) => reader(el.dataset.note));
     U.on(root, "click", "[data-tag]", (_e, el) => { tagFilter = el.dataset.tag; App.router.refresh(); });
     U.on(root, "click", "[data-review-notes]", () => reviewNotes());

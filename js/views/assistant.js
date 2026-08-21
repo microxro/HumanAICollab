@@ -19,7 +19,7 @@ App.views.assistant = (function () {
     "What classes do I have today?",
     "Do I have time to hang out with friends for a couple hours today?",
     "What's due this week?",
-    "How am I doing in my classes right now?"
+    "Add a chemistry test next Friday"
   ];
 
   function bubble(msg) {
@@ -40,7 +40,7 @@ App.views.assistant = (function () {
       <div class="page-head">
         <div>
           <h1>Assistant</h1>
-          <div class="sub">Ask about your own schedule, grades, and assignments — private to you.</div>
+          <div class="sub">Ask about your schedule, or tell it to add things — private to you, and it always confirms first.</div>
         </div>
         <div class="page-actions">
           ${hist.length ? `<button class="btn" data-clear-chat>Clear conversation</button>` : ""}
@@ -53,7 +53,7 @@ App.views.assistant = (function () {
             ${hist.length
               ? hist.map(bubble).join("")
               : UI.emptyState("assistant", "Ask me anything about your day",
-                  "I can only see your own schedule, assignments, and grades — nothing about anyone else.")}
+                  "I can see your own schedule, assignments, and grades — nothing about anyone else. I can add things too, and I'll always ask before saving.")}
             ${sending ? `<div class="chat-row chat-row-assistant"><div class="chat-bubble chat-bubble-assistant dim">Thinking…</div></div>` : ""}
           </div>
 
@@ -74,15 +74,66 @@ App.views.assistant = (function () {
     const q = String(text || "").trim();
     if (!q || sending) return;
     sending = true;
+    App.assistant.pushHistory("user", q);
     App.router.refresh();
     scrollToBottom();
-    // ask() records both the question and the answer (or a friendly error
-    // in the assistant's own voice) into history itself — nothing further
-    // to catch here.
-    await App.assistant.ask(q).catch(() => {});
-    sending = false;
-    App.router.refresh();
-    scrollToBottom();
+
+    try {
+      const res = await App.assistant.act(q);
+      const actions = Array.isArray(res.actions) ? res.actions : [];
+      App.assistant.pushHistory("assistant", res.answer || (actions.length ? "Here's what I can do:" : "…"));
+      sending = false;
+      App.router.refresh();
+      scrollToBottom();
+      // Nothing is written until the student confirms.
+      if (actions.length) confirmActions(actions);
+      return;
+    } catch (e) {
+      App.assistant.pushHistory("assistant", e.message);
+      sending = false;
+      App.router.refresh();
+      scrollToBottom();
+    }
+  }
+
+  /** Show proposed changes and only apply the ones still ticked on confirm. */
+  function confirmActions(actions) {
+    UI.modal({
+      title: actions.length === 1 ? "Make this change?" : `Make ${actions.length} changes?`,
+      sub: "Nothing is saved until you confirm.",
+      okLabel: "Do it",
+      body: `<div class="col gap-8">
+        ${actions.map((a, i) => `
+          <label class="row gap-8" style="align-items:flex-start;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+            <input type="checkbox" checked data-act="${i}" style="margin-top:3px" />
+            <span>
+              <span class="bold small">${U.esc(a.summary || a.title || a.kind)}</span>
+              ${a.due ? `<span class="tiny dim"> · due ${U.esc(a.due)}</span>` : ""}
+              ${a.className ? `<span class="tiny dim"> · ${U.esc(a.className)}</span>` : ""}
+            </span>
+          </label>`).join("")}
+      </div>`,
+      onSubmit(_d, root) {
+        const chosen = U.$$("[data-act]", root).filter((c) => c.checked).map((c) => actions[Number(c.dataset.act)]);
+        if (!chosen.length) return;
+        const done = [];
+        const failed = [];
+        chosen.forEach((a) => {
+          try { done.push(App.assistant.applyAction(a)); }
+          catch (e) { failed.push(e.message); }
+        });
+        if (done.length) {
+          App.assistant.pushHistory("assistant", "✅ " + done.join("\n✅ "));
+          UI.toast("Done", done[0], "ok");
+        }
+        if (failed.length) {
+          App.assistant.pushHistory("assistant", "⚠️ " + failed.join("\n⚠️ "));
+          UI.toast("Some changes didn't apply", failed[0], "warn");
+        }
+        App.router.refresh();
+        scrollToBottom();
+      }
+    });
   }
 
   function scrollToBottom() {

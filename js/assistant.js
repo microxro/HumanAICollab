@@ -95,6 +95,30 @@ App.assistant = (function () {
     return req("/parse-image", { imageBase64: base64, mimeType });
   }
 
+  /** Photo of handwritten/printed notes → { title, body (Markdown), tags, … }. */
+  async function parseNoteImage(file) {
+    const { base64, mimeType } = await fileToImagePayload(file);
+    return req("/parse-note-image", { imageBase64: base64, mimeType });
+  }
+
+  /**
+   * AI time estimate for one assignment. Sends the student's own historical
+   * estimate-vs-actual multiplier so the model can calibrate to how *this*
+   * person works, not a generic student.
+   */
+  async function estimateAssignment(a) {
+    const calibration = (() => {
+      const done = S.db.assignments.filter((x) => x.actualMinutes > 0 && x.estMinutes > 0);
+      if (done.length < 3) return null;
+      const ratio = U.sum(done, (x) => x.actualMinutes) / U.sum(done, (x) => x.estMinutes);
+      return { pastAssignments: done.length, actualVsEstimateRatio: Math.round(ratio * 100) / 100 };
+    })();
+    return req("/estimate", {
+      title: a.title, type: a.type, className: S.className(a.classId),
+      points: a.points, notes: a.notes, calibration
+    });
+  }
+
   /* --------------------------------------------------------- ask (Q&A) -- */
 
   const FREE_BLOCK_MIN_MINUTES = 20;
@@ -212,6 +236,95 @@ App.assistant = (function () {
     };
   }
 
+  /* -------------------------------------------------------- act (agentic) -- */
+
+  /**
+   * Send a message that might be a request to change something. Returns
+   * { answer, actions } — actions are PROPOSALS. Nothing is written until
+   * applyAction() is called, which the UI only does after the student
+   * confirms. Includes assignment ids in the context so "mark X done" can
+   * resolve to a real record rather than a fuzzy title match.
+   */
+  async function act(message) {
+    const context = buildContext();
+    context.assignmentIds = S.db.assignments
+      .filter((a) => a.status !== "done" && a.status !== "archived")
+      .slice(0, 100)
+      .map((a) => ({ id: a.id, title: a.title, class: S.className(a.classId), due: a.due }));
+    context.classNames = S.termClasses().map((c) => ({ id: c.id, name: c.name }));
+    return req("/act", { message, context });
+  }
+
+  function classIdByName(name) {
+    if (!name) return null;
+    const want = String(name).toLowerCase().trim();
+    const list = S.termClasses();
+    const exact = list.find((c) => c.name.toLowerCase() === want);
+    if (exact) return exact.id;
+    const partial = list.find((c) => c.name.toLowerCase().includes(want) || want.includes(c.name.toLowerCase()));
+    return partial ? partial.id : null;
+  }
+
+  /**
+   * Execute one confirmed action against the local store. Deliberately strict:
+   * an action referring to a record that no longer exists throws rather than
+   * silently doing nothing, so the UI can tell the student it didn't apply.
+   */
+  function applyAction(a) {
+    switch (a.kind) {
+      case "addAssignment": {
+        const classId = classIdByName(a.className) || (S.termClasses()[0] || {}).id || null;
+        const cls = classId ? S.cls(classId) : null;
+        const rec = S.insert("assignments", {
+          title: a.title || "Untitled", classId,
+          categoryId: cls && (cls.categories || [])[0] ? cls.categories[0].id : null,
+          due: a.due || U.today(), type: a.type || "Homework", priority: "med",
+          status: "todo", points: 100, earned: null, graded: false,
+          estMinutes: 45, actualMinutes: 0, subtasks: [], notes: "",
+          assigned: U.today(), termId: (S.currentTerm() || {}).id,
+          scheduledFor: null, scheduledMin: null, missing: false
+        });
+        return `Added “${rec.title}”`;
+      }
+      case "completeAssignment": {
+        const target = a.targetId ? S.byId("assignments", a.targetId) : null;
+        if (!target) throw new Error(`Couldn't find that assignment any more.`);
+        S.update("assignments", target.id, { status: "done" });
+        return `Marked “${target.title}” done`;
+      }
+      case "addActivity": {
+        const rec = S.insert("activities", {
+          name: a.title || "Untitled", type: a.type || "Club", role: "", advisorId: null,
+          location: "", start: a.start || "15:30", end: a.end || "17:00",
+          season: "", color: S.PALETTE[S.db.activities.length % S.PALETTE.length],
+          days: Array.isArray(a.days) && a.days.length ? a.days : ["Mon"],
+          startDate: "", endDate: "", hours: []
+        });
+        return `Added “${rec.name}”`;
+      }
+      case "addNote": {
+        const rec = S.insert("notes", {
+          title: a.title || "Untitled", body: a.body || "",
+          classId: classIdByName(a.className), tags: [], pinned: false,
+          created: U.today(), updated: U.today()
+        });
+        return `Added note “${rec.title}”`;
+      }
+      case "addEvent": {
+        // Events derive their colour from the linked class at render time
+        // (see scheduleFor in store.js), so there's no colour field to set.
+        const rec = S.insert("events", {
+          title: a.title || "Untitled", date: a.due || U.today(),
+          start: a.start || "", end: a.end || "", type: a.type || "Event",
+          location: "", classId: classIdByName(a.className), notes: ""
+        });
+        return `Added “${rec.title}”`;
+      }
+      default:
+        throw new Error(`Don't know how to do "${a.kind}".`);
+    }
+  }
+
   const HISTORY_KEY = "assistantChat";
   const MAX_HISTORY = 40;
 
@@ -242,5 +355,9 @@ App.assistant = (function () {
     }
   }
 
-  return { parseText, parseImage, ask, buildContext, history, clearHistory, checkHealth };
+  return {
+    parseText, parseImage, parseNoteImage, estimateAssignment,
+    ask, act, applyAction, buildContext,
+    history, pushHistory, clearHistory, checkHealth
+  };
 })();

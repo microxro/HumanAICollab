@@ -4,8 +4,12 @@
 
    Routes (all under /assistant, all anonymous — no Blobs, no auth, nothing
    stored server-side):
+     GET  /assistant/health        [?probe=1]              → key/model diagnostics
      POST /assistant/parse-text    { text }                → { entries, periods, summary, clarify }
      POST /assistant/parse-image   { imageBase64, mimeType} → { entries, periods, summary, clarify }
+     POST /assistant/parse-note-image { imageBase64, mimeType } → { title, body, tags, … }
+     POST /assistant/estimate      { title, type, … }      → { minutes, low, high, suggestedSteps }
+     POST /assistant/act           { message, context }    → { answer, actions[] }
      POST /assistant/ask           { question, context }   → { answer }
 
    The client builds `context` for /ask from its own local data before
@@ -140,6 +144,167 @@ school bell/period-times table, or both. Extract everything you can read.`;
   return ok(result);
 }
 
+/* ------------------------------------------------------- notes from a photo -- */
+
+const NOTE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    title: { type: "STRING", description: "A short, specific title for these notes." },
+    body: { type: "STRING", description: "The note content as Markdown. Preserve headings, bullet lists, numbering, and any term — definition pairs. Use $...$ style plain text for formulas if you can't render them." },
+    tags: { type: "ARRAY", items: { type: "STRING" }, description: "0-4 short lowercase topic tags." },
+    subject: { type: "STRING", description: "Best guess at the school subject, or empty string." },
+    confidence: { type: "STRING", enum: ["high", "medium", "low"] },
+    clarify: { type: "STRING", description: "A short note about anything unreadable. Empty string if all clear." }
+  },
+  required: ["title", "body", "tags", "subject", "confidence", "clarify"]
+};
+
+const NOTE_SYSTEM = `You transcribe a photo of a student's notes — handwritten, printed, a textbook
+page, or a whiteboard — into clean Markdown they can study from. Transcribe what's actually there;
+never invent content to fill a gap. Keep the original structure: headings stay headings, bullets
+stay bullets, "term — definition" lines keep that shape so they can become flashcards later. If a
+word or symbol is genuinely illegible, write [?] in place of it and mention it in clarify rather
+than guessing. If the page is mostly unreadable, say so in clarify and set confidence to low.`;
+
+async function parseNoteImage(req) {
+  requireConfigured();
+  const b = await body(req);
+  const imageBase64 = String(b.imageBase64 || "");
+  const mimeType = String(b.mimeType || "image/jpeg");
+  if (!imageBase64) return fail(400, "No image received.");
+  if (imageBase64.length > MAX_IMAGE_B64_LEN) return fail(413, "That image is too large — try a smaller photo.");
+  if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(mimeType)) return fail(400, "Unsupported image type.");
+
+  const result = await generateJSON({
+    system: NOTE_SYSTEM,
+    prompt: "Transcribe these notes into Markdown.",
+    responseSchema: NOTE_SCHEMA,
+    image: { base64: imageBase64, mimeType }
+  });
+  return ok(result);
+}
+
+/* ---------------------------------------------------------- time estimate -- */
+
+const ESTIMATE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    minutes: { type: "INTEGER", description: "Estimated focused working minutes for a typical student at this level." },
+    low: { type: "INTEGER", description: "Optimistic estimate in minutes." },
+    high: { type: "INTEGER", description: "Pessimistic estimate in minutes." },
+    reasoning: { type: "STRING", description: "One short sentence on what drove the estimate." },
+    suggestedSteps: {
+      type: "ARRAY",
+      description: "2-6 concrete steps to break the work into. Empty array for something genuinely atomic.",
+      items: {
+        type: "OBJECT",
+        properties: {
+          title: { type: "STRING" },
+          minutes: { type: "INTEGER" }
+        },
+        required: ["title", "minutes"]
+      }
+    }
+  },
+  required: ["minutes", "low", "high", "reasoning", "suggestedSteps"]
+};
+
+const ESTIMATE_SYSTEM = `You estimate how long a school assignment will realistically take one student
+of focused work, and suggest how to break it up. Be realistic, not optimistic — students
+consistently underestimate. Account for the assignment type (an essay needs planning, drafting and
+revision; a problem set is more linear), the stated point value, and how the student's own past
+estimates compared to reality if that's given. Keep suggestedSteps genuinely actionable, and make
+their minutes roughly add up to your estimate. If the description is too vague to judge, still give
+a sensible default for that assignment type and say so in reasoning.`;
+
+async function estimate(req) {
+  requireConfigured();
+  const b = await body(req);
+  const title = String(b.title || "").trim().slice(0, 300);
+  if (!title) return fail(400, "Give the assignment a title first.");
+  const detail = {
+    title,
+    type: String(b.type || "").slice(0, 60),
+    className: String(b.className || "").slice(0, 100),
+    points: Number(b.points) || null,
+    notes: String(b.notes || "").slice(0, 1000),
+    studentCalibration: b.calibration || null
+  };
+  const result = await generateJSON({
+    system: ESTIMATE_SYSTEM,
+    prompt: `Estimate this assignment:\n${JSON.stringify(detail, null, 2)}`,
+    responseSchema: ESTIMATE_SCHEMA
+  });
+  return ok(result);
+}
+
+/* -------------------------------------------------------- assistant actions -- */
+
+const ACTION_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    answer: { type: "STRING", description: "A short reply to show the student. If proposing actions, describe them in one sentence." },
+    actions: {
+      type: "ARRAY",
+      description: "Changes to propose. Empty array when the message is only a question.",
+      items: {
+        type: "OBJECT",
+        properties: {
+          kind: { type: "STRING", enum: ["addAssignment", "completeAssignment", "addActivity", "addNote", "addEvent"] },
+          title: { type: "STRING" },
+          className: { type: "STRING", description: "Class name to attach to, or empty string." },
+          due: { type: "STRING", description: "YYYY-MM-DD, or empty string." },
+          type: { type: "STRING", description: "Assignment type (Homework, Essay, Test...) or activity type. Empty string if not applicable." },
+          days: { type: "ARRAY", items: { type: "STRING", enum: DAY_ENUM }, description: "For addActivity only." },
+          start: { type: "STRING", description: "24-hour HH:MM, or empty string." },
+          end: { type: "STRING", description: "24-hour HH:MM, or empty string." },
+          body: { type: "STRING", description: "For addNote only." },
+          targetId: { type: "STRING", description: "For completeAssignment: the exact id from context. Empty string otherwise." },
+          summary: { type: "STRING", description: "One plain-language line describing this change, shown for confirmation." }
+        },
+        required: ["kind", "title", "className", "due", "type", "days", "start", "end", "body", "targetId", "summary"]
+      }
+    }
+  },
+  required: ["answer", "actions"]
+};
+
+const ACT_SYSTEM = `You are the private assistant built into Scholar, a school-tracker app, for one
+student. You only know the JSON context given for this one message.
+
+You can do two things: answer questions about that context, and propose changes to the student's
+own data. Scope is strictly their schedule, coursework, and how to use the app — decline anything
+else (essay writing, homework answers, general knowledge, chit-chat) in one short sentence.
+
+Propose actions ONLY when the student is clearly asking to record or change something ("add...",
+"I have a test Friday", "mark X done"). A question like "what's due?" gets an answer and an empty
+actions array. Never propose an action the student didn't ask for.
+
+For completeAssignment, targetId must be an exact id copied from the context — never invent one; if
+you can't find a confident match, ask which one instead of guessing. Dates are YYYY-MM-DD; resolve
+relative dates ("Friday", "next week") against today's date in the context. Match className to a
+real class name in the context when you can, otherwise leave it blank.
+
+Keep "answer" brief — a sentence or two. Every action needs a clear "summary", because the student
+sees it and confirms before anything is saved.`;
+
+async function act(req) {
+  requireConfigured();
+  const b = await body(req);
+  const message = String(b.message || "").trim().slice(0, 500);
+  if (!message) return fail(400, "Say something first.");
+  let context = b.context;
+  if (typeof context !== "string") context = JSON.stringify(context || {});
+  if (context.length > MAX_CONTEXT_LEN) context = context.slice(0, MAX_CONTEXT_LEN);
+
+  const result = await generateJSON({
+    system: ACT_SYSTEM,
+    prompt: `Context (JSON):\n${context}\n\nStudent says: ${message}`,
+    responseSchema: ACTION_SCHEMA
+  });
+  return ok(result);
+}
+
 const ASK_SYSTEM = `You are the private assistant built into Scholar, a school-tracker app, for one
 student. You only know what's in the JSON context you're given for this one message — no memory
 of anything else, no access to any other student's data, nothing stored between questions.
@@ -241,6 +406,9 @@ export default async (req) => {
     if (path === "health" && method === "GET") return await health(req);
     if (path === "parse-text" && method === "POST") return await parseText(req);
     if (path === "parse-image" && method === "POST") return await parseImage(req);
+    if (path === "parse-note-image" && method === "POST") return await parseNoteImage(req);
+    if (path === "estimate" && method === "POST") return await estimate(req);
+    if (path === "act" && method === "POST") return await act(req);
     if (path === "ask" && method === "POST") return await ask(req);
     return fail(404, "No such endpoint: " + method + " /" + path);
   } catch (e) {

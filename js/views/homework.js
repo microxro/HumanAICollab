@@ -129,7 +129,11 @@ App.views.homework = (function () {
         </div>
         <div class="field">
           <label>Est. minutes</label>
-          <input class="input" type="number" name="estMinutes" min="0" step="5" value="${a.estMinutes != null ? a.estMinutes : 45}" />
+          <div class="row gap-6">
+            <input class="input grow" type="number" name="estMinutes" min="0" step="5" value="${a.estMinutes != null ? a.estMinutes : 45}" />
+            <button type="button" class="btn btn-sm" data-ai-estimate title="Let AI estimate how long this will take">✦</button>
+          </div>
+          <div id="estHint" class="tiny dim mt-4"></div>
         </div>
         <div class="field">
           <label>Points possible</label>
@@ -181,6 +185,45 @@ App.views.homework = (function () {
           list.insertAdjacentHTML("beforeend", stRow({ id: U.uid("st"), text: "", done: false }));
           const inputs = U.$$("[data-st-text]", list);
           inputs[inputs.length - 1].focus();
+        });
+
+        // ✦ AI estimate — fills the minutes field and offers to turn the
+        // model's suggested breakdown into real checklist steps.
+        const estBtn = root.querySelector("[data-ai-estimate]");
+        if (estBtn) estBtn.addEventListener("click", async () => {
+          const hint = root.querySelector("#estHint");
+          const titleEl = root.querySelector('[name="title"]');
+          if (!titleEl.value.trim()) {
+            hint.innerHTML = `<span style="color:var(--warn)">Give it a title first.</span>`;
+            return;
+          }
+          estBtn.disabled = true;
+          hint.innerHTML = `<span class="dim">Estimating…</span>`;
+          try {
+            const r = await App.assistant.estimateAssignment({
+              title: titleEl.value.trim(),
+              type: root.querySelector('[name="type"]').value,
+              classId: clsSel.value,
+              points: Number(root.querySelector('[name="points"]').value) || null,
+              notes: (root.querySelector('[name="notes"]') || {}).value || ""
+            });
+            root.querySelector('[name="estMinutes"]').value = r.minutes;
+            const steps = Array.isArray(r.suggestedSteps) ? r.suggestedSteps : [];
+            hint.innerHTML = `${U.esc(r.reasoning || "")}
+              <span class="dim">(${r.low}–${r.high} min)</span>
+              ${steps.length ? ` · <button type="button" class="btn-link" data-use-steps>Add ${steps.length} steps</button>` : ""}`;
+            const useBtn = hint.querySelector("[data-use-steps]");
+            if (useBtn) useBtn.addEventListener("click", () => {
+              steps.forEach((s) => {
+                list.insertAdjacentHTML("beforeend",
+                  stRow({ id: U.uid("st"), text: `${s.title}${s.minutes ? ` (${s.minutes}m)` : ""}`, done: false }));
+              });
+              useBtn.replaceWith(document.createTextNode("steps added ✓"));
+            });
+          } catch (e) {
+            hint.innerHTML = `<span style="color:var(--danger)">${U.esc(e.message)}</span>`;
+          }
+          estBtn.disabled = false;
         });
         list.addEventListener("click", (e) => {
           const b = e.target.closest("[data-del-st]");
