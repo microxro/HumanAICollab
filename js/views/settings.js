@@ -84,14 +84,30 @@ App.views.settings = (function () {
           setTimeout(() => forgotPasswordForm(email), 60);
         });
       },
-      onSubmit(d) {
+      onSubmit(d, root) {
+        // Returning undefined closes the modal immediately, so on a slow
+        // connection the dialog vanished and nothing at all indicated that a
+        // request was running — for several seconds, with the button still
+        // live and re-clickable. Keep the modal open, show the work, and
+        // close only on success.
+        const btn = root.querySelector('[type="submit"]');
+        const label = btn ? btn.textContent : "";
+        if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); btn.textContent = isSignup ? "Creating account…" : "Signing in…"; }
+
         const p = isSignup
           ? App.sync.signUp(d.email, d.password, d.name, d.role)
           : App.sync.signIn(d.email, d.password);
+
         p.then((user) => {
+          UI.closeModal();
           UI.toast(isSignup ? "Account created" : "Signed in", user.email, "ok");
           App.router.refresh();
-        }).catch((e) => UI.toast(isSignup ? "Couldn't sign up" : "Couldn't sign in", e.message, "danger"));
+        }).catch((e) => {
+          if (btn) { btn.disabled = false; btn.removeAttribute("aria-busy"); btn.textContent = label; }
+          UI.toast(isSignup ? "Couldn't sign up" : "Couldn't sign in", e.message, "danger");
+        });
+
+        return false;   // keep the dialog open until we know the outcome
       }
     });
   }
@@ -338,6 +354,9 @@ App.views.settings = (function () {
           ${toggleRow("Dyslexia-friendly type", "Wider letter spacing and a clearer face", st.dyslexicFont, `data-pref="dyslexicFont"`)}
           ${toggleRow("True-black dark mode", "Pure black surfaces — saves battery on OLED screens (dark mode only)", st.trueBlack, `data-pref="trueBlack"`)}
           ${toggleRow("High contrast", "Stronger text, borders, and focus rings — for low vision or a bright outdoor screen", st.highContrast, `data-pref="highContrast"`)}
+          ${toggleRow("Single-key shortcuts",
+            "Press n for a new assignment, t for the theme, g then a letter to jump. Turn off if you use speech recognition — dictation can trigger these by accident.",
+            st.singleKeyShortcuts !== false, `data-pref="singleKeyShortcuts"`)}
           ${toggleRow("Hide GPA", "Show progress bars without the number, if grades cause anxiety", st.wellbeing.hideGPA, `data-pref-nested="wellbeing.hideGPA"`)}
         </div>
       </div>
@@ -1051,7 +1070,11 @@ App.views.settings = (function () {
       });
     });
     U.on(root, "click", "[data-sync-now]", () => {
-      App.sync.push(false).then(() => { UI.toast("Synced", "", "ok"); App.router.refresh(); });
+      App.sync.push(false).then((r) => {
+        if (r && r.ok) UI.toast("Synced", "Your data is up to date.", "ok");
+        else if (r && r.reason !== "conflict") UI.toast("Not synced", (r && r.message) || "", "danger");
+        App.router.refresh();
+      });
     });
     U.on(root, "change", "[data-autosync]", (_e, el) => {
       S.commit((db) => { db.account.autoSync = el.checked; });

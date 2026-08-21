@@ -195,6 +195,16 @@
 
 .input-sm { height: 30px; font-size: .79rem; padding: 0 9px; }
 
+/* iOS Safari zooms the whole page whenever a focused control's text is under
+   16px, and it does not zoom back out on blur — so every tap into a field
+   left the app zoomed in. The viewport meta deliberately allows user scaling
+   (removing that would be a worse accessibility failure), so the fix is to
+   meet the threshold on touch devices. Desktop keeps the denser scale. */
+@media (pointer: coarse) {
+  .input, .select, .textarea { font-size: 16px; }
+  .input-sm { font-size: 16px; height: 36px; }
+}
+
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
 .form-grid .full { grid-column: 1 / -1; }
 @media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
@@ -213,6 +223,23 @@
   cursor: pointer;
 }
 .check:checked { background: var(--brand-600); border-color: var(--brand-600); animation: checkPop .22s var(--ease); }
+
+/* Marking an assignment done is the single most-used control in the app and
+   it was a 17px box — well under the 44px touch minimum, and not covered by
+   the coarse-pointer block below, which only enlarged icon buttons and chips.
+   The box stays visually the same size; the *target* grows around it. */
+@media (pointer: coarse) {
+  .check {
+    width: 24px; height: 24px;
+    position: relative;
+  }
+  .check::before {
+    content: "";
+    position: absolute;
+    inset: -10px;                 /* 44px total hit area */
+  }
+  .check:checked::after { width: 6px; height: 11px; }
+}
 .check:checked::after {
   content: "";
   width: 4.5px; height: 8px;
@@ -333,7 +360,21 @@
 .table tbody tr:hover { background: var(--surface-2); }
 .table .right, .table th.right { text-align: right; }
 
-.table-wrap { overflow-x: auto; }
+/* `overflow-x: auto` computes overflow-y to auto as well, which makes this
+   wrapper the nearest scrollport — so `position: sticky` on the header row
+   was anchored to a container that never scrolls vertically, and the headers
+   scrolled away with the page. Capping the height makes the wrapper the real
+   vertical scroller, which is what the sticky header was written for; short
+   tables are unaffected. */
+.table-wrap { overflow: auto; max-height: 70vh; }
+.table-wrap:focus-visible { outline: 2px solid var(--brand-600); outline-offset: 2px; }
+.scroll-x:focus-visible, .week-wrap:focus-visible, .board:focus-visible, .tl:focus-visible {
+  outline: 2px solid var(--brand-600); outline-offset: 2px;
+}
+/* Printing must not clip a long table to one screenful. */
+@media print {
+  .table-wrap { overflow: visible; max-height: none; }
+}
 
 /* ----------------------------------------------------------- lists -- */
 
@@ -496,6 +537,19 @@
   z-index: 200;
   display: flex; flex-direction: column-reverse; gap: 9px;
   pointer-events: none;
+}
+
+/* On a phone the bottom 55px is the tab bar and the FAB sits just above it,
+   so a toast anchored at bottom:20px covered both — including the Undo action
+   in a delete toast, which is exactly when you need to reach it. Lift clear of
+   them, and clear of the home indicator on a notched device. */
+@media (max-width: 860px) {
+  .toast-host {
+    bottom: calc(124px + env(safe-area-inset-bottom, 0px));
+    left: 12px; right: 12px;
+    align-items: stretch;
+  }
+  .toast { width: auto; max-width: none; }
 }
 .toast {
   display: flex; align-items: flex-start; gap: 10px;
@@ -867,4 +921,16 @@ th.sortable:hover { color: var(--text); }
   border-color: var(--danger);
   border-width: 2px;
   outline-color: var(--danger);
+}
+
+/* Elements the app treats as buttons but renders as div/span (calendar days,
+   note cards, class cards, assignment titles) are marked focusable by
+   UI.makeActivatable. They need the same visible focus ring as a real
+   button — a focusable element with no focus style is worse than one that
+   was never reachable, because now you can land on it and not know. */
+[data-activatable] { cursor: pointer; }
+[data-activatable]:focus-visible {
+  outline: 2px solid var(--brand-600);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
 }

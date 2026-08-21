@@ -242,8 +242,8 @@ App.sync = (function () {
    * conflict instead of being silently lost.
    */
   async function push(overwrite) {
-    if (!isSignedIn()) return;
-    if (state.inflight) return;
+    if (!isSignedIn()) return { ok: false, reason: "signed-out", message: "You're not signed in." };
+    if (state.inflight) return { ok: false, reason: "busy", message: "A sync is already running." };
     state.inflight = true;
     setStatus("syncing");
     try {
@@ -257,15 +257,27 @@ App.sync = (function () {
       S.db.account.lastSync = res.updatedAt;
       S.save();
       setStatus("idle");
+      return { ok: true, version: res.version };
     } catch (e) {
+      // push() used to swallow every failure and resolve anyway, so callers
+      // doing `.then(() => toast("Synced ✓"))` reported success while the
+      // badge beside them turned amber. Offline, you got a green tick for a
+      // sync that never happened. It resolves with an outcome now — no
+      // rejection, because a failed background push must not surface as an
+      // unhandled rejection, but callers can tell the difference.
+      let outcome;
       if (e.status === 409) {
         setStatus("conflict", "Another device saved changes.");
         handleConflict(e.data);
+        outcome = { ok: false, reason: "conflict", message: "Another device saved changes." };
       } else if (e.offline) {
         setStatus("error", "Offline — will retry.");
+        outcome = { ok: false, reason: "offline", message: "You're offline — changes are saved on this device and will sync later." };
       } else {
         setStatus("error", e.message);
+        outcome = { ok: false, reason: "error", message: e.message };
       }
+      return outcome;
     } finally {
       state.inflight = false;
     }

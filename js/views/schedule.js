@@ -27,6 +27,19 @@ App.views.schedule = (function () {
     const todayCycle = rotating ? S.cycleDayFor(U.today()) : null;
     const now = U.nowMin();
 
+    // With no bell schedule set up, `periods` is empty and the loop below
+    // produced a header row over nothing — a grid of day names and no grid.
+    // Say what's missing and link to the thing that fixes it.
+    if (!periods.length) {
+      return `<div class="center" style="padding:28px 16px">
+        ${UI.emptyState("todaySchedule", "No bell schedule yet",
+          "Add your school's periods and their times, and your classes will lay themselves out here for the week.")}
+        <div class="row center gap-8" style="margin-top:12px">
+          <button type="button" class="btn btn-primary" data-periods>Set up bell schedule</button>
+        </div>
+      </div>`;
+    }
+
     const cols = `70px repeat(${D.length}, minmax(0, 1fr))`;
     let html = `<div class="scroll-x"><div class="timetable" style="grid-template-columns:${cols}">`;
 

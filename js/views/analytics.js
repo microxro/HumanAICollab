@@ -77,6 +77,28 @@ App.views.analytics = (function () {
         .slice(0, 6);
     })();
 
+    // A fresh install has no classes and no assignments, and this view drew
+    // stat tiles reading "0% / 0m / —" over a table with headings and an
+    // entirely empty body — a page that looks broken rather than new.
+    if (!S.db.classes.length && !S.db.assignments.length && !S.db.studySessions.length) {
+      return `<div class="page-inner">
+        <div class="page-head">
+          <div>
+            <h1>${App.i18n.t("analytics", "Analytics")}</h1>
+            <div class="sub">Patterns across your grades, workload, and study time</div>
+          </div>
+        </div>
+        <div class="card"><div class="card-body">
+          ${UI.emptyState("noGrades", "Nothing to analyse yet",
+            "Analytics compares your grades, workload and study time over time. Add a class and a couple of assignments, and this fills in on its own.")}
+          <div class="row center gap-8" style="margin-top:12px">
+            <button type="button" class="btn btn-primary" data-go="classes">Add a class</button>
+            <button type="button" class="btn" data-go="homework">Add an assignment</button>
+          </div>
+        </div></div>
+      </div>`;
+    }
+
     return `<div class="page-inner">
       <div class="page-head">
         <div>

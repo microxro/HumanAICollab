@@ -360,8 +360,11 @@ App.views.focus = (function () {
     U.on(root, "click", "[data-settings]", settingsForm);
     U.on(root, "click", "[data-log]", logForm);
     U.on(root, "click", "[data-del-ss]", (_e, el) => {
-      S.remove("studySessions", el.dataset.delSs);
-      UI.toast("Session removed", "", "warn");
+      // Same as the other three: no undo path, so a mis-click lost a logged
+      // session permanently unless you knew about the trash in Settings.
+      const ss = S.byId("studySessions", el.dataset.delSs);
+      UI.deleteWithUndo("studySessions", el.dataset.delSs,
+        ss ? `${ss.minutes} min on ${U.fmtDate(ss.date)}` : "study session");
     });
     const sel = root.querySelector("#focusClass");
     if (sel) sel.addEventListener("change", (e) => { timer.classId = e.target.value || null; });

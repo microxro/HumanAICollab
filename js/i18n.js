@@ -106,6 +106,10 @@ App.i18n = (function () {
   function setLocale(code) {
     if (!DICT[code]) return;
     S.commit((db) => { db.settings.locale = code; });
+    // Stamp <html lang> straight away rather than waiting for the next
+    // applyShellPrefs; assistive tech reads it at the moment the page
+    // changes, not on the next preference save.
+    if (App.applyShellPrefs) App.applyShellPrefs();
   }
 
   // Locale-aware date/number formatting, used anywhere raw Intl calls happen.

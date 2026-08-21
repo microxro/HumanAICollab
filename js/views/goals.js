@@ -42,8 +42,9 @@ App.views.goals = (function () {
         const del = root.querySelector("[data-del]");
         if (del) del.addEventListener("click", () => {
           UI.closeModal();
-          S.remove("goals", gl.id);
-          UI.toast("Goal deleted", gl.title, "warn");
+          // Was a bare S.remove + plain toast, so there was no Undo action and
+          // Ctrl+Z did nothing — recovery meant knowing about Settings → trash.
+          UI.deleteWithUndo("goals", gl.id, gl.title);
         });
       },
       onSubmit(d) {
@@ -79,8 +80,7 @@ App.views.goals = (function () {
         const del = root.querySelector("[data-del]");
         if (del) del.addEventListener("click", () => {
           UI.closeModal();
-          S.remove("habits", hb.id);
-          UI.toast("Habit deleted", hb.name, "warn");
+          UI.deleteWithUndo("habits", hb.id, hb.name);
         });
       },
       onSubmit(d) {
@@ -463,7 +463,13 @@ App.views.goals = (function () {
     U.on(root, "click", "[data-new-habit]", () => habitForm(null));
     U.on(root, "click", "[data-edit-habit]", (e, el) => { e.stopPropagation(); habitForm(S.byId("habits", el.dataset.editHabit)); });
     U.on(root, "click", "[data-new-att]", attendanceForm);
-    U.on(root, "click", "[data-del-att]", (_e, el) => S.remove("attendance", el.dataset.delAtt));
+    // A single click used to delete an attendance record outright — no
+    // confirmation, no undo, no toast at all.
+    U.on(root, "click", "[data-del-att]", (_e, el) => {
+      const rec = S.byId("attendance", el.dataset.delAtt);
+      UI.deleteWithUndo("attendance", el.dataset.delAtt,
+        rec ? `${U.fmtDate(rec.date)} attendance` : "attendance record");
+    });
     U.on(root, "click", "[data-weekly-review]", weeklyReview);
     U.on(root, "click", "[data-mood-checkin]", moodCheckIn);
     U.on(root, "click", "[data-log-sleep]", sleepLogForm);

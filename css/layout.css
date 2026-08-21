@@ -344,6 +344,12 @@
   .pin-toggle { width: 44px; height: 44px; }
   .chip { min-height: 36px; padding: 8px 14px; }
   .habit-day { width: 36px; height: 36px; }
+  /* .btn-sm sets height:28px and loads after this file at equal specificity,
+     so `.icon-btn.btn-sm` — the row Edit/Delete pair, used around twenty
+     times — resolved to 44x28 and stayed under the minimum. This wins it
+     back on touch without affecting the desktop density. */
+  .icon-btn.btn-sm { width: 44px; height: 44px; }
+  .btn-sm { min-height: 40px; }
 }
 
 /* ------------------------------------------------------ mobile shell -- */

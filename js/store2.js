@@ -101,6 +101,7 @@
       delayed: { label: "Delayed start", shiftMin: 60 },
       exam: { label: "Exam schedule", shiftMin: 0 }
     });
+    need(s, "singleKeyShortcuts", true);  // WCAG 2.1.4 — switchable off
     need(s, "passingTimeMin", 5);   // F043
     need(s, "commute", { toMin: 20, fromMin: 20, lastBus: "" }); // F051
     // Nested defaults, in case an older payload has the parent but not the leaf.

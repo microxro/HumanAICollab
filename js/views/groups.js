@@ -900,11 +900,11 @@ App.views.groups = (function () {
     // F061 tutoring
     U.on(root, "click", "[data-add-tutoring]", (_e, el) => tutoringForm(el.dataset.addTutoring));
     U.on(root, "click", "[data-tutor-respond]", (_e, el) => {
-      App.sync.respondTutoring(openGroup.id, el.dataset.tutorRespond)
+      UI.busy(el, App.sync.respondTutoring(openGroup.id, el.dataset.tutorRespond))
         .then(after("Replied", "They'll see your name on the post.", "ok")).catch(oops);
     });
     U.on(root, "click", "[data-tutor-del]", (_e, el) => {
-      App.sync.removeTutoring(openGroup.id, el.dataset.tutorDel)
+      UI.busy(el, App.sync.removeTutoring(openGroup.id, el.dataset.tutorDel))
         .then(after("Removed", "", "warn")).catch(oops);
     });
 
@@ -965,7 +965,8 @@ App.views.groups = (function () {
       const input = root.querySelector(`[data-comment-input="${id}"]`);
       const text = input ? input.value.trim() : "";
       if (!text) return;
-      App.sync.commentFeed(openGroup.id, id, text)
+      // Double-clicking Send used to post the comment twice.
+      UI.busy(el, App.sync.commentFeed(openGroup.id, id, text))
         .then(() => openDetail(openGroup.id))
         .catch((e) => UI.toast("Couldn't post comment", e.message, "danger"));
     });

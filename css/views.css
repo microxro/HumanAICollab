@@ -178,10 +178,33 @@
 }
 .cal-pill.more { background: transparent; color: var(--text-3); font-weight: 600; padding-left: 2px; }
 
+/* On a phone the month grid used to set `font-size: 0` on every event pill
+   and hide the "+N more" affordance — so a day's events became 5px coloured
+   bars. That makes colour the only carrier of meaning, puts the text out of
+   reach of a screen reader, leaves a 5px touch target, and hides the fact
+   that more events exist. Keep the text, just make it small and clipped. */
 @media (max-width: 720px) {
-  .cal-day { min-height: 68px; }
-  .cal-pill { font-size: 0; padding: 0; height: 5px; border-radius: 3px; margin-bottom: 1px; }
-  .cal-pill.more { display: none; }
+  .cal-day { min-height: 76px; }
+  .cal-pill {
+    font-size: .58rem;
+    line-height: 1.5;
+    padding: 0 3px;
+    min-height: 14px;
+    border-radius: 3px;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cal-pill.more { display: block; font-weight: 700; }
+}
+
+/* Narrower still: there genuinely isn't room for labels, so fall back to
+   bars — but keep them tall enough to tap and to see, and keep "+N more"
+   visible so the day is known to hold something. */
+@media (max-width: 400px) {
+  .cal-pill { font-size: 0; padding: 0; height: 8px; min-height: 8px; }
+  .cal-pill.more { font-size: .58rem; height: auto; padding: 0 3px; }
 }
 
 /* agenda */
@@ -541,6 +564,17 @@
      are for screen only, and the class colors need to survive printing. */
   .print-sheet { border: none; box-shadow: none; }
   .print-sheet .scroll-x { overflow: visible; }
+  /* The print rules reset .page, but html, body and .shell are all
+     height:100% with .main overflow:hidden, so the printed output was
+     clipped to one viewport-height page — a 40-assignment list printed as
+     one page and the rest was simply unreachable. */
+  html, body, .shell, .main, .page {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .scroll-x, .week-wrap, .board, .tl { overflow: visible !important; }
   .timetable { min-width: 0 !important; }
   .tt-cell, .cal-day[data-load], .cal-pill {
     print-color-adjust: exact;

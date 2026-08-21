@@ -214,6 +214,10 @@
     // write the label/field pair ~230 times without a `for`, which makes the
     // label decorative text rather than a label.
     UI.associateLabels(root);
+    // Calendar days, note cards, class cards and assignment titles are click
+    // targets rendered as <div>/<span>; this makes them focusable and gives
+    // them button semantics. See UI.makeActivatable.
+    UI.makeActivatable(root);
 
     renderNav();
     paintSyncBadge();
@@ -304,6 +308,12 @@
     if (S.settings.dyslexicFont) html.setAttribute("data-dyslexic", "1"); else html.removeAttribute("data-dyslexic");
     if (S.settings.trueBlack) html.setAttribute("data-trueblack", "1"); else html.removeAttribute("data-trueblack");
     if (S.settings.highContrast) html.setAttribute("data-contrast", "high"); else html.removeAttribute("data-contrast"); // U12
+    // F099 — the document language. index.html hardcodes lang="en" and
+    // setLocale() only wrote the setting, so switching to 中文 left the page
+    // declared as English: a screen reader kept reading Chinese nav labels
+    // with an English voice, and axe reports the mismatch.
+    const locale = S.settings.locale || "en";
+    if (html.getAttribute("lang") !== locale) html.setAttribute("lang", locale);
     const ico = document.getElementById("collapseIco");
     if (ico) ico.textContent = S.settings.sidebarCollapsed ? "⇥" : "⇤";
   };
@@ -533,6 +543,16 @@
     if (!typing && view && view.onKey && view.onKey(e)) { e.preventDefault(); return; }
 
     if (typing || palette || document.querySelector(".modal-root")) return;
+
+    // WCAG 2.1.4 (Character Key Shortcuts): a single-character shortcut with
+    // no modifier must be switchable off, remappable, or active only on
+    // focus. Speech-recognition users trigger these constantly — saying "new"
+    // near a focused button opened the assignment dialog. Off is a real
+    // setting now, in Settings → Preferences.
+    if (S.settings.singleKeyShortcuts === false) return;
+
+    // A modifier means the user meant a browser or OS shortcut, not ours.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
 
     const k = e.key.toLowerCase();
 
@@ -841,6 +861,8 @@
   }
 
   function boot() {
+    // Enter/Space on the elements makeActivatable() marks. Bound once.
+    UI.bindActivationKeys();
     App.applyTheme();
     App.applyShellPrefs();
     S.touchStreak();
@@ -886,7 +908,14 @@
     });
     document.getElementById("profileChip").addEventListener("click", () => router.go("settings"));
     document.getElementById("syncBtn").addEventListener("click", () => {
-      if (App.sync.isSignedIn()) App.sync.push(false).then(() => UI.toast("Synced", "", "ok"));
+      if (App.sync.isSignedIn()) {
+        App.sync.push(false).then((r) => {
+          if (r && r.ok) UI.toast("Synced", "Your data is up to date.", "ok");
+          else if (r && r.reason !== "conflict") UI.toast("Not synced", (r && r.message) || "", "danger");
+          // A conflict opens its own dialog; a toast on top of it would just
+          // be noise.
+        });
+      }
       else router.go("settings");
     });
 

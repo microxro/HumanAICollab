@@ -181,6 +181,7 @@ App.ui = (function () {
     if (!root || !root.querySelectorAll) return;
     U.$$("label", root).forEach((label) => {
       if (label.hasAttribute("for")) return;
+      if (label.hasAttribute("data-group-label")) return;
       if (label.querySelector(LABELABLE)) return;      // implicit association
 
       const field = label.closest(".field") || label.parentNode;
@@ -190,10 +191,24 @@ App.ui = (function () {
       const controls = [...field.querySelectorAll(LABELABLE)];
       const target = controls.find((el) =>
         label.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
-      if (!target) return;
 
-      if (!target.id) target.id = U.uid("f");
-      label.setAttribute("for", target.id);
+      if (target) {
+        if (!target.id) target.id = U.uid("f");
+        label.setAttribute("for", target.id);
+        return;
+      }
+
+      // No single control to point at. Some fields are a *set* of controls —
+      // the day chips, the colour swatches — backed by a hidden input that
+      // holds the value. `for` is the wrong mechanism there: the label names
+      // the group, so mark the group and name it.
+      const group = field.querySelector(".swatches, .row, .chips, .daypicker");
+      if (!group) return;
+      if (!label.id) label.id = U.uid("lbl");
+      if (!group.hasAttribute("role")) group.setAttribute("role", "group");
+      if (!group.hasAttribute("aria-labelledby")) group.setAttribute("aria-labelledby", label.id);
+      // Marked so the sweep above doesn't keep reconsidering it.
+      label.setAttribute("data-group-label", "");
     });
 
     // A control with neither a label nor an accessible name still needs one;
@@ -206,6 +221,105 @@ App.ui = (function () {
       const ph = el.getAttribute("placeholder");
       if (ph) el.setAttribute("aria-label", ph);
     });
+  }
+
+  /* -------------------------------------------------- keyboard activation -- */
+
+  /**
+   * Selectors for elements the app treats as buttons but renders as <div> or
+   * <span>. Each is a real click target with a delegated handler behind it:
+   * a calendar day, a note card, a class card, an assignment title.
+   */
+  const CLICK_TARGETS = [
+    ".cal-day[data-day]", "[data-note]", ".card-link", ".tt-cell[data-class]",
+    "[data-open]", "[data-open-hw]", "[data-suggest]", "[data-day-detail]"
+  ].join(", ");
+
+  const NATIVELY_FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]";
+
+  /**
+   * Makes those elements reachable and operable from a keyboard.
+   *
+   * Whole views were mouse-only: the calendar's 42-day grid could not be
+   * entered at all, and notes, class cards and assignment titles could not be
+   * opened without a pointer. Marking them here — rather than editing nine
+   * view files and hoping the next one remembers — keeps it true for markup
+   * that doesn't exist yet.
+   */
+  function makeActivatable(root) {
+    if (!root || !root.querySelectorAll) return;
+    U.$$(CLICK_TARGETS, root).forEach((el) => {
+      if (el.matches(NATIVELY_FOCUSABLE)) return;      // already operable
+      if (el.hasAttribute("data-activatable")) return;
+
+      // A row that already contains its own controls — a done checkbox, Edit
+      // and Delete buttons — must not also become a button itself. That is
+      // the nested-interactive violation, and it makes the row a confusing
+      // extra tab stop that swallows Space from the checkbox inside it. The
+      // inner controls are the correct affordance; leave the row alone.
+      if (el.querySelector(NATIVELY_FOCUSABLE)) return;
+
+      el.setAttribute("data-activatable", "");
+      el.setAttribute("tabindex", "0");
+      if (!el.hasAttribute("role")) el.setAttribute("role", "button");
+    });
+
+    // A region that scrolls but can't be focused is unreachable without a
+    // pointer: the timetable is 620px wide inside a narrower column, so a
+    // keyboard user simply could not see Thursday or Friday. axe calls this
+    // scrollable-region-focusable. Only mark regions that actually overflow,
+    // so the tab order doesn't fill up with stops that do nothing.
+    U.$$(".table-wrap, .scroll-x, .week-wrap, .board, .tl", root).forEach((el) => {
+      if (el.hasAttribute("tabindex")) return;
+      if (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight) return;
+      el.setAttribute("tabindex", "0");
+      if (!el.hasAttribute("role")) el.setAttribute("role", "region");
+      if (!el.hasAttribute("aria-label")) el.setAttribute("aria-label", "Scrollable content");
+    });
+  }
+
+  /**
+   * Enter and Space activate a marked element, matching a real button.
+   * Bound once at the document, so it covers views and modals alike.
+   */
+  function bindActivationKeys() {
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+      const el = e.target.closest && e.target.closest("[data-activatable]");
+      if (!el) return;
+      // Don't hijack typing inside a control that happens to sit within one.
+      if (e.target.matches && e.target.matches("input, textarea, select")) return;
+      e.preventDefault();
+      el.click();
+    });
+  }
+
+  /* ------------------------------------------------------ in-flight guard -- */
+
+  /**
+   * Marks `el` busy for the life of `promise`, and swallows further clicks
+   * while it runs.
+   *
+   * Several actions fire a network write straight from a click with nothing
+   * disabling the control, so a double-click posted twice — two identical
+   * feed items, two shared notes, two comments. Returns the promise so
+   * callers keep chaining.
+   */
+  function busy(el, promise) {
+    if (!el || !promise || typeof promise.then !== "function") return promise;
+    if (el.dataset.busy === "1") return promise;
+    el.dataset.busy = "1";
+    el.setAttribute("aria-busy", "true");
+    if ("disabled" in el) el.disabled = true;
+    const done = () => {
+      delete el.dataset.busy;
+      el.removeAttribute("aria-busy");
+      if ("disabled" in el) el.disabled = false;
+    };
+    return promise.then(
+      (v) => { done(); return v; },
+      (e) => { done(); throw e; }
+    );
   }
 
   /* ------------------------------------------------- field-level errors -- */
@@ -355,10 +469,12 @@ App.ui = (function () {
     if (first) setTimeout(() => first.focus(), 40);
 
     associateLabels(root);
+    makeActivatable(root);
     if (opts.onMount) opts.onMount(root);
     // onMount often injects more markup (repeating rows, editors), so run
     // once more over whatever it added.
     associateLabels(root);
+    makeActivatable(root);
     return root;
   }
 
@@ -569,9 +685,13 @@ App.ui = (function () {
   function emptyState(kind, title, sub, action) {
     const def = EMPTY_STATE_ICONS[kind];
     const drawn = App.store.db.settings.emptyStateStyle === "drawn";
+    // An unknown key used to render its own text at icon size — 2.6rem of
+    // muted grey that reads as a mistake and fails contrast. Fall back to a
+    // neutral glyph instead, and say which key was wrong in the console.
+    if (!def) console.warn("[ui] emptyState: unknown icon key", kind);
     const iconHtml = def
       ? (drawn ? ICON_SVG[def.svg] : def.emoji)
-      : U.esc(kind);
+      : "📭";
     return `<div class="empty">
       <div class="e-ico${def && drawn ? " e-ico-drawn" : ""}">${iconHtml}</div>
       <div class="e-title">${U.esc(title)}</div>
@@ -762,7 +882,7 @@ App.ui = (function () {
 
   return {
     toast, deleteWithUndo, pushUndo, popUndo, modal, closeModal, confirm, confirmTyped, prompt,
-    associateLabels,
+    associateLabels, makeActivatable, bindActivationKeys, busy,
     avatar, emptyState, classOptions, teacherOptions,
     colorPicker, bindSwatches, dayPicker, bindDays,
     gradePill, priorityBadge, dueBadge, menu, helpHint
