@@ -12,6 +12,9 @@ App.store = (function () {
   const U = App.utils;
   const KEY = "scholar.db.v2";
   const LEGACY_KEY = "scholar.db.v1";
+  // Unreadable payloads are moved here rather than thrown away, keyed by the
+  // timestamp of the failure.
+  const CORRUPT_KEY = "scholar.db.corrupt";
   const SCHEMA = 2;
 
   /* Categorical palette — validated for colorblind separation and contrast in
@@ -458,17 +461,69 @@ App.store = (function () {
         }
       }
     } catch (e) {
-      console.warn("[scholar] could not read saved data — reseeding.", e);
+      // Never discard a payload we merely failed to read. This used to fall
+      // straight through to seed(), so one unreadable byte — a truncated
+      // write, a hand-edited import — silently erased every record with
+      // nothing but a console warning. Set it aside instead, so it can be
+      // recovered from Settings or handed back for repair.
+      console.error("[scholar] saved data is unreadable — quarantining it rather than deleting it.", e);
+      try {
+        const raw = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
+        if (raw) {
+          localStorage.setItem(CORRUPT_KEY + "." + Date.now(), raw);
+          localStorage.removeItem(KEY);
+        }
+      } catch (e2) {
+        console.error("[scholar] couldn't quarantine the unreadable data", e2);
+      }
     }
     return seed();
   }
 
+  /** Quarantined payloads, newest first: [{ key, at, bytes }] */
+  function corruptBackups() {
+    const out = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k.indexOf(CORRUPT_KEY + ".") !== 0) continue;
+        const at = Number(k.slice(CORRUPT_KEY.length + 1)) || 0;
+        out.push({ key: k, at, bytes: (localStorage.getItem(k) || "").length });
+      }
+    } catch (e) { /* storage unavailable */ }
+    return out.sort((a, b) => b.at - a.at);
+  }
+
+  function readCorruptBackup(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+
+  function discardCorruptBackup(key) {
+    try { localStorage.removeItem(key); } catch (e) { /* already gone */ }
+  }
+
+  // True while we're already handling a failed save. The quota path used to
+  // be: save() throws -> toast() -> logNotification() -> save() -> throws
+  // again, forever, flooding the DOM with toasts until the stack blew. The
+  // catch existed but the failure wasn't survivable.
+  let saveFailing = false;
+
   function save() {
     try {
       localStorage.setItem(KEY, JSON.stringify(db));
+      saveFailing = false;
     } catch (e) {
-      console.warn("[scholar] save failed (storage full?)", e);
-      if (App.ui) App.ui.toast("Couldn't save", "Local storage is full — export a backup and clear old data.", "danger");
+      if (saveFailing) return;          // re-entered from the notice below
+      saveFailing = true;
+      console.error("[scholar] save failed (storage full?)", e);
+      try {
+        if (App.ui) {
+          App.ui.toast("Couldn't save",
+            "This device's storage is full. Export a backup from Settings → Data, then clear old data.", "danger");
+        }
+      } finally {
+        saveFailing = false;
+      }
     }
   }
 
@@ -723,7 +778,31 @@ App.store = (function () {
     return db.assignments.filter((a) => a.missing || (a.graded && a.earned === 0 && a.points > 0));
   }
 
-  function assignmentsFor(classId) { return db.assignments.filter((a) => a.classId === classId); }
+  /**
+   * Active "what if this assignment were scored differently" overrides, as
+   * { assignmentId: { earned, graded, ... } }. Only ever set for the duration
+   * of a withGradeOverride() call.
+   *
+   * This exists so callers can ask what a grade *would* be without writing to
+   * the store. The missing-work list used to do exactly that by assigning
+   * `a.earned = a.points` on the live record and putting it back two lines
+   * later — during a render, with no commit — so any throw in between left an
+   * assignment permanently at full marks.
+   */
+  let gradeOverrides = null;
+
+  function withGradeOverride(overrides, fn) {
+    const prev = gradeOverrides;
+    gradeOverrides = overrides || null;
+    try { return fn(); } finally { gradeOverrides = prev; }
+  }
+
+  function assignmentsFor(classId) {
+    const rows = db.assignments.filter((a) => a.classId === classId);
+    if (!gradeOverrides) return rows;
+    // Copies, so nothing here can write back to a stored record.
+    return rows.map((a) => (gradeOverrides[a.id] ? { ...a, ...gradeOverrides[a.id] } : a));
+  }
 
   function progressOf(a) {
     if (a.status === "done") return 1;
@@ -1109,11 +1188,13 @@ App.store = (function () {
     get profile() { return db.profile; },
     get account() { return db.account; },
     commit, subscribe, save, replaceAll,
+    corruptBackups, readCorruptBackup, discardCorruptBackup,
     all, byId, insert, update, remove, restore, purgeTrash,
     cls, teacher, period, classColor, className, currentTerm, termClasses,
     cycleDayFor, isSchoolDay, isHoliday, classesOnDate, classesOn, activitiesOn,
     scheduleFor, liveStatus,
     openAssignments, dueSoon, overdue, missingWork, assignmentsFor, progressOf, adjustedEstimate,
+    withGradeOverride,
     classGrade, categoryBreakdown, neededOnRemaining, simulateAll,
     gpa, gpaBoostFor, cumulativeGpa, gradeTrend, gradeForecast,
     studyByDay, studyThisWeek, serviceHours, attendanceRate,

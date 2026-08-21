@@ -183,6 +183,10 @@
       e.preventDefault();
       router.go(el.dataset.go);
     });
+    // Behaviours that used to be inline `onclick` attributes. Moving them here
+    // is what lets the CSP forbid inline script entirely.
+    U.on(root, "click", "[data-select-all]", (_e, el) => el.select && el.select());
+    U.on(root, "click", "[data-stop-propagation]", (e) => e.stopPropagation());
     U.on(root, "click", "[data-new-hw]", () => App.views.homework.form(null));
     U.on(root, "click", "[data-open-hw]", (_e, el) => App.views.homework.detail(el.dataset.openHw));
     U.on(root, "change", "[data-toggle-hw]", (e, el) => {

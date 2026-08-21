@@ -174,6 +174,44 @@ App.utils = (function () {
       .replace(/'/g, "&#39;");
   }
 
+  /**
+   * A URL that is safe to put in an href.
+   *
+   * `esc()` neutralises quote-breakout but says nothing about the scheme, so
+   * an attacker-supplied `javascript:` survived it intact. Anything outside
+   * the allow-list collapses to "#".
+   */
+  function safeUrl(url) {
+    const u = String(url == null ? "" : url).trim();
+    if (!u) return "#";
+    // Strip control characters first: "java\tscript:" is parsed as a scheme
+    // by browsers but wouldn't match the pattern below.
+    const clean = u.replace(/[\u0000-\u001f\u007f]/g, "");
+    return /^(https?:\/\/|mailto:|tel:|#|\/)/i.test(clean) ? clean : "#";
+  }
+
+  /** Conservative email shape, used to decide whether a mailto: is buildable. */
+  function isEmail(v) {
+    return /^[^\s@<>"'`]+@[^\s@<>"'`]+\.[^\s@<>"'`]{2,}$/.test(String(v == null ? "" : v).trim());
+  }
+
+  /**
+   * A `mailto:` href built from untrusted parts, ready to interpolate.
+   *
+   * The address used to be dropped in raw — `mailto:${t.email}` — while the
+   * subject and body around it were encoded, so a contact saved with an email
+   * of `a@b.c"><img src=x onerror=…>` broke out of the attribute and executed
+   * on every visit to that screen. Returns "#" when there's nothing sendable.
+   */
+  function mailtoHref(email, subject, body) {
+    if (!isEmail(email)) return "#";
+    const q = [];
+    if (subject) q.push("subject=" + encodeURIComponent(subject));
+    if (body) q.push("body=" + encodeURIComponent(body));
+    return esc("mailto:" + encodeURIComponent(String(email).trim()).replace(/%40/g, "@") +
+      (q.length ? "?" + q.join("&") : ""));
+  }
+
   function plural(n, one, many) {
     return `${n} ${n === 1 ? one : many || one + "s"}`;
   }
@@ -381,7 +419,7 @@ App.utils = (function () {
     DOW_SHORT, DOW_LONG, MONTHS, MONTHS_SHORT, LETTER_TABLE,
     uid, parseDate, dateKey, today, addDays, startOfWeek, diffDays, dowName,
     fmtDate, relDate, toMin, fromMin, nowMin, fmtTime, fmtDur, clock, convertWallTime,
-    initials, esc, plural, titleCase,
+    initials, esc, safeUrl, isEmail, mailtoHref, plural, titleCase,
     clamp, round, sum, avg, groupBy, sortBy,
     $, $$, on, contrastText, hexAlpha, debounce, download,
     pctToLetter, pctToGpa, gradeClass, skeletonRows, skeletonCards,

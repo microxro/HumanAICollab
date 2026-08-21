@@ -136,7 +136,7 @@ App.views.activities = (function () {
           <div><div class="tiny dim">Time</div>${U.fmtTime(a.start)} – ${U.fmtTime(a.end)}</div>
           <div><div class="tiny dim">Where</div>${U.esc(a.location || "—")}</div>
           <div><div class="tiny dim">Advisor</div>
-            ${adv ? `${U.esc(adv.name)}<br><a class="tiny" href="mailto:${U.esc(adv.email)}">${U.esc(adv.email)}</a>` : "—"}</div>
+            ${adv ? `${U.esc(adv.name)}<br><a class="tiny" href="${U.mailtoHref(adv.email)}">${U.esc(adv.email)}</a>` : "—"}</div>
         </div>
 
         <h4 class="mb-8">Hour log</h4>

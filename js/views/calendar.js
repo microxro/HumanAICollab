@@ -114,13 +114,42 @@ App.views.calendar = (function () {
         else {
           const weeks = Number(d.repeat) || 0;
           if (weeks) {
-            let n = 0, iso = patch.date;
-            while (iso <= d.repeatUntil) {
-              S.insert("events", { ...patch, date: iso });
-              n++;
+            // Two failures lived here. With "Until" cleared, `iso <= ""` is
+            // false so the loop never ran and the toast cheerfully reported
+            // "0 occurrences" while creating nothing. With a far-future
+            // "Until", it ran thousands of times, each iteration a full
+            // JSON.stringify of the database plus a repaint — the tab hung
+            // for minutes and then hit the storage-quota path.
+            const until = String(d.repeatUntil || "").trim();
+            if (!until) {
+              UI.toast("Pick an end date", "A repeating event needs an \u201cUntil\u201d date.", "danger");
+              return false;
+            }
+            if (until < patch.date) {
+              UI.toast("Check the dates", "The end date is before the first occurrence.", "danger");
+              return false;
+            }
+
+            const MAX_OCCURRENCES = 200;
+            const dates = [];
+            let iso = patch.date;
+            while (iso <= until && dates.length < MAX_OCCURRENCES) {
+              dates.push(iso);
               iso = U.dateKey(U.addDays(U.parseDate(iso), weeks * 7));
             }
-            UI.toast("Recurring event added", `${n} occurrences through ${U.fmtDate(d.repeatUntil)}`, "ok");
+            const capped = iso <= until;
+
+            // One commit for the whole series rather than one per occurrence.
+            S.commit((db) => {
+              dates.forEach((date) => {
+                db.events.push({ ...patch, id: U.uid("ev"), date });
+              });
+            });
+            UI.toast("Recurring event added",
+              capped
+                ? `${dates.length} occurrences added (stopped at the ${MAX_OCCURRENCES} limit)`
+                : `${dates.length} occurrences through ${U.fmtDate(until)}`,
+              capped ? "warn" : "ok");
           } else {
             S.insert("events", patch);
             UI.toast("Event added", `${patch.title} · ${U.fmtDate(patch.date)}`, "ok");
@@ -591,7 +620,7 @@ App.views.calendar = (function () {
       footer: `<button type="button" class="btn" data-close>Done</button>
                <button type="button" class="btn btn-primary" data-copy>Copy link</button>`,
       body: `<div class="field">
-          <input class="input mono" readonly value="${U.esc(url)}" onclick="this.select()" />
+          <input class="input mono" readonly value="${U.esc(url)}" data-select-all />
         </div>
         <p class="hint mt-8">Google Calendar: "Other calendars" → "From URL". Apple Calendar: File →
           New Calendar Subscription. Outlook: Add calendar → Subscribe from web.</p>`,

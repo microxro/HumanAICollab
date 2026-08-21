@@ -10,6 +10,24 @@
    ========================================================================== */
 
 App.charts = (function () {
+  /**
+   * Points are carried through a DOM attribute, so a parse failure here used
+   * to throw out of the interaction binder and abort the whole mount() — the
+   * Grades column picker and sort handlers silently stopped working. Escaping
+   * only `'` was the cause: `&` and named entities were left alone, so an
+   * entity inside an assignment title was HTML-decoded by the parser and
+   * corrupted the JSON. Now fully escaped on write, and tolerant on read.
+   */
+  function parsePoints(raw) {
+    try {
+      const v = JSON.parse(raw || "[]");
+      return Array.isArray(v) ? v : [];
+    } catch (e) {
+      console.warn("[charts] unreadable data-points", e);
+      return [];
+    }
+  }
+
   const U = App.utils;
   const S = App.store;
 
@@ -104,7 +122,7 @@ App.charts = (function () {
       </g>
       <rect class="chart-brush-sel" x="0" y="${PAD.t}" width="0" height="${ih}" style="display:none" />
       <rect class="chart-capture" x="${PAD.l}" y="${PAD.t}" width="${iw}" height="${ih}" fill="transparent"
-            data-points='${JSON.stringify(ptData).replace(/'/g, "&#39;")}' data-unit="${U.esc(o.unit)}" />`;
+            data-points="${U.esc(JSON.stringify(ptData))}" data-unit="${U.esc(o.unit)}" />`;
 
     const caption = opts && opts.caption || "Trend chart";
     const table = altTable(caption, ["Date", "Value"], pts.map((p) => [p.title || U.fmtDate(p.date), U.round(p.pct, 1) + o.unit]));
@@ -150,7 +168,7 @@ App.charts = (function () {
       tip.style.display = "none";
       document.body.appendChild(tip);
 
-      const pts = JSON.parse(rect.dataset.points);
+      const pts = parsePoints(rect.dataset.points);
       const unit = rect.dataset.unit || "";
       let dragStartI = null;
 

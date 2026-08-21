@@ -15,7 +15,26 @@
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "SAMEORIGIN"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Permissions-Policy = "geolocation=(self), microphone=(), camera=()"
+    Permissions-Policy = "geolocation=(self), microphone=(), camera=(self)"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    Cross-Origin-Opener-Policy = "same-origin"
+    # Content-Security-Policy
+    #
+    # script-src has no 'unsafe-inline': every <script> in index.html uses
+    # src=, and the three former inline onclick handlers are now delegated
+    # listeners, so nothing needs it. That is the half of a CSP that actually
+    # stops injected script from running.
+    #
+    # style-src does allow 'unsafe-inline', because the views set colours via
+    # style="" attributes throughout (class colours, chart fills, progress
+    # widths). Removing that is a real refactor, not a header change, and
+    # inline *style* is a far smaller exposure than inline script.
+    #
+    # img-src allows data: and blob: for camera captures, IndexedDB-backed
+    # class covers and generated exports. connect-src is same-origin only —
+    # the Gemini and Resend calls happen server-side in Netlify Functions, so
+    # the browser never talks to a provider directly.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
 
 [[headers]]
   for = "/sw.js"

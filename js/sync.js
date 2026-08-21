@@ -296,7 +296,16 @@ App.sync = (function () {
   function queue() {
     if (!isSignedIn() || !S.db.account.autoSync) return;
     clearTimeout(state.timer);
-    state.timer = setTimeout(() => push(false), PUSH_DEBOUNCE_MS);
+    state.timer = setTimeout(() => {
+      // Clearing the handle is not bookkeeping — refresh() and info() both
+      // read `state.timer` as "a write is pending". It was never nulled after
+      // firing, so after the very first edit the 60s background pull and the
+      // pull-on-visibility were both disabled for the rest of the session:
+      // another device's changes never arrived, and the sync badge showed a
+      // permanently pending write that had already completed.
+      state.timer = null;
+      push(false);
+    }, PUSH_DEBOUNCE_MS);
   }
 
   /* ------------------------------------------------------------- links -- */

@@ -96,6 +96,19 @@ App.ui = (function () {
   // entirely, and keeps the back-button history from growing over a session.
   let modalMarked = false;
 
+  // Fired when the current modal goes away by any route the user controls —
+  // the ✕, a scrim click, Escape, or the browser Back button. confirm()
+  // depends on this: its cancel branch used to be wired only to a click, so
+  // pressing Escape on a sync-conflict dialog answered neither way and left
+  // sync stuck in "conflict" with the badge showing an error indefinitely.
+  let pendingDismiss = null;
+
+  function runDismiss() {
+    const fn = pendingDismiss;
+    pendingDismiss = null;
+    if (fn) { try { fn(); } catch (e) { console.error("[ui] modal onDismiss failed", e); } }
+  }
+
   // Tears down the current modal's DOM/listeners only — no focus restore.
   // Used internally when one modal replaces another mid-chain (edit -> confirm),
   // where restoring focus would be premature (a new modal is about to steal it).
@@ -110,6 +123,7 @@ App.ui = (function () {
   function closeModal() {
     if (!openModal) return;
     removeModalNode();
+    runDismiss();
     if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
     lastFocused = null;
     if (modalMarked) { modalMarked = false; history.replaceState(null, "", location.href); }
@@ -123,6 +137,7 @@ App.ui = (function () {
     if (!openModal || !modalMarked) return;
     modalMarked = false;
     removeModalNode();
+    runDismiss();
     if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
     lastFocused = null;
   });
@@ -160,7 +175,10 @@ App.ui = (function () {
       history.pushState({ scholarModal: true }, "", location.href);
       modalMarked = true;
     }
+    // Replacing one modal with another (edit -> confirm) is not a dismissal.
+    pendingDismiss = null;
     removeModalNode();
+    pendingDismiss = typeof opts.onDismiss === "function" ? opts.onDismiss : null;
 
     const root = document.createElement("div");
     root.className = "modal-root";
@@ -194,6 +212,13 @@ App.ui = (function () {
     openModal = root;
 
     root.addEventListener("click", (e) => {
+      // Modals render outside .view-root, so the delegated handlers bound in
+      // paint() never reach them. These two replace former inline onclick
+      // attributes, which the CSP no longer permits.
+      const sel = e.target.closest("[data-select-all]");
+      if (sel && sel.select) sel.select();
+      if (e.target.closest("[data-stop-propagation]")) e.stopPropagation();
+
       if (e.target === root || e.target.closest("[data-close]")) closeModal();
     });
     document.addEventListener("keydown", escClose);
@@ -221,6 +246,7 @@ App.ui = (function () {
   }
 
   function confirm(opts) {
+    let confirmed = false;
     return modal({
       title: opts.title || "Are you sure?",
       size: "narrow",
@@ -229,21 +255,16 @@ App.ui = (function () {
                <button type="button" class="btn ${opts.danger ? "btn-danger" : "btn-primary"}" data-ok>
                  ${U.esc(opts.okLabel || "Confirm")}
                </button>`,
+      // Cancel/dismiss is a real answer for either-or choices (sync
+      // conflicts), so it has to fire for *every* way out — ✕, scrim,
+      // Escape, Back — not just a click.
+      onDismiss() { if (!confirmed && opts.onCancel) opts.onCancel(); },
       onMount(root) {
-        let confirmed = false;
         root.querySelector("[data-ok]").addEventListener("click", () => {
           confirmed = true;
           closeModal();
           if (opts.onConfirm) opts.onConfirm();
         });
-        // Cancel/dismiss is a real answer for either-or choices (sync conflicts).
-        if (opts.onCancel) {
-          root.addEventListener("click", (e) => {
-            if (e.target === root || e.target.closest("[data-close]")) {
-              setTimeout(() => { if (!confirmed) opts.onCancel(); }, 0);
-            }
-          });
-        }
       }
     });
   }

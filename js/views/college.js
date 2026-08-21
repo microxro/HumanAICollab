@@ -98,7 +98,7 @@ App.views.college = (function () {
           </span>
           ${a.amount ? `<span class="badge ok">$${a.amount.toLocaleString()} award</span>` : ""}
           ${a.fee ? `<span class="badge">$${a.fee} fee</span>` : ""}
-          ${a.portal ? `<a class="badge brand" href="${U.esc(a.portal)}" target="_blank" rel="noopener">Open portal ↗</a>` : ""}
+          ${a.portal ? `<a class="badge brand" href="${U.esc(U.safeUrl(a.portal))}" target="_blank" rel="noopener">Open portal ↗</a>` : ""}
         </div>
 
         ${a.notes ? `<div class="card" style="background:var(--surface-2)"><div class="card-body">
@@ -170,8 +170,9 @@ App.views.college = (function () {
   // Pre-written recommendation request — the hardest email to start.
   function recMail(t, app) {
     const last = t.name.split(" ").slice(-1)[0];
-    const subject = encodeURIComponent(`Letter of recommendation request — ${S.profile.name}`);
-    const body = encodeURIComponent(
+    // Untrusted address — see U.mailtoHref. Subject and body are encoded there.
+    const subject = `Letter of recommendation request — ${S.profile.name}`;
+    const body =
 `Dear ${t.name},
 
 I'm applying to ${app.school} (deadline ${U.fmtDate(app.deadline, "full")}), and I was hoping you might be willing to write me a letter of recommendation.
@@ -182,8 +183,8 @@ Please let me know if you have the time, and thank you either way.
 
 Best,
 ${S.profile.name}
-${S.profile.grade || ""}${S.profile.school ? " · " + S.profile.school : ""}`);
-    return `mailto:${t.email}?subject=${subject}&body=${body}`;
+${S.profile.grade || ""}${S.profile.school ? " · " + S.profile.school : ""}`;
+    return U.mailtoHref(t.email, subject, body);
   }
 
   function essayForm(appId) {

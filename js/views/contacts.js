@@ -67,11 +67,15 @@ App.views.contacts = (function () {
   }
 
   // Pre-fills a subject line so emailing a teacher is one click.
+  // The address is untrusted stored text. It used to be interpolated raw
+  // while only the subject and body were encoded, so a contact saved with an
+  // email containing a quote broke out of the href attribute and executed on
+  // every visit to this screen.
   function mailto(t, cls) {
-    const subject = encodeURIComponent(
-      cls ? `${cls.name} — question from ${S.profile.name}` : `Question from ${S.profile.name}`);
-    const body = encodeURIComponent(`Hi ${t.name.split(" ").slice(-1)[0]},\n\n\n\nThank you,\n${S.profile.name}`);
-    return `mailto:${t.email}?subject=${subject}&body=${body}`;
+    const subject = cls ? `${cls.name} — question from ${S.profile.name}` : `Question from ${S.profile.name}`;
+    const lastName = String(t.name || "").split(" ").slice(-1)[0];
+    const body = `Hi ${lastName},\n\n\n\nThank you,\n${S.profile.name}`;
+    return U.mailtoHref(t.email, subject, body);
   }
 
   function detail(id) {
@@ -91,7 +95,7 @@ App.views.contacts = (function () {
         <div class="row gap-12 mb-16">
           ${UI.avatar(t.name, classes[0] ? classes[0].color : "#64748b", "xl")}
           <div>
-            ${t.email ? `<div class="small"><a href="mailto:${U.esc(t.email)}">${U.esc(t.email)}</a></div>` : ""}
+            ${t.email ? `<div class="small"><a href="${U.mailtoHref(t.email)}">${U.esc(t.email)}</a></div>` : ""}
             ${t.phone ? `<div class="small muted">${U.esc(t.phone)}</div>` : ""}
             ${t.office ? `<div class="tiny dim mt-4">🕐 ${U.esc(t.office)}</div>` : ""}
           </div>
@@ -218,9 +222,9 @@ App.views.contacts = (function () {
             </div>` : `<div class="tiny dim mb-12">No classes assigned</div>`}
             <div class="row gap-6">
               ${t.email ? `<a class="btn btn-sm btn-primary" href="${mailto(t, classes[0])}"
-                             onclick="event.stopPropagation()">✉ Email</a>` : ""}
+                             data-stop-propagation>✉ Email</a>` : ""}
               ${t.phone ? `<a class="btn btn-sm" href="tel:${U.esc(t.phone)}"
-                             onclick="event.stopPropagation()">📞 Call</a>` : ""}
+                             data-stop-propagation>📞 Call</a>` : ""}
             </div>
           </div>
         </div>`;

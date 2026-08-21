@@ -515,7 +515,7 @@ App.views.classes = (function () {
           <div>
             <div class="tiny dim">Teacher</div>
             <div class="bold small">${t ? U.esc(t.name) : "—"}</div>
-            ${t ? `<a class="tiny" href="mailto:${U.esc(t.email)}">${U.esc(t.email)}</a>` : ""}
+            ${t ? `<a class="tiny" href="${U.mailtoHref(t.email)}">${U.esc(t.email)}</a>` : ""}
           </div>
           <div class="vdiv"></div>
           <div>

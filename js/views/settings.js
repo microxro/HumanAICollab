@@ -1344,12 +1344,31 @@ App.views.settings = (function () {
 
     // F090 — retention controls
     U.on(root, "click", "[data-apply-retention]", () => {
-      const studyDays = Number(root.querySelector("#retStudy").value) || 365;
-      const usageDays = Number(root.querySelector("#retUsage").value) || 180;
-      const autoArchiveDays = Number(root.querySelector("#retArchive").value) || 30;
-      S.commit((db) => { db.settings.retention = { studyDays, usageDays, autoArchiveDays }; });
-      const purged = S.applyRetention();
-      UI.toast("Retention saved", purged ? `${purged} old record(s) purged` : "Nothing to purge yet", "ok");
+      // A negative value put the cutoff in the *future*, so "keep 1 day" typed
+      // as -1 permanently deleted every study session — and applyRetention
+      // bypasses the trash, so there was no undo. Clamp to a sane range.
+      const days = (sel, dflt) => {
+        const n = Number(root.querySelector(sel).value);
+        if (!Number.isFinite(n) || n <= 0) return dflt;
+        return Math.min(3650, Math.round(n));
+      };
+      const studyDays = days("#retStudy", 365);
+      const usageDays = days("#retUsage", 180);
+      const autoArchiveDays = days("#retArchive", 30);
+
+      UI.confirm({
+        title: "Purge old records?",
+        message: `Study sessions older than ${studyDays} days and usage data older than ${usageDays} days ` +
+                 "will be deleted permanently. This does not go to the trash and can't be undone.",
+        okLabel: "Save and purge",
+        danger: true,
+        onConfirm() {
+          S.commit((db) => { db.settings.retention = { studyDays, usageDays, autoArchiveDays }; });
+          const purged = S.applyRetention();
+          UI.toast("Retention saved", purged ? `${purged} old record(s) purged` : "Nothing to purge yet", "ok");
+          App.router.refresh();
+        }
+      });
     });
   }
 

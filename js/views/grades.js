@@ -694,12 +694,18 @@ App.views.grades = (function () {
               const t = c ? S.teacher(c.teacherId) : null;
               // How much the class average recovers if this gets made up.
               const before = S.classGrade(a.classId);
+              // Computed against a copy. This used to write `a.earned = a.points`
+              // on the live store record and restore it two lines later, during
+              // a render — so any throw in between (a null class, a NaN grade)
+              // left the assignment permanently scored full marks, with no
+              // commit() to make the corruption visible until some unrelated
+              // write flushed it to the server.
               const saved = (() => {
-                const orig = a.earned;
-                a.earned = a.points;
-                const after = S.classGrade(a.classId);
-                a.earned = orig;
-                return after != null && before != null ? after - before : 0;
+                if (before == null) return 0;
+                const after = S.withGradeOverride(
+                  { [a.id]: { earned: a.points, graded: true } },
+                  () => S.classGrade(a.classId));
+                return after != null ? after - before : 0;
               })();
               return `<div class="list-item">
                 <i class="dot-badge" style="background:${U.esc(c ? c.color : "#888")}"></i>
@@ -774,8 +780,9 @@ App.views.grades = (function () {
   // A ready-to-send note about a zero — the message students most avoid writing.
   function makeupMail(t, a, c) {
     const last = t.name.split(" ").slice(-1)[0];
-    const subject = encodeURIComponent(`Missing assignment — ${a.title}`);
-    const body = encodeURIComponent(
+    // Untrusted address — see U.mailtoHref.
+    const subject = `Missing assignment — ${a.title}`;
+    const body =
 `Hi ${t.name},
 
 I noticed I have a zero for "${a.title}" in ${c ? c.name : "your class"} (due ${U.fmtDate(a.due, "full")}).
@@ -783,8 +790,8 @@ I noticed I have a zero for "${a.title}" in ${c ? c.name : "your class"} (due ${
 I wanted to check whether it's still possible to turn it in or make it up, and what you'd like me to do.
 
 Thank you,
-${S.profile.name}`);
-    return `mailto:${t.email}?subject=${subject}&body=${body}`;
+${S.profile.name}`;
+    return U.mailtoHref(t.email, subject, body);
   }
 
   function mount(root) {
