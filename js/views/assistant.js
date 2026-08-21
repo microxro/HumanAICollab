@@ -35,6 +35,27 @@ App.views.assistant = (function () {
 
   function render() {
     const hist = App.assistant.history();
+    // The AI routes spend a shared provider quota, so they need an account.
+    // Say so before someone types a question, not after.
+    const ready = App.assistant.available();
+
+    if (!ready) {
+      return `<div class="page-inner">
+        <div class="page-head">
+          <div>
+            <h1>${App.i18n.t("assistant", "Assistant")}</h1>
+            <div class="sub">Ask about your schedule, or tell it to add things — private to you.</div>
+          </div>
+        </div>
+        <div class="card"><div class="card-body">
+          ${UI.emptyState("assistant", "Sign in to use the Assistant",
+            "The AI features run on a shared quota, so they're tied to an account. Everything else in Scholar works without one.")}
+          <div class="row center gap-8" style="margin-top:12px">
+            <button type="button" class="btn btn-primary" data-go="settings">Go to sign in</button>
+          </div>
+        </div></div>
+      </div>`;
+    }
 
     return `<div class="page-inner">
       <div class="page-head">

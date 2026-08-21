@@ -2,8 +2,8 @@
    assistant.js — natural-language add, photo schedule extraction, and the
    private data assistant
 
-   Routes (all under /assistant, all anonymous — no Blobs, no auth, nothing
-   stored server-side):
+   Routes (all under /assistant). Everything that spends provider quota
+   requires a signed-in account and is rate limited per account:
      GET  /assistant/health        [?probe=1]              → key/model diagnostics
      POST /assistant/parse-text    { text }                → { entries, periods, summary, clarify }
      POST /assistant/parse-image   { imageBase64, mimeType} → { entries, periods, summary, clarify }
@@ -22,31 +22,72 @@
    ========================================================================== */
 
 import { configured, generateText, generateJSON, DEFAULT_MODEL as DEFAULT_MODEL_NAME } from "./_lib/gemini.js";
+import { verifyToken } from "./_lib/auth.js";
+import { readJSON, rateLimit } from "./_lib/blobs.js";
 
 const MAX_TEXT_LEN = 2000;
 const MAX_IMAGE_B64_LEN = 6 * 1024 * 1024; // ~4.5MB decoded, well under Gemini's per-image limit
 const MAX_CONTEXT_LEN = 60000;
 const ASK_MAX_OUTPUT_TOKENS = 220; // hard cap so an answer can't run long even if the model ignores the prompt
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Max-Age": "86400"
-};
+/* --------------------------------------------------------- quota limits -- */
+
+// Generous for a student working normally, ruinous for a script. Text calls
+// are cheap; image calls are not, so they get their own tighter bucket.
+const LIMIT_TEXT_PER_HOUR = 60;
+const LIMIT_IMAGE_PER_HOUR = 20;
+const LIMIT_TEXT_PER_DAY = 300;
+const LIMIT_IMAGE_PER_DAY = 60;
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+
+/**
+ * These routes are same-origin only.
+ *
+ * They used to answer `Access-Control-Allow-Origin: *` with no auth of any
+ * kind, so any page on the web could spend this deploy's Gemini quota from a
+ * visitor's browser, and a plain curl loop drained the free tier in seconds.
+ * Preflight is answered for this site's own origin; the JSON responses carry
+ * no ACAO at all, which is what stops another site reading them.
+ */
+function corsFor(req) {
+  const origin = req && req.headers ? req.headers.get("origin") : null;
+  const allowed = process.env.SITE_URL || "";
+  const base = {
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin"
+  };
+  if (!origin) return base;
+  let allow = false;
+  try { allow = !!allowed && new URL(origin).origin === new URL(allowed).origin; } catch (e) { allow = false; }
+  return allow ? { ...base, "Access-Control-Allow-Origin": origin } : base;
+}
 
 function json(body, status) {
   return new Response(JSON.stringify(body), {
     status: status || 200,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS }
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }
   });
 }
 const ok = (body) => json(body || { ok: true });
 const fail = (status, message, extra) => json({ error: message, ...(extra || {}) }, status);
 
+// Images are base64 in the JSON body, so the cap has to clear the largest
+// legitimate image; anything past that is abuse, not use. Without any cap at
+// all a single request could stream an unbounded body into the function.
+const MAX_BODY_BYTES = 9 * 1024 * 1024;
+
 async function body(req) {
+  let text;
   try {
-    const text = await req.text();
+    text = await req.text();
+  } catch (e) {
+    throw { status: 400, message: "Couldn't read the request body." };
+  }
+  if (text.length > MAX_BODY_BYTES) throw { status: 413, message: "That request is too large." };
+  try {
     return text ? JSON.parse(text) : {};
   } catch (e) {
     throw { status: 400, message: "Invalid JSON body." };
@@ -57,6 +98,60 @@ function requireConfigured() {
   if (!configured()) {
     throw { status: 503, message: "The AI assistant isn't set up yet — add a GEMINI_API_KEY in the Netlify environment." };
   }
+}
+
+/* ----------------------------------------------------------------- auth -- */
+
+/** The signed-in account, or null. Same token format the main API issues. */
+async function currentUser(req) {
+  const header = req.headers.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return null;
+  try {
+    const payload = await verifyToken(token);
+    if (!payload || !payload.sub) return null;
+    const profile = await readJSON("profiles", payload.sub);
+    if (!profile) return null;
+    // Honour the same revocation epoch the main API uses, so a password reset
+    // cuts off AI access for a stolen token too.
+    const epoch = Number(profile.tokenEpoch || 0);
+    if (epoch && Number(payload.epoch || 0) < epoch) return null;
+    return profile;
+  } catch (e) {
+    // A missing SCHOLAR_SECRET throws out of verifyToken. That's a
+    // configuration failure, not an anonymous caller.
+    throw { status: 503, message: "The server isn't configured yet — set SCHOLAR_SECRET in the Netlify environment." };
+  }
+}
+
+async function requireUser(req) {
+  const user = await currentUser(req);
+  if (!user) {
+    throw { status: 401, message: "Sign in to use the AI features. They run on a shared quota, so they're tied to an account." };
+  }
+  return user;
+}
+
+/**
+ * Charge one call against the signed-in account's hourly and daily budget.
+ * `kind` is "text" or "image"; images cost far more, so they have their own
+ * counters rather than sharing one pool.
+ */
+async function charge(user, kind) {
+  const isImage = kind === "image";
+  const perHour = isImage ? LIMIT_IMAGE_PER_HOUR : LIMIT_TEXT_PER_HOUR;
+  const perDay = isImage ? LIMIT_IMAGE_PER_DAY : LIMIT_TEXT_PER_DAY;
+
+  const hourly = await rateLimit(`ai-${kind}-h`, user.id, perHour, HOUR);
+  if (!hourly.allowed) {
+    const mins = Math.max(1, Math.ceil((hourly.resetAt - Date.now()) / 60000));
+    throw { status: 429, message: `You've used this hour's AI allowance. It resets in ${mins} minute${mins === 1 ? "" : "s"}.` };
+  }
+  const daily = await rateLimit(`ai-${kind}-d`, user.id, perDay, DAY);
+  if (!daily.allowed) {
+    throw { status: 429, message: "You've used today's AI allowance. It resets tomorrow." };
+  }
+  return { remainingHour: hourly.remaining, remainingDay: daily.remaining };
 }
 
 /* ------------------------------------------------------------- schema -- */
@@ -217,6 +312,18 @@ estimates compared to reality if that's given. Keep suggestedSteps genuinely act
 their minutes roughly add up to your estimate. If the description is too vague to judge, still give
 a sensible default for that assignment type and say so in reasoning.`;
 
+/** Keep only the handful of numbers the prompt actually uses. */
+function clampCalibration(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  return {
+    samples: n(raw.samples),
+    ratio: n(raw.ratio),
+    avgEstimateMin: n(raw.avgEstimateMin),
+    avgActualMin: n(raw.avgActualMin)
+  };
+}
+
 async function estimate(req) {
   requireConfigured();
   const b = await body(req);
@@ -228,7 +335,10 @@ async function estimate(req) {
     className: String(b.className || "").slice(0, 100),
     points: Number(b.points) || null,
     notes: String(b.notes || "").slice(0, 1000),
-    studentCalibration: b.calibration || null
+    // Every sibling field is capped; this one was passed through whole, so a
+    // multi-megabyte object went straight into the prompt — an expensive call
+    // any caller could trigger at will.
+    studentCalibration: clampCalibration(b.calibration)
   };
   const result = await generateJSON({
     system: ESTIMATE_SYSTEM,
@@ -358,6 +468,15 @@ async function ask(req) {
 async function health(req) {
   const key = process.env.GEMINI_API_KEY || "";
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL_NAME;
+
+  // Anonymous callers learn only whether the feature is switched on — enough
+  // for the UI to say "AI isn't set up" without an account. The key's length
+  // and the model configuration are deployment details, and ?probe=1 spends
+  // real quota, so both need a signed-in account. Previously all of it,
+  // including a billable round-trip per GET, was open to anyone.
+  const user = await currentUser(req);
+  if (!user) return ok({ configured: !!key });
+
   const out = {
     configured: !!key,
     keyPresent: !!key,
@@ -369,6 +488,8 @@ async function health(req) {
 
   const probe = new URL(req.url).searchParams.get("probe");
   if (probe && key) {
+    // A probe is a real call; charge it like one.
+    await charge(user, "text");
     const started = Date.now();
     try {
       const answer = await generateText({
@@ -396,7 +517,7 @@ async function health(req) {
 /* --------------------------------------------------------------- routes -- */
 
 export default async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsFor(req) });
 
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/assistant\/?/, "").replace(/\/+$/, "");
@@ -404,20 +525,53 @@ export default async (req) => {
 
   try {
     if (path === "health" && method === "GET") return await health(req);
-    if (path === "parse-text" && method === "POST") return await parseText(req);
-    if (path === "parse-image" && method === "POST") return await parseImage(req);
-    if (path === "parse-note-image" && method === "POST") return await parseNoteImage(req);
-    if (path === "estimate" && method === "POST") return await estimate(req);
-    if (path === "act" && method === "POST") return await act(req);
-    if (path === "ask" && method === "POST") return await ask(req);
+
+    // Everything past here spends provider quota, so it needs an account and
+    // a budget. charge() throws 429 when the account is over its allowance.
+    if (path === "parse-text" && method === "POST") {
+      const user = await requireUser(req); await charge(user, "text");
+      return await parseText(req);
+    }
+    if (path === "parse-image" && method === "POST") {
+      const user = await requireUser(req); await charge(user, "image");
+      return await parseImage(req);
+    }
+    if (path === "parse-note-image" && method === "POST") {
+      const user = await requireUser(req); await charge(user, "image");
+      return await parseNoteImage(req);
+    }
+    if (path === "estimate" && method === "POST") {
+      const user = await requireUser(req); await charge(user, "text");
+      return await estimate(req);
+    }
+    if (path === "act" && method === "POST") {
+      const user = await requireUser(req); await charge(user, "text");
+      return await act(req);
+    }
+    if (path === "ask" && method === "POST") {
+      const user = await requireUser(req); await charge(user, "text");
+      return await ask(req);
+    }
     return fail(404, "No such endpoint: " + method + " /" + path);
   } catch (e) {
-    if (e && e.status) return fail(e.status, e.message);
     if (e && e.code === "not-configured") {
       return fail(503, "The AI assistant isn't set up yet — add a GEMINI_API_KEY in the Netlify environment.");
     }
+    // Provider errors carried Google's own text straight to the client —
+    // quota messages include the Google Cloud project number, and any
+    // uncaught TypeError from our own code went out as the response body.
+    // Deployment detail stays in the logs; the caller gets something useful
+    // and nothing internal.
+    if (e && e.code === "provider-error") {
+      console.error("[assistant] provider error", e.status, e.detail || e.message);
+      return fail(e.status >= 500 ? 503 : 502,
+        e.status === 429
+          ? "The AI service is over its quota right now. Try again later."
+          : "The AI service couldn't handle that request. Try again in a moment.");
+    }
+    if (e && e.status) return fail(e.status, e.message);
     console.error("[assistant]", e);
-    return fail(500, (e && e.message) || "Something went wrong.");
+    return fail(500, "Something went wrong.");
   }
 };
 

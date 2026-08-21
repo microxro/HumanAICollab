@@ -59,26 +59,73 @@ import {
   normalizeEmail, emailKey, validEmail, passwordProblem,
   randomId, randomCode
 } from "./_lib/auth.js";
-import { readJSON, writeJSON, remove } from "./_lib/blobs.js";
+import { readJSON, updateJSON, readJSONWithEtag, writeJSONIf, rateLimit, writeJSON, remove } from "./_lib/blobs.js";
 import { sendEmail, layout, configured as emailConfigured, deliverable as emailDeliverable, fromAddress, SANDBOX_FROM } from "./_lib/email.js";
 
 const MAX_STATE_BYTES = 5 * 1024 * 1024;
 const MAX_FAILED_LOGINS = 8;
 const LOCKOUT_MS = 15 * 60 * 1000;
 
+/** The complete set of account types. Anything else is rejected, not coerced. */
+const ROLES = ["student", "parent", "teacher"];
+
+/**
+ * Netlify Blobs throws on an empty key, a key beginning with "/" or "%2F",
+ * and anything over 600 UTF-8 bytes. readJSON only swallows "not found", so
+ * every other case propagated to the generic 500 handler — free log noise and
+ * a trivially discoverable defect. Validate before we ever reach storage.
+ */
+function validBlobKey(key) {
+  if (typeof key !== "string") return false;
+  const k = key.trim();
+  if (!k || k.length > 300) return false;
+  if (k.startsWith("/") || k.startsWith("%2F") || k.startsWith("%2f")) return false;
+  if (new TextEncoder().encode(k).length > 600) return false;
+  return true;
+}
+
 /* ------------------------------------------------------------ responses -- */
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Max-Age": "86400"
-};
+/**
+ * The API is only ever called by this site's own front end, so it does not
+ * need to be reachable cross-origin. It used to send
+ * `Access-Control-Allow-Origin: *` alongside `Authorization`, which let any
+ * page on the web drive the authenticated API from a visitor's browser.
+ *
+ * The ICS feed is the one deliberate exception — calendar clients fetch it
+ * cross-origin — and it sets its own headers.
+ */
+function corsFor(req) {
+  const origin = req && req.headers ? req.headers.get("origin") : null;
+  const allowed = process.env.SITE_URL || "";
+  const base = {
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin"
+  };
+  if (!origin) return base;                       // same-origin or a non-browser client
+  let ok = false;
+  try { ok = !!allowed && new URL(origin).origin === new URL(allowed).origin; } catch (e) { ok = false; }
+  return ok ? { ...base, "Access-Control-Allow-Origin": origin } : base;
+}
+
+// Public, read-only, and fetched by third-party calendar apps by design.
+// This is the ONE place a wildcard is correct: the URL is itself the secret,
+// it returns no personal identifiers, and calendar clients are cross-origin.
+const CORS = { "Access-Control-Allow-Origin": "*", "Vary": "Origin" };
+
+// JSON API responses deliberately carry NO Access-Control-Allow-Origin.
+// The front end is served from the same origin, so it needs none, and its
+// absence is what stops another site from reading authenticated responses
+// out of a logged-in visitor's browser. A cross-origin deployment (a custom
+// `apiBase`) would need SITE_URL set and corsFor() wired in here.
+const API_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 
 function json(body, status) {
   return new Response(JSON.stringify(body), {
     status: status || 200,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS }
+    headers: API_HEADERS
   });
 }
 
@@ -91,10 +138,20 @@ async function currentUser(req) {
   const header = req.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return null;
+
   const payload = await verifyToken(token);
   if (!payload || !payload.sub) return null;
   const profile = await readJSON("profiles", payload.sub);
   if (!profile) return null;
+
+  // Session revocation. Tokens are stateless with a 30-day life, so before
+  // this a stolen one kept working for a month and a password reset did
+  // nothing about it — a compromised account could not be recovered by any
+  // action available in the product. Resetting or changing a password bumps
+  // tokenEpoch, which retires every token minted before it.
+  const epoch = Number(profile.tokenEpoch || 0);
+  if (epoch && Number(payload.epoch || 0) < epoch) return null;
+
   return profile;
 }
 
@@ -122,30 +179,51 @@ async function signup(req) {
   const b = await body(req);
   const email = normalizeEmail(b.email);
   const name = String(b.name || "").trim().slice(0, 80);
-  const role = b.role === "parent" ? "parent" : "student";
+
+  // Validated rather than coerced. `b.role === "parent" ? "parent" : "student"`
+  // silently turned any unrecognised value — including a typo, or "teacher" —
+  // into a student account, with no error and no way for the caller to tell.
+  const requestedRole = b.role == null || b.role === "" ? "student" : String(b.role);
+  if (!ROLES.includes(requestedRole)) {
+    return fail(400, `Unknown account type "${requestedRole}". Choose one of: ${ROLES.join(", ")}.`);
+  }
+  const role = requestedRole;
 
   if (!validEmail(email)) return fail(400, "Enter a valid email address.");
   const pwProblem = passwordProblem(b.password);
   if (pwProblem) return fail(400, pwProblem);
   if (!name) return fail(400, "Enter your name.");
 
-  const key = await emailKey(email);
-  const existing = await readJSON("users", key);
-  if (existing) return fail(409, "An account with that email already exists.");
+  // Rate limited per address so signup can't be used to walk a list of emails
+  // (each attempt otherwise answers "does this account exist?" in one call),
+  // and so an unbounded number of accounts can't be created on a whim.
+  const rl = await rateLimit("signup", await emailKey(email), 5, 60 * 60 * 1000);
+  if (!rl.allowed) return fail(429, "Too many sign-up attempts for that address. Try again later.");
 
+  const key = await emailKey(email);
   const pw = await hashPassword(b.password);
   const id = randomId(12);
 
-  await writeJSON("users", key, { id, email, pw, createdAt: Date.now(), failed: 0, lockedUntil: 0 });
+  // onlyIfNew: the existence check and the write are one atomic operation, so
+  // two simultaneous signups for one address can't both succeed. The
+  // duplicate case is reported without confirming anything to an
+  // unauthenticated caller who was merely guessing.
+  const claimed = await writeJSONIf("users", key,
+    { id, email, pw, createdAt: Date.now(), failed: 0, lockedUntil: 0 }, null);
+  if (!claimed) {
+    return fail(409, "That email can't be used to create an account. If it's yours, sign in or reset your password.");
+  }
+
   const profile = {
     id, email, name, role,
     createdAt: Date.now(),
+    tokenEpoch: 1,    // bumped on password change so old tokens stop working
     links: [],        // [{ id, role: 'parent'|'child', name, since }]
     groups: []        // [groupId]
   };
   await writeJSON("profiles", id, profile);
 
-  const token = await signToken({ sub: id, role });
+  const token = await signToken({ sub: id, role, epoch: 1 });
   return ok({ token, user: publicUser(profile) });
 }
 
@@ -164,31 +242,41 @@ async function login(req) {
     return generic();
   }
 
+  // Lockout is reported with the same 401 as a wrong password. A distinct
+  // 429 was an account oracle: eight wrong guesses returning "too many
+  // attempts" meant the address was real, while 401 meant it wasn't.
   if (rec.lockedUntil && rec.lockedUntil > Date.now()) {
-    const mins = Math.ceil((rec.lockedUntil - Date.now()) / 60000);
-    return fail(429, `Too many attempts. Try again in ${mins} minute${mins === 1 ? "" : "s"}.`);
+    await hashPassword(String(b.password));   // keep timing comparable
+    return generic();
   }
 
   const good = await verifyPassword(b.password, rec.pw);
   if (!good) {
-    rec.failed = (rec.failed || 0) + 1;
-    if (rec.failed >= MAX_FAILED_LOGINS) {
-      rec.lockedUntil = Date.now() + LOCKOUT_MS;
-      rec.failed = 0;
-    }
-    await writeJSON("users", key, rec);
+    // Atomic. The old read-modify-write meant N parallel wrong guesses all
+    // read failed=0 and all wrote failed=1, so the limit never tripped and
+    // brute force was effectively unlimited.
+    await updateJSON("users", key, (cur) => {
+      if (!cur) return undefined;
+      const failed = (cur.failed || 0) + 1;
+      if (failed >= MAX_FAILED_LOGINS) return { ...cur, failed: 0, lockedUntil: Date.now() + LOCKOUT_MS };
+      return { ...cur, failed };
+    });
     return generic();
   }
 
   if (rec.failed || rec.lockedUntil) {
-    rec.failed = 0; rec.lockedUntil = 0;
-    await writeJSON("users", key, rec);
+    await updateJSON("users", key, (cur) => (cur ? { ...cur, failed: 0, lockedUntil: 0 } : undefined));
   }
 
   const profile = await readJSON("profiles", rec.id);
-  if (!profile) return fail(500, "Account record is missing.");
+  // Leaking that the user record exists but the profile doesn't tells an
+  // attacker the address is registered. Same generic answer.
+  if (!profile) {
+    console.error("[login] profile blob missing for user", rec.id);
+    return generic();
+  }
 
-  const token = await signToken({ sub: rec.id, role: profile.role });
+  const token = await signToken({ sub: rec.id, role: profile.role, epoch: Number(profile.tokenEpoch || 0) });
   return ok({ token, user: publicUser(profile) });
 }
 
@@ -200,8 +288,31 @@ function publicUser(p) {
 
 const RESET_TTL_MS = 30 * 60 * 1000;   // 30 minutes
 
-function siteOrigin(req) {
-  return process.env.SITE_URL || new URL(req.url).origin;
+/**
+ * The origin used to build emailed links.
+ *
+ * This used to fall back to `new URL(req.url).origin`, which in Netlify
+ * Functions is derived from the inbound Host header. With SITE_URL unset, a
+ * request carrying a spoofed Host produced a genuine Scholar password-reset
+ * email whose button pointed at the attacker — one click from full account
+ * takeover. There is no safe fallback for that, so a deploy without SITE_URL
+ * refuses to send links rather than sending poisoned ones.
+ */
+function siteOrigin() {
+  const configured = process.env.SITE_URL;
+  if (!configured) {
+    throw { status: 503, message: "SITE_URL isn't set on this deploy, so password-reset links can't be built safely. Set it in the Netlify environment." };
+  }
+  try {
+    const u = new URL(configured);
+    if (u.protocol !== "https:" && u.hostname !== "localhost") {
+      throw { status: 503, message: "SITE_URL must be an https:// URL." };
+    }
+    return u.origin;
+  } catch (e) {
+    if (e && e.status) throw e;
+    throw { status: 503, message: "SITE_URL isn't a valid URL." };
+  }
 }
 
 /**
@@ -284,6 +395,15 @@ async function forgotPassword(req) {
   if (!validEmail(email)) return generic();
 
   const key = await emailKey(email);
+
+  // Without this, `while true; do curl -X POST /api/auth/forgot ...; done`
+  // sent one real email per request to any known address — a mail bomb
+  // delivered from your own verified domain, plus an unbounded pile of
+  // passwordResets blobs. Keyed on the hashed address, so the limit follows
+  // the target rather than the attacker's IP.
+  const rl = await rateLimit("forgot", key, 3, 60 * 60 * 1000);
+  if (!rl.allowed) return generic();   // still generic: no existence signal
+
   const rec = await readJSON("users", key);
   if (!rec) return generic();
 
@@ -293,7 +413,7 @@ async function forgotPassword(req) {
 
   // ?resetToken=... (not a hash route) — same pattern as the existing
   // ?join=CODE group-invite link, read once at boot in js/app.js.
-  const resetUrl = `${siteOrigin(req)}/?resetToken=${encodeURIComponent(token)}`;
+  const resetUrl = `${siteOrigin()}/?resetToken=${encodeURIComponent(token)}`;
   const result = await sendEmail({
     to: email,
     subject: "Reset your Scholar password",
@@ -321,6 +441,11 @@ async function forgotPassword(req) {
 async function resetPassword(req) {
   const b = await body(req);
   const token = String(b.token || "");
+  // Blobs rejects an empty key, a key starting with "/", and anything over
+  // 600 bytes by throwing — which reached the generic 500 handler. A missing
+  // or absurd token is a 400, not a server error.
+  if (!validBlobKey(token)) return fail(400, "That reset link is invalid or has expired.");
+
   const rec = await readJSON("passwordResets", token, null);
   if (!rec || rec.expiresAt < Date.now()) return fail(400, "That reset link is invalid or has expired.");
 
@@ -334,6 +459,12 @@ async function resetPassword(req) {
   user.failed = 0;
   user.lockedUntil = 0;
   await writeJSON("users", rec.userKey, user);
+
+  // Retire every session minted before now. Without this, resetting your
+  // password after a token was stolen changed nothing for up to 30 days.
+  await updateJSON("profiles", rec.userId, (cur) =>
+    (cur ? { ...cur, tokenEpoch: Number(cur.tokenEpoch || 0) + 1 } : undefined));
+
   await remove("passwordResets", token);
   return ok({ reset: true });
 }
@@ -351,28 +482,53 @@ async function pullState(user) {
 
 async function pushState(req, user) {
   const b = await body(req);
-  if (!b.state || typeof b.state !== "object") return fail(400, "Missing state.");
+  // `typeof [] === "object"`, and an array here would be stored and handed
+  // back to the client as its whole database.
+  if (!b.state || typeof b.state !== "object" || Array.isArray(b.state)) {
+    return fail(400, "Missing state.");
+  }
 
-  const size = JSON.stringify(b.state).length;
+  // Measured in UTF-8 bytes, not UTF-16 code units: the old length check let
+  // a payload of multi-byte characters through at roughly 3x the stated cap.
+  const size = new TextEncoder().encode(JSON.stringify(b.state)).length;
   if (size > MAX_STATE_BYTES) return fail(413, "Your data is too large to sync (over 5 MB).");
 
-  const rec = await readJSON("state", user.id, { version: 0, data: null, updatedAt: 0 });
   const base = Number(b.baseVersion || 0);
 
-  // Optimistic concurrency: a stale writer gets the server copy back instead
-  // of silently clobbering a newer device's changes.
-  if (rec.version && base !== rec.version && !b.force) {
+  // Optimistic concurrency, enforced at the storage layer.
+  //
+  // This used to read, compare, then write with nothing tying the three
+  // together, so two devices sitting at the same baseVersion both passed the
+  // check and both wrote — one device's entire database silently gone. Worse,
+  // both then believed they were current, so no conflict was ever raised
+  // again and the loss was permanent and invisible. The conditional write
+  // below makes the second writer lose the race and get a 409 instead.
+  //
+  // `b.force` used to skip the check entirely. A client-supplied flag that
+  // disables concurrency control is not a safety valve, it is the bug: any
+  // caller could overwrite another device's data by sending force:true. It is
+  // no longer honoured. A real conflict is resolved by the client merging and
+  // pushing at the new version.
+  let conflict = null;
+  const stored = await updateJSON("state", user.id, (cur) => {
+    const rec = cur || { version: 0, data: null, updatedAt: 0 };
+    if (rec.version && base !== rec.version) {
+      conflict = rec;
+      return undefined;                       // abort without writing
+    }
+    return { version: (rec.version || 0) + 1, data: b.state, updatedAt: Date.now() };
+  }, { fallback: { version: 0, data: null, updatedAt: 0 } });
+
+  if (conflict) {
     return json({
       error: "conflict",
-      version: rec.version,
-      updatedAt: rec.updatedAt,
-      state: rec.data
+      version: conflict.version,
+      updatedAt: conflict.updatedAt,
+      state: conflict.data
     }, 409);
   }
 
-  const next = { version: (rec.version || 0) + 1, data: b.state, updatedAt: Date.now() };
-  await writeJSON("state", user.id, next);
-  return ok({ version: next.version, updatedAt: next.updatedAt });
+  return ok({ version: stored.version, updatedAt: stored.updatedAt });
 }
 
 /* ---------------------------------------------------------------- links -- */
@@ -397,6 +553,15 @@ async function redeemLinkCode(req, user) {
   }
   if (rec.studentId === user.id) return fail(400, "You can't link to yourself.");
 
+  // mintLinkCode refuses to issue a code to a student; redeeming had no role
+  // check at all, so a second student who got hold of a code became a
+  // *guardian* — able to read live location, request check-ins, send notes
+  // and propose focus windows, all of which authorize purely on the link.
+  if (user.role === "student") {
+    return fail(403, "Link codes connect a parent or guardian to a student account. " +
+      "This is a student account — ask them to share with your guardian's account instead.");
+  }
+
   const student = await readJSON("profiles", rec.studentId);
   if (!student) return fail(404, "That student account no longer exists.");
 
@@ -405,11 +570,11 @@ async function redeemLinkCode(req, user) {
     user.links = (user.links || []).concat([{ id: student.id, role: "child", name: student.name, since: Date.now() }]);
     await writeJSON("profiles", user.id, user);
   }
-  const back = (student.links || []).some((l) => l.id === user.id);
-  if (!back) {
-    student.links = (student.links || []).concat([{ id: user.id, role: "parent", name: user.name, since: Date.now() }]);
-    await writeJSON("profiles", student.id, student);
-  }
+  await updateJSON("profiles", student.id, (cur) => {
+    if (!cur) return undefined;
+    if ((cur.links || []).some((l) => l.id === user.id)) return undefined;
+    return { ...cur, links: (cur.links || []).concat([{ id: user.id, role: "parent", name: user.name, since: Date.now() }]) };
+  });
 
   await remove("links", code);   // single use
   return ok({ linked: { id: student.id, name: student.name } });
@@ -437,14 +602,21 @@ async function listParents(user) {
 }
 
 async function unlink(user, otherId) {
+  // Without this check any authenticated caller could name any user id — ids
+  // are visible to every groupmate — and trigger a full read-modify-write of
+  // that stranger's profile, dropping whatever they were saving at the time.
+  const linked = (user.links || []).some((l) => l.id === otherId);
+  if (!linked) return fail(404, "You aren't linked to that account.");
+
   user.links = (user.links || []).filter((l) => l.id !== otherId);
   await writeJSON("profiles", user.id, user);
 
-  const other = await readJSON("profiles", otherId);
-  if (other) {
-    other.links = (other.links || []).filter((l) => l.id !== user.id);
-    await writeJSON("profiles", otherId, other);
-  }
+  // Conditional so an unlink can't clobber a concurrent change to the other
+  // person's profile, and scoped to removing exactly one entry.
+  await updateJSON("profiles", otherId, (other) => {
+    if (!other) return undefined;
+    return { ...other, links: (other.links || []).filter((l) => l.id !== user.id) };
+  });
   return ok({ unlinked: otherId });
 }
 
@@ -509,10 +681,15 @@ async function listFriends(user) {
 }
 
 async function removeFriend(user, otherId) {
+  const known = (user.peers || []).some((p) => p.id === otherId);
+  if (!known) return fail(404, "That isn't one of your connections.");
+
   user.peers = (user.peers || []).filter((p) => p.id !== otherId);
   await writeJSON("profiles", user.id, user);
-  const other = await readJSON("profiles", otherId);
-  if (other) { other.peers = (other.peers || []).filter((p) => p.id !== user.id); await writeJSON("profiles", otherId, other); }
+  await updateJSON("profiles", otherId, (other) => {
+    if (!other) return undefined;
+    return { ...other, peers: (other.peers || []).filter((p) => p.id !== user.id) };
+  });
   return ok({ removed: otherId });
 }
 
@@ -566,6 +743,9 @@ async function pushIcsFeed(req, user) {
 }
 
 async function getIcsFeed(token) {
+  // A path segment like %2Fx is not decoded by URL.pathname, so it reached
+  // Blobs verbatim and threw into the generic 500 handler.
+  if (!validBlobKey(token)) return new Response("Not found", { status: 404, headers: CORS });
   const feed = await readJSON("icsFeeds", token, null);
   if (!feed) return new Response("Not found", { status: 404, headers: CORS });
   return new Response(feed.ics, {
@@ -671,12 +851,50 @@ async function pushLocation(req, user) {
     }
   }
 
+  // `status` and `summary` used to be stored exactly as sent, with no size or
+  // type checking at all. Two consequences: the blob grew without bound (the
+  // client pushes on a timer), and the weekly parent digest interpolated
+  // summary fields straight into HTML — so a student could put markup into
+  // mail sent from your verified domain to their own parent, and a
+  // wrong-typed `upcoming` crashed the scheduled run for *every* parent.
   await writeJSON("locations", user.id, {
-    status: b.status || null,
-    summary: b.summary || null,
+    status: cleanStatus(b.status),
+    summary: cleanSummary(b.summary),
     at: Date.now()
   });
   return ok({ at: Date.now() });
+}
+
+const str = (v, max) => (v == null ? "" : String(v)).slice(0, max || 120);
+const num = (v, lo, hi) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(hi, Math.max(lo, n));
+};
+
+function cleanStatus(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  return {
+    presence: ["on-campus", "off-campus", "unknown"].includes(raw.presence) ? raw.presence : "unknown",
+    place: str(raw.place, 80),
+    className: str(raw.className, 80),
+    until: str(raw.until, 20)
+  };
+}
+
+function cleanSummary(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const upcoming = Array.isArray(raw.upcoming) ? raw.upcoming.slice(0, 5) : [];
+  return {
+    openAssignments: num(raw.openAssignments, 0, 9999) ?? 0,
+    overdue: num(raw.overdue, 0, 9999) ?? 0,
+    gpa: raw.gpa == null ? null : num(raw.gpa, 0, 6),
+    attendance: raw.attendance == null ? null : num(raw.attendance, 0, 100),
+    studyMinutes: num(raw.studyMinutes, 0, 100000) ?? 0,
+    upcoming: upcoming
+      .filter((u) => u && typeof u === "object" && !Array.isArray(u))
+      .map((u) => ({ title: str(u.title, 120), className: str(u.className, 80), due: str(u.due, 20) }))
+  };
 }
 
 async function readLocation(user, studentId) {
@@ -715,22 +933,40 @@ async function createGroup(req, user) {
 async function joinGroup(req, user) {
   const b = await body(req);
   const code = String(b.code || "").trim().toUpperCase();
+  // joinGroup never checked for an empty code (redeemLinkCode did), so
+  // `POST /api/groups/join {}` reached Blobs with "" and returned a 500.
+  if (!validBlobKey(code)) return fail(400, "Enter a join code.");
+
+  // Join codes are six characters from a 32-symbol alphabet — about 1.07e9
+  // combinations, which is walkable with an unlimited guess rate. A hit gave
+  // the attacker every shared note, every member's id and their busy blocks.
+  const guessLimit = await rateLimit("joincode", user.id, 20, 60 * 60 * 1000);
+  if (!guessLimit.allowed) {
+    return fail(429, "Too many join attempts. Try again in an hour.");
+  }
+
   const groupId = await readJSON("codes", code);
   if (!groupId) return fail(404, "No group with that code.");
 
   const group = await readJSON("groups", groupId);
   if (!group) return fail(404, "That group no longer exists.");
 
-  if (!group.members.some((m) => m.id === user.id)) {
-    if (group.members.length >= 60) return fail(409, "That group is full.");
-    group.members.push({ id: user.id, name: user.name, joinedAt: Date.now() });
-    await writeJSON("groups", group.id, group);
-  }
+  // Conditional so two people joining at once can't drop each other, and so
+  // a join can't clobber a concurrent post to the same group blob.
+  let full = false;
+  const saved = await updateJSON("groups", group.id, (cur) => {
+    if (!cur) return undefined;
+    if ((cur.members || []).some((m) => m.id === user.id)) return undefined;
+    if ((cur.members || []).length >= 60) { full = true; return undefined; }
+    return { ...cur, members: (cur.members || []).concat([{ id: user.id, name: user.name, role: user.role || "student", joinedAt: Date.now() }]) };
+  });
+  if (full) return fail(409, "That group is full.");
+
   if (!(user.groups || []).includes(group.id)) {
     user.groups = (user.groups || []).concat([group.id]);
     await writeJSON("profiles", user.id, user);
   }
-  return ok({ group: slimGroup(group) });
+  return ok({ group: slimGroup(saved || group) });
 }
 
 function slimGroup(g) {
@@ -1178,21 +1414,40 @@ async function rateFeed(req, user, id, itemId) {
 }
 
 async function leaveGroup(user, id) {
-  const g = await readJSON("groups", id);
-  if (g) {
-    if (g.ownerId === user.id) {
-      // Owner leaving deletes the group, so orphaned groups don't pile up.
-      for (const m of g.members) {
-        const p = await readJSON("profiles", m.id);
-        if (p) { p.groups = (p.groups || []).filter((x) => x !== id); await writeJSON("profiles", m.id, p); }
-      }
-      await remove("groups", id);
-      await remove("codes", g.code);
-      return ok({ deleted: true });
-    }
-    g.members = g.members.filter((m) => m.id !== user.id);
-    await writeJSON("groups", id, g);
+  // Every other group route goes through memberGroup(); this one read the
+  // blob directly, so a non-member's call still performed a full
+  // read-modify-write of somebody else's group — a way to clobber concurrent
+  // posts from outside the group entirely. Group ids are handed to every
+  // member by getGroup, so that was reachable by any ex-member.
+  const g = await memberGroup(user, id);
+
+  const remaining = g.members.filter((m) => m.id !== user.id);
+
+  if (remaining.length === 0) {
+    // Last one out deletes the group. Nothing is left to own it.
+    await remove("groups", id);
+    await remove("codes", g.code);
+    user.groups = (user.groups || []).filter((x) => x !== id);
+    await writeJSON("profiles", user.id, user);
+    return ok({ deleted: true });
   }
+
+  await updateJSON("groups", id, (cur) => {
+    if (!cur) return undefined;
+    const members = (cur.members || []).filter((m) => m.id !== user.id);
+    if (!members.length) return undefined;
+    // Ownership transfers instead of the group being destroyed. Deleting a
+    // shared workspace because one person — who might be the teacher who
+    // created it — walked away takes everyone else's notes, tasks and feed
+    // with it. The longest-standing remaining member inherits it.
+    let ownerId = cur.ownerId;
+    if (ownerId === user.id) {
+      const byTenure = [...members].sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
+      ownerId = byTenure[0].id;
+    }
+    return { ...cur, members, ownerId };
+  });
+
   user.groups = (user.groups || []).filter((x) => x !== id);
   await writeJSON("profiles", user.id, user);
   return ok({ left: true });
@@ -1201,7 +1456,9 @@ async function leaveGroup(user, id) {
 /* --------------------------------------------------------------- router -- */
 
 export default async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  // Preflight is answered only for this site's own origin, and only for
+  // paths that exist — a blanket 204 for every URL is free reconnaissance.
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsFor(req) });
 
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/api\/?/, "").replace(/\/+$/, "");

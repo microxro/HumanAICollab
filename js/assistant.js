@@ -3,10 +3,11 @@
    schedule extraction, and the private data assistant
 
    Talks to the /assistant/* Netlify function (js side of
-   netlify/functions/assistant.js). Nothing here is authenticated — the
-   endpoints are stateless, so this module's whole job is (a) building the
-   request (including, for /ask, a context digest computed entirely from
-   this device's own local data) and (b) turning provider errors into
+   netlify/functions/assistant.js). Every route that spends provider quota
+   needs the signed-in account's bearer token and is rate limited per
+   account, so this module (a) attaches that token, (b) builds the request
+   (including, for /ask, a context digest computed entirely from this
+   device's own local data) and (c) turns server and provider errors into
    messages a student would understand.
    ========================================================================== */
 
@@ -20,12 +21,25 @@ App.assistant = (function () {
     return (S.db.settings.apiBase || "").replace(/\/(api)?\/?$/, "") || "";
   }
 
+  function authHeaders() {
+    const t = App.sync && App.sync.authToken && App.sync.authToken();
+    return t ? { Authorization: "Bearer " + t } : {};
+  }
+
+  /** True when the AI features are usable at all right now. */
+  function available() {
+    return !!(App.sync && App.sync.isSignedIn && App.sync.isSignedIn());
+  }
+
   async function req(path, payload) {
+    if (!available()) {
+      throw new Error("Sign in to use the AI features — they run on a shared quota, so they're tied to your account.");
+    }
     let res;
     try {
       res = await fetch(base() + "/assistant" + path, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(payload || {})
       });
     } catch (e) {
@@ -33,7 +47,11 @@ App.assistant = (function () {
     }
     let data = null;
     try { data = await res.json(); } catch (e) { data = null; }
-    if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
+    if (!res.ok) {
+      if (res.status === 401) throw new Error("Your session expired — sign in again to use the AI features.");
+      if (res.status === 429) throw new Error((data && data.error) || "You've used your AI allowance for now.");
+      throw new Error((data && data.error) || `Request failed (${res.status})`);
+    }
     return data;
   }
 
@@ -45,7 +63,8 @@ App.assistant = (function () {
   async function checkHealth(probe) {
     let res;
     try {
-      res = await fetch(base() + "/assistant/health" + (probe ? "?probe=1" : ""));
+      res = await fetch(base() + "/assistant/health" + (probe ? "?probe=1" : ""),
+        { headers: authHeaders() });
     } catch (e) {
       throw new Error("Can't reach the AI service. Check your connection, or the site may not have redeployed yet.");
     }
@@ -358,6 +377,6 @@ App.assistant = (function () {
   return {
     parseText, parseImage, parseNoteImage, estimateAssignment,
     ask, act, applyAction, buildContext,
-    history, pushHistory, clearHistory, checkHealth
+    history, pushHistory, clearHistory, checkHealth, available
   };
 })();

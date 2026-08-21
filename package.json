@@ -9,10 +9,11 @@
     "serve": "python3 -m http.server 8000",
     "test": "node tests/run.mjs",
     "test:node": "node tests/migration.mjs && node tests/assets.mjs && node tests/email.mjs",
-    "test:browser": "node tests/boot.mjs"
+    "test:browser": "node tests/boot.mjs",
+    "test:security": "node --import ./tests/stub/register.mjs tests/security.mjs"
   },
   "dependencies": {
-    "@netlify/blobs": "^8.1.0"
+    "@netlify/blobs": "^11.0.1"
   },
   "engines": {
     "node": ">=18"

@@ -137,6 +137,27 @@ App.aiAdd = (function () {
   }
 
   function open(opts) {
+    // The AI routes need an account (shared provider quota). Fail here with a
+    // route to the fix rather than letting someone type a description, upload
+    // a photo, and only then hit a 401.
+    if (!App.assistant.available()) {
+      UI.modal({
+        title: "Sign in to use AI",
+        size: "narrow",
+        body: `<p class="muted">Adding things with AI runs on a shared quota, so it's tied to an account.
+          You can still add everything by hand — the manual form has all the same fields.</p>`,
+        footer: `<button type="button" class="btn" data-close>Close</button>
+                 <button type="button" class="btn btn-primary" data-go-settings>Go to sign in</button>`,
+        onMount(root) {
+          root.querySelector("[data-go-settings]").addEventListener("click", () => {
+            UI.closeModal();
+            App.router.go("settings");
+          });
+        }
+      });
+      return;
+    }
+
     const scope = (opts && opts.scope === "periods") ? "periods" : "activities";
     const state = { scope, tab: (opts && opts.tab) || "text", text: "", busy: false, result: null, error: null, photoFile: null };
 

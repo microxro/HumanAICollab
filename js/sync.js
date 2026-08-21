@@ -57,6 +57,14 @@ App.sync = (function () {
 
   function isSignedIn() { return !!state.token && !!state.user; }
 
+  /**
+   * The bearer token, for other modules that call the backend directly.
+   * js/assistant.js needs it now that the AI routes require an account —
+   * they used to be anonymous, which meant anyone on the internet could
+   * spend this deploy's provider quota.
+   */
+  function authToken() { return state.token || null; }
+
   // Same-origin in production; configurable so a local file:// build can point
   // at a deployed site.
   function base() {
@@ -223,7 +231,17 @@ App.sync = (function () {
     if (App.ui) App.ui.toast("Synced", "Loaded your data from the cloud.", "ok");
   }
 
-  async function push(force) {
+  /**
+   * `overwrite` means the person explicitly chose to keep this device's copy
+   * after a conflict. It no longer sends a `force` flag — the server used to
+   * accept one that skipped concurrency control entirely, which meant any
+   * caller could overwrite another device's data on demand. Overwriting is
+   * now expressed the honest way: adopt the server's current version (done by
+   * the caller) and push against it, so the write still has to win a real
+   * conditional update and a *third* device's change can still raise a
+   * conflict instead of being silently lost.
+   */
+  async function push(overwrite) {
     if (!isSignedIn()) return;
     if (state.inflight) return;
     state.inflight = true;
@@ -231,7 +249,7 @@ App.sync = (function () {
     try {
       const res = await call("/sync", {
         method: "PUT",
-        body: { state: snapshot(), baseVersion: state.version, force: !!force }
+        body: { state: snapshot(), baseVersion: state.version }
       });
       state.version = res.version;
       state.lastSync = res.updatedAt;
@@ -265,7 +283,10 @@ App.sync = (function () {
         adoptRemote({ state: data.state, version: data.version, updatedAt: data.updatedAt });
       },
       onCancel() {
-        state.version = data.version;   // adopt the version, then force-write
+        // Adopt the server's version so the next push is a legitimate
+        // conditional update rather than a bypass.
+        state.version = data.version;
+        localStorage.setItem(VERSION_KEY, String(state.version));
         push(true);
       }
     });
@@ -480,7 +501,7 @@ App.sync = (function () {
   }
 
   return {
-    init, info, isSignedIn, on,
+    init, info, isSignedIn, authToken, on,
     signUp, signIn, signOut, restore, forgotPassword, resetPassword,
     push, pull, pullAndMerge, queue, refresh,
     createLinkCode, redeemLinkCode, children, parents, unlink,

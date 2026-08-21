@@ -13,6 +13,9 @@ const PORT = Number(process.env.PORT || 8899);
 const BASE = `http://localhost:${PORT}`;
 
 const NODE_SUITES = ["tests/migration.mjs", "tests/assets.mjs", "tests/email.mjs"];
+// These drive the real Netlify functions with only the storage layer stubbed,
+// so they need the loader that redirects _lib/blobs.js.
+const STUBBED_SUITES = ["tests/security.mjs"];
 const BROWSER_SUITES = ["tests/boot.mjs"];
 
 function portOpen(port) {
@@ -33,14 +36,15 @@ async function waitForPort(port, ms = 5000) {
 }
 
 const results = [];
-function run(file, env) {
+function run(file, env, args) {
   if (!existsSync(file)) { console.log(`\n(skipped, missing: ${file})`); return; }
   console.log(`\n${"=".repeat(64)}\n${file}\n${"=".repeat(64)}`);
-  const r = spawnSync(process.execPath, [file], { stdio: "inherit", env: { ...process.env, ...env } });
+  const r = spawnSync(process.execPath, [...(args || []), file], { stdio: "inherit", env: { ...process.env, ...env } });
   results.push({ file, code: r.status });
 }
 
 for (const f of NODE_SUITES) run(f);
+for (const f of STUBBED_SUITES) run(f, null, ["--import", "./tests/stub/register.mjs"]);
 
 let server = null;
 if (BROWSER_SUITES.length) {
