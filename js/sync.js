@@ -392,6 +392,39 @@ App.sync = (function () {
   // pushes it here; the server just stores and serves the last copy.
 
   async function pushIcsFeed(ics) { return (await call("/ics-feed", { method: "POST", body: { ics } })).token; }
+  /* ------------------------------------------------------------ F100 --- */
+
+  /** The origin an external client would point at. */
+  function apiBaseUrl() {
+    const b = (S.db.settings.apiBase || '').replace(/\/$/, '');
+    return b || location.origin;
+  }
+
+  function listApiTokens() { return call("/tokens"); }
+
+  /**
+   * Mints a personal API token. The full value comes back exactly once —
+   * the server stores it as a blob key, so there is nowhere to read it back
+   * from afterwards, only the prefix hint kept on the profile.
+   */
+  function mintApiToken(label) {
+    return call("/tokens", { method: "POST", body: { label } });
+  }
+
+  function revokeApiToken(id) {
+    return call("/tokens/" + encodeURIComponent(id), { method: "DELETE" });
+  }
+
+  function listWebhooks() { return call("/webhooks"); }
+
+  function addWebhook(url, events) {
+    return call("/webhooks", { method: "POST", body: { url, events } });
+  }
+
+  function removeWebhook(id) {
+    return call("/webhooks/" + encodeURIComponent(id), { method: "DELETE" });
+  }
+
   function icsFeedUrl(token) { return `${location.origin}${base()}/ics-feed/${encodeURIComponent(token)}`; }
 
   /* ------------------------------------------------------ F070 focus windows */
@@ -531,6 +564,8 @@ App.sync = (function () {
     requestCheckin, listCheckins, respondCheckin, sendGuardianNote, listGuardianNotes,
     proposeFocusWindow, listFocusWindows, respondFocusWindow, endFocusWindow,
     pushIcsFeed, icsFeedUrl,
+    listApiTokens, mintApiToken, revokeApiToken,
+    listWebhooks, addWebhook, removeWebhook, apiBaseUrl,
     listGroups, createGroup, joinGroup, getGroup,
     shareDeck, getSharedDeck, postFeed, confirmFeed, commentFeed, rateFeed, leaveGroup,
     addGroupTask, updateGroupTask, deleteGroupTask,

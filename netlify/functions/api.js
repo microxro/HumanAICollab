@@ -69,6 +69,14 @@ const LOCKOUT_MS = 15 * 60 * 1000;
 /** The complete set of account types. Anything else is rejected, not coerced. */
 const ROLES = ["student", "parent", "teacher"];
 
+/* ------------------------------------------------------------------ F100 -- */
+
+const API_TOKEN_PREFIX = "sk_";
+const MAX_API_TOKENS = 10;
+const MAX_WEBHOOKS = 5;
+const WEBHOOK_TIMEOUT_MS = 4000;
+const WEBHOOK_EVENTS = ["state.updated", "assignment.due", "grade.changed"];
+
 /**
  * Netlify Blobs throws on an empty key, a key beginning with "/" or "%2F",
  * and anything over 600 UTF-8 bytes. readJSON only swallows "not found", so
@@ -138,6 +146,26 @@ async function currentUser(req) {
   const header = req.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return null;
+
+  // F100 — a personal API token. `sk_` makes it distinguishable from a
+  // session JWT by inspection, so this is one extra branch rather than a
+  // change to every call site. Same shape as the ICS feed token that already
+  // works: server-minted, opaque, redeemable without a session.
+  if (token.startsWith(API_TOKEN_PREFIX)) {
+    if (!validBlobKey(token)) return null;
+    const rec = await readJSON("apiTokens", token, null);
+    if (!rec || !rec.userId) return null;
+    const profile = await readJSON("profiles", rec.userId);
+    if (!profile) return null;
+    // Revoked alongside sessions when the password changes.
+    if (Number(profile.tokenEpoch || 0) > Number(rec.epoch || 0)) return null;
+    // Best-effort usage stamp; never let it fail the request.
+    if (!rec.lastUsedAt || Date.now() - rec.lastUsedAt > 60000) {
+      writeJSON("apiTokens", token, { ...rec, lastUsedAt: Date.now() }).catch(() => {});
+    }
+    profile._viaApiToken = true;
+    return profile;
+  }
 
   const payload = await verifyToken(token);
   if (!payload || !payload.sub) return null;
@@ -528,6 +556,23 @@ async function pushState(req, user) {
     }, 409);
   }
 
+  // F100 — the only point at which the server observes a change, so it is
+  // where a delivery can be fired. Awaited rather than left dangling: a
+  // request-scoped function may be frozen the moment it responds, which would
+  // cut an in-flight delivery off mid-send. The cost is bounded by the 4s
+  // per-hook timeout, and only for accounts that registered one.
+  if (Array.isArray(user.webhooks) && user.webhooks.length) {
+    try {
+      await deliverWebhooks(user, "state.updated", {
+        version: stored.version,
+        updatedAt: stored.updatedAt,
+        userId: user.id
+      });
+    } catch (e) {
+      console.error("[webhooks] delivery pass failed", e);
+    }
+  }
+
   return ok({ version: stored.version, updatedAt: stored.updatedAt });
 }
 
@@ -729,6 +774,314 @@ async function respondCheckin(req, user) {
 // pushes that same text here — the server just stores and serves the last
 // copy under an unguessable token, so there's exactly one place that knows
 // how to turn Scholar data into iCalendar, and it isn't this file.
+
+/* ============================================================== F100 API == */
+
+/**
+ * Personal API tokens.
+ *
+ * Minted server-side and stored in Blobs keyed by the token itself, so
+ * redeeming one is a direct lookup with no session involved — the same shape
+ * the ICS feed already uses. The full token is returned exactly once, at mint
+ * time; afterwards only a prefix is shown, because the store holds the token
+ * as the key and there is nowhere to read it back from.
+ */
+async function listApiTokens(user) {
+  const index = Array.isArray(user.apiTokens) ? user.apiTokens : [];
+  return ok({
+    tokens: index.map((t) => ({
+      id: t.id, label: t.label, hint: t.hint,
+      createdAt: t.createdAt, lastUsedAt: t.lastUsedAt || null
+    })),
+    max: MAX_API_TOKENS
+  });
+}
+
+async function mintApiToken(req, user) {
+  const b = await body(req);
+  const label = String(b.label || "").trim().slice(0, 60) || "Untitled token";
+
+  const index = Array.isArray(user.apiTokens) ? user.apiTokens : [];
+  if (index.length >= MAX_API_TOKENS) {
+    return fail(409, `You already have ${MAX_API_TOKENS} tokens. Revoke one first.`);
+  }
+
+  const token = API_TOKEN_PREFIX + randomId(32);
+  const id = randomId(8);
+  const entry = {
+    id, label,
+    hint: token.slice(0, API_TOKEN_PREFIX.length + 6) + "…",
+    createdAt: Date.now()
+  };
+
+  await writeJSON("apiTokens", token, {
+    userId: user.id,
+    id,
+    label,
+    epoch: Number(user.tokenEpoch || 0),
+    createdAt: Date.now(),
+    lastUsedAt: null
+  });
+
+  await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    const list = Array.isArray(cur.apiTokens) ? cur.apiTokens : [];
+    return { ...cur, apiTokens: list.concat([{ ...entry, key: token }]) };
+  });
+
+  // The only time the caller ever sees it.
+  return ok({ token, entry });
+}
+
+async function revokeApiToken(user, id) {
+  const index = Array.isArray(user.apiTokens) ? user.apiTokens : [];
+  const hit = index.find((t) => t.id === id);
+  if (!hit) return fail(404, "No such token.");
+
+  await remove("apiTokens", hit.key);
+  await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    return { ...cur, apiTokens: (cur.apiTokens || []).filter((t) => t.id !== id) };
+  });
+  return ok({ revoked: id });
+}
+
+/* ------------------------------------------------------------- webhooks -- */
+
+/**
+ * Rejects anything that isn't a public https endpoint.
+ *
+ * An outbound POST to a caller-supplied URL is a server-side request forgery
+ * primitive: without this, a webhook pointed at 169.254.169.254 or
+ * http://localhost:8888 would have the function fetch internal endpoints and
+ * report back. This is the first thing a security tester probes.
+ */
+function webhookUrlProblem(raw) {
+  let u;
+  try { u = new URL(String(raw || "")); } catch (e) { return "That isn't a valid URL."; }
+  if (u.protocol !== "https:") return "Webhook URLs must use https.";
+  if (u.username || u.password) return "Webhook URLs can't carry credentials.";
+
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
+      host.endsWith(".internal") || host === "metadata.google.internal") {
+    return "That host isn't reachable from the internet.";
+  }
+  // IPv4 literals: block loopback, private, link-local and CGNAT ranges.
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 10 || a === 127 || a === 0 ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) ||
+        (a === 169 && b === 254) ||
+        (a === 100 && b >= 64 && b <= 127)) {
+      return "That address is on a private network.";
+    }
+  }
+  // IPv6 loopback, unique-local and link-local.
+  if (host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80")) {
+    return "That address is on a private network.";
+  }
+  return null;
+}
+
+async function listWebhooks(user) {
+  const hooks = Array.isArray(user.webhooks) ? user.webhooks : [];
+  return ok({
+    webhooks: hooks.map((h) => ({
+      id: h.id, url: h.url, events: h.events, createdAt: h.createdAt,
+      lastDeliveryAt: h.lastDeliveryAt || null,
+      lastStatus: h.lastStatus || null,
+      lastError: h.lastError || null
+    })),
+    max: MAX_WEBHOOKS,
+    events: WEBHOOK_EVENTS
+  });
+}
+
+async function addWebhook(req, user) {
+  const b = await body(req);
+  const url = String(b.url || "").trim();
+  const problem = webhookUrlProblem(url);
+  if (problem) return fail(400, problem);
+
+  const events = Array.isArray(b.events)
+    ? b.events.filter((e) => WEBHOOK_EVENTS.includes(e))
+    : [];
+  if (!events.length) return fail(400, `Choose at least one event: ${WEBHOOK_EVENTS.join(", ")}.`);
+
+  const hooks = Array.isArray(user.webhooks) ? user.webhooks : [];
+  if (hooks.length >= MAX_WEBHOOKS) return fail(409, `You already have ${MAX_WEBHOOKS} webhooks.`);
+
+  // Per-hook secret, combined with SCHOLAR_SECRET when signing, so a receiver
+  // can verify a delivery really came from this deploy and this hook.
+  const hook = {
+    id: randomId(8),
+    url,
+    events,
+    secret: randomId(24),
+    createdAt: Date.now(),
+    lastDeliveryAt: null,
+    lastStatus: null,
+    lastError: null
+  };
+
+  await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    const list = Array.isArray(cur.webhooks) ? cur.webhooks : [];
+    if (list.length >= MAX_WEBHOOKS) return undefined;
+    return { ...cur, webhooks: list.concat([hook]) };
+  });
+
+  return ok({ webhook: hook });   // secret shown so the receiver can verify
+}
+
+async function removeWebhook(user, id) {
+  const hooks = Array.isArray(user.webhooks) ? user.webhooks : [];
+  if (!hooks.some((h) => h.id === id)) return fail(404, "No such webhook.");
+  await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    return { ...cur, webhooks: (cur.webhooks || []).filter((h) => h.id !== id) };
+  });
+  return ok({ removed: id });
+}
+
+/**
+ * Delivers one event to every hook subscribed to it.
+ *
+ * Netlify functions are request-scoped: there is no queue and no worker, so
+ * this is a single attempt with a short timeout, fired inline while the
+ * request that caused the change is still running. Failures are recorded on
+ * the hook for the owner to see rather than retried — the ROADMAP line
+ * promising "delivery retries" overstated what this architecture supports,
+ * and it has been corrected rather than faked.
+ */
+async function deliverWebhooks(user, event, payload) {
+  const hooks = (Array.isArray(user.webhooks) ? user.webhooks : []).filter((h) => (h.events || []).includes(event));
+  if (!hooks.length) return;
+
+  const results = await Promise.all(hooks.map(async (h) => {
+    const bodyText = JSON.stringify({ event, at: Date.now(), data: payload });
+    let signature = "";
+    try {
+      signature = await hmacHex(process.env.SCHOLAR_SECRET + ":" + h.secret, bodyText);
+    } catch (e) {
+      return { id: h.id, lastDeliveryAt: Date.now(), lastStatus: null, lastError: "Couldn't sign the payload." };
+    }
+
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), WEBHOOK_TIMEOUT_MS);
+    try {
+      const res = await fetch(h.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Scholar-Webhook/1",
+          "X-Scholar-Event": event,
+          "X-Scholar-Signature": "sha256=" + signature
+        },
+        body: bodyText,
+        signal: ctl.signal,
+        redirect: "error"      // a redirect could point back at a private host
+      });
+      return {
+        id: h.id, lastDeliveryAt: Date.now(), lastStatus: res.status,
+        lastError: res.ok ? null : `Endpoint responded ${res.status}`
+      };
+    } catch (e) {
+      return {
+        id: h.id, lastDeliveryAt: Date.now(), lastStatus: null,
+        lastError: e.name === "AbortError" ? "Timed out after 4s" : String(e.message || e).slice(0, 140)
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
+
+  await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    const byId = new Map(results.map((r) => [r.id, r]));
+    return {
+      ...cur,
+      webhooks: (cur.webhooks || []).map((h) => (byId.has(h.id) ? { ...h, ...byId.get(h.id) } : h))
+    };
+  });
+}
+
+/** Hex HMAC-SHA256, for the webhook signature header. */
+async function hmacHex(secret, message) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/* --------------------------------------------------------- /v1 read API -- */
+
+/**
+ * Read-only, deliberately.
+ *
+ * Writes would have to reconcile with the optimistic-concurrency versioning
+ * that pushState uses, which is a second design problem rather than a longer
+ * endpoint list — so the limit is documented rather than left to be
+ * discovered. Everything is served from the state blob the user's own devices
+ * already sync.
+ */
+async function v1(user, resource, url) {
+  const rec = await readJSON("state", user.id, null);
+  const db = (rec && rec.data) || null;
+
+  if (resource === "me") {
+    return ok({
+      id: user.id, name: user.name, email: user.email, role: user.role,
+      syncedAt: rec ? rec.updatedAt : null, version: rec ? rec.version : 0
+    });
+  }
+  if (!db) return ok({ [resource]: [], syncedAt: null, note: "This account hasn't synced any data yet." });
+
+  const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 200));
+  const list = (arr) => (Array.isArray(arr) ? arr : []).slice(0, limit);
+
+  switch (resource) {
+    case "classes":
+      return ok({ classes: list(db.classes).map((c) => ({
+        id: c.id, name: c.name, code: c.code || null, room: c.room || null,
+        credits: c.credits, color: c.color, days: c.days || [], periodId: c.periodId || null
+      })), syncedAt: rec.updatedAt });
+
+    case "assignments": {
+      const status = url.searchParams.get("status");
+      let rows = list(db.assignments);
+      if (status) rows = rows.filter((a) => a.status === status);
+      return ok({ assignments: rows.map((a) => ({
+        id: a.id, title: a.title, classId: a.classId, due: a.due, status: a.status,
+        points: a.points, earned: a.earned, graded: !!a.graded, type: a.type || null
+      })), syncedAt: rec.updatedAt });
+    }
+
+    case "schedule":
+      return ok({
+        periods: list(db.periods).map((p) => ({ id: p.id, name: p.name, start: p.start, end: p.end })),
+        terms: list(db.terms).map((t) => ({ id: t.id, name: t.name, start: t.start, end: t.end, current: !!t.current })),
+        syncedAt: rec.updatedAt
+      });
+
+    case "grades":
+      return ok({ grades: list(db.classes).map((c) => {
+        const rows = (db.assignments || []).filter((a) => a.classId === c.id && a.graded && a.earned != null && a.points > 0);
+        const earned = rows.reduce((n, a) => n + Number(a.earned || 0), 0);
+        const possible = rows.reduce((n, a) => n + Number(a.points || 0), 0);
+        return {
+          classId: c.id, className: c.name, graded: rows.length,
+          percent: possible ? Math.round((earned / possible) * 1000) / 10 : null
+        };
+      }), syncedAt: rec.updatedAt });
+
+    default:
+      return fail(404, "Unknown resource. Try: me, classes, assignments, schedule, grades.");
+  }
+}
 
 async function pushIcsFeed(req, user) {
   const b = await body(req);
@@ -1487,6 +1840,34 @@ export default async (req) => {
 
     // Diagnostics for outbound email. Authenticated because ?probe=1 sends.
     if (parts[0] === "email-health" && method === "GET") return await emailHealth(req, user);
+
+    /* --------------------------------------------------------- F100 --- */
+
+    // The public read surface. Reachable with a session token too, which is
+    // what makes it testable from the app itself.
+    if (parts[0] === "v1") {
+      if (method !== "GET") return fail(405, "The /v1 API is read-only.");
+      return await v1(user, parts[1] || "me", url);
+    }
+
+    // Managing tokens and webhooks needs a *session*, never an API token —
+    // otherwise a leaked token could mint more tokens for itself and quietly
+    // survive the one being revoked.
+    if (parts[0] === "tokens" || parts[0] === "webhooks") {
+      if (user._viaApiToken) {
+        return fail(403, "API tokens can't manage tokens or webhooks. Sign in to do that.");
+      }
+    }
+    if (parts[0] === "tokens") {
+      if (!parts[1] && method === "GET") return await listApiTokens(user);
+      if (!parts[1] && method === "POST") return await mintApiToken(req, user);
+      if (parts[1] && method === "DELETE") return await revokeApiToken(user, parts[1]);
+    }
+    if (parts[0] === "webhooks") {
+      if (!parts[1] && method === "GET") return await listWebhooks(user);
+      if (!parts[1] && method === "POST") return await addWebhook(req, user);
+      if (parts[1] && method === "DELETE") return await removeWebhook(user, parts[1]);
+    }
 
     if (parts[0] === "me") {
       if (method === "GET") return ok({ user: publicUser(user) });

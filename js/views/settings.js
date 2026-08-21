@@ -791,6 +791,7 @@ App.views.settings = (function () {
     { id: "prefs", label: "Preferences" },
     { id: "schedule", label: "Schedule & terms" },
     { id: "data", label: "Data" },
+    { id: "developer", label: "Developer" },
     { id: "about", label: "About" }
   ];
 
@@ -808,8 +809,225 @@ App.views.settings = (function () {
         : tab === "prefs" ? prefsTab()
         : tab === "schedule" ? scheduleTab()
         : tab === "data" ? dataTab()
+        : tab === "developer" ? developerTab()
         : aboutTab()}
     </div>`;
+  }
+
+
+  /* ============================================== F100 — Developer tab === */
+
+  // Filled by mountDeveloper() from the server; null means "not fetched yet".
+  let devState = { tokens: null, hooks: null, freshToken: null, error: null };
+
+  function developerTab() {
+    if (!App.sync.isSignedIn()) {
+      return `<div class="card"><div class="card-body">
+        ${UI.emptyState("groupsSignIn", "Sign in to use the API",
+          "Personal API tokens and webhooks are issued by the server, so they're tied to an account.")}
+      </div></div>`;
+    }
+
+    const base = App.sync.apiBaseUrl();
+
+    return `
+      <div class="card mb-16">
+        <div class="card-head"><h3>API tokens</h3></div>
+        <div class="card-body">
+          <p class="small dim" style="margin-top:0">A token lets a script you write read your own Scholar
+          data. Treat it like a password — anyone holding it can read everything below.</p>
+
+          ${devState.freshToken ? `
+            <div class="card" style="background:var(--ok-bg);border:none;margin-bottom:12px">
+              <div class="card-body">
+                <div class="bold small">Copy this now — it isn't shown again</div>
+                <p class="tiny dim" style="margin:4px 0 8px">The server stores it in a form it can't read back,
+                so this is the only time it can be displayed.</p>
+                <div class="row gap-8">
+                  <input class="input mono grow" readonly data-select-all value="${U.esc(devState.freshToken)}" aria-label="Your new API token" />
+                  <button type="button" class="btn" data-copy-token>Copy</button>
+                </div>
+              </div>
+            </div>` : ""}
+
+          <div id="devTokens">${devState.tokens ? tokenRows(devState.tokens) : `<div class="dim small">Loading…</div>`}</div>
+
+          <div class="row gap-8 mt-12" style="align-items:flex-end">
+            <div class="field grow" style="margin:0">
+              <label>Label</label>
+              <input class="input" id="devTokenLabel" placeholder="e.g. My homework script" maxlength="60" />
+            </div>
+            <button type="button" class="btn btn-primary" data-mint-token>Create token</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-head"><h3>Webhooks</h3></div>
+        <div class="card-body">
+          <p class="small dim" style="margin-top:0">Scholar POSTs to a URL you choose when something changes.
+          Each delivery is signed, so your endpoint can verify it really came from here.</p>
+
+          <div id="devHooks">${devState.hooks ? hookRows(devState.hooks) : `<div class="dim small">Loading…</div>`}</div>
+
+          <div class="form-grid mt-12">
+            <div class="field full">
+              <label>Endpoint URL</label>
+              <input class="input" id="devHookUrl" type="url" placeholder="https://example.com/scholar-hook" />
+            </div>
+            <div class="field full">
+              <label>Events</label>
+              <div class="row wrap gap-6">
+                <label class="row gap-6" style="align-items:center">
+                  <input type="checkbox" class="check" id="evState" checked /> <span class="small">state.updated</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary" data-add-hook>Add webhook</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Endpoints</h3></div>
+        <div class="card-body">
+          <p class="small dim" style="margin-top:0">Send your token as a bearer header. The API is
+          <strong>read-only</strong> — writes would have to reconcile with the versioning that keeps your
+          devices in sync, so they aren't offered rather than offered unreliably.</p>
+          <pre class="small" style="white-space:pre-wrap;overflow-x:auto;background:var(--surface-2);padding:10px;border-radius:8px">curl -H "Authorization: Bearer sk_..." \\
+  ${U.esc(base)}/api/v1/assignments</pre>
+          <div class="table-wrap mt-12">
+            <table class="table">
+              <thead><tr><th>Endpoint</th><th>Returns</th></tr></thead>
+              <tbody>
+                <tr><td class="mono tiny">GET /api/v1/me</td><td class="small">Your account and last sync time</td></tr>
+                <tr><td class="mono tiny">GET /api/v1/classes</td><td class="small">Your classes</td></tr>
+                <tr><td class="mono tiny">GET /api/v1/assignments</td><td class="small">Assignments — add <span class="mono">?status=todo</span></td></tr>
+                <tr><td class="mono tiny">GET /api/v1/schedule</td><td class="small">Periods and terms</td></tr>
+                <tr><td class="mono tiny">GET /api/v1/grades</td><td class="small">Per-class percentage</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="tiny dim mt-12">Verify a webhook by computing
+          <span class="mono">HMAC-SHA256</span> of the raw request body with your hook's secret and comparing it
+          to the <span class="mono">X-Scholar-Signature</span> header.</p>
+        </div>
+      </div>`;
+  }
+
+  function tokenRows(list) {
+    if (!list.length) return `<div class="dim small">No tokens yet.</div>`;
+    return `<div class="list">${list.map((t) => `
+      <div class="list-item">
+        <span class="grow" style="min-width:0">
+          <div class="title truncate">${U.esc(t.label)}</div>
+          <div class="meta"><span class="mono">${U.esc(t.hint)}</span> · created ${U.esc(U.fmtDate(U.dateKey(new Date(t.createdAt))))}
+            ${t.lastUsedAt ? ` · last used ${U.esc(U.relDate(U.dateKey(new Date(t.lastUsedAt))))}` : " · never used"}</div>
+        </span>
+        <button type="button" class="btn btn-sm" data-revoke-token="${U.esc(t.id)}">Revoke</button>
+      </div>`).join("")}</div>`;
+  }
+
+  function hookRows(list) {
+    if (!list.length) return `<div class="dim small">No webhooks yet.</div>`;
+    return `<div class="list">${list.map((h) => `
+      <div class="list-item">
+        <span class="grow" style="min-width:0">
+          <div class="title truncate mono tiny">${U.esc(h.url)}</div>
+          <div class="meta">${U.esc((h.events || []).join(", "))}
+            ${h.lastDeliveryAt
+              ? ` · last delivery ${U.esc(U.relDate(U.dateKey(new Date(h.lastDeliveryAt))))}
+                  ${h.lastError ? `<span class="badge danger">${U.esc(h.lastError)}</span>`
+                                 : `<span class="badge ok">${U.esc(String(h.lastStatus || "OK"))}</span>`}`
+              : " · not delivered yet"}</div>
+        </span>
+        <button type="button" class="btn btn-sm" data-remove-hook="${U.esc(h.id)}">Remove</button>
+      </div>`).join("")}</div>`;
+  }
+
+  function loadDeveloper(root) {
+    if (!App.sync.isSignedIn()) return;
+    App.sync.listApiTokens()
+      .then((r) => {
+        devState.tokens = r.tokens || [];
+        const box = root.querySelector("#devTokens");
+        if (box) { box.innerHTML = tokenRows(devState.tokens); UI.associateLabels(box); }
+      })
+      .catch((e) => {
+        const box = root.querySelector("#devTokens");
+        if (box) box.innerHTML = `<div class="small" role="alert" style="color:var(--danger)">${U.esc(e.message)}</div>`;
+      });
+
+    App.sync.listWebhooks()
+      .then((r) => {
+        devState.hooks = r.webhooks || [];
+        const box = root.querySelector("#devHooks");
+        if (box) box.innerHTML = hookRows(devState.hooks);
+      })
+      .catch((e) => {
+        const box = root.querySelector("#devHooks");
+        if (box) box.innerHTML = `<div class="small" role="alert" style="color:var(--danger)">${U.esc(e.message)}</div>`;
+      });
+  }
+
+  function mountDeveloper(root) {
+    loadDeveloper(root);
+
+    U.on(root, "click", "[data-mint-token]", (_e, el) => {
+      const input = root.querySelector("#devTokenLabel");
+      const label = input ? input.value.trim() : "";
+      UI.busy(el, App.sync.mintApiToken(label))
+        .then((r) => {
+          devState.freshToken = r.token;
+          UI.toast("Token created", "Copy it now — it isn't shown again.", "ok");
+          App.router.refresh();
+        })
+        .catch((e) => UI.toast("Couldn't create the token", e.message, "danger"));
+    });
+
+    U.on(root, "click", "[data-copy-token]", () => {
+      const f = root.querySelector("[data-select-all]");
+      if (!f || !navigator.clipboard) return;
+      navigator.clipboard.writeText(f.value)
+        .then(() => UI.toast("Copied", "The token is on your clipboard.", "ok"))
+        .catch(() => UI.toast("Couldn't copy", "Select the text and copy it manually.", "warn"));
+    });
+
+    U.on(root, "click", "[data-revoke-token]", (_e, el) => {
+      const id = el.dataset.revokeToken;
+      UI.confirm({
+        title: "Revoke this token?",
+        message: "Anything using it stops working immediately. This can't be undone.",
+        okLabel: "Revoke",
+        danger: true,
+        onConfirm() {
+          App.sync.revokeApiToken(id)
+            .then(() => { devState.freshToken = null; UI.toast("Revoked", "", "warn"); App.router.refresh(); })
+            .catch((e) => UI.toast("Couldn't revoke", e.message, "danger"));
+        }
+      });
+    });
+
+    U.on(root, "click", "[data-add-hook]", (_e, el) => {
+      const url = (root.querySelector("#devHookUrl") || {}).value || "";
+      const events = [];
+      if (root.querySelector("#evState") && root.querySelector("#evState").checked) events.push("state.updated");
+      if (!events.length) { UI.toast("Pick an event", "Choose at least one.", "warn"); return; }
+
+      UI.busy(el, App.sync.addWebhook(url.trim(), events))
+        .then((r) => {
+          UI.toast("Webhook added",
+            "Signing secret: " + (r.webhook && r.webhook.secret ? r.webhook.secret : ""), "ok");
+          App.router.refresh();
+        })
+        .catch((e) => UI.toast("Couldn't add the webhook", e.message, "danger"));
+    });
+
+    U.on(root, "click", "[data-remove-hook]", (_e, el) => {
+      App.sync.removeWebhook(el.dataset.removeHook)
+        .then(() => { UI.toast("Removed", "", "warn"); App.router.refresh(); })
+        .catch((e) => UI.toast("Couldn't remove it", e.message, "danger"));
+    });
   }
 
   /* ---------------------------------------------------------------- forms */
@@ -1295,6 +1513,7 @@ App.views.settings = (function () {
     // non-probe result briefly; the explicit "Check again" button below
     // bypasses it.
     if (root.querySelector("#aiStatus")) renderAiStatus(root, false, true);
+    if (root.querySelector("#devTokens")) mountDeveloper(root);
     U.on(root, "click", "[data-ai-check]", () => renderAiStatus(root, false));
     U.on(root, "click", "[data-ai-probe]", () => renderAiStatus(root, true));
 

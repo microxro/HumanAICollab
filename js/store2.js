@@ -850,12 +850,13 @@
   };
   S.recentNotifications = function (n) { return S.db.notifications.slice(0, n || 20); };
 
-  S.mintApiToken = function (label) {
-    return S.insert("apiTokens", { label, token: U.uid("tok") + U.uid(""), createdAt: Date.now() });
-  };
-  S.revokeApiToken = function (id) { S.remove("apiTokens", id); };
-
-  S.addWebhook = function (url, events) { return S.insert("webhooks", { url, events, createdAt: Date.now() }); };
+  // F100 — API tokens and webhooks are server-side objects. They used to be
+  // minted here with U.uid(), which produced a local string the server had
+  // never seen and could not authenticate anything: a credential-shaped
+  // decoration. The real ones live in App.sync (mintApiToken, listApiTokens,
+  // revokeApiToken, addWebhook, listWebhooks, removeWebhook) and are issued
+  // and stored by the backend. The local `apiTokens` / `webhooks` collections
+  // are kept only as a display cache of what the server reported.
 
   // Exposed so importJSON()/replaceAll() in store.js can re-run it after a
   // wholesale data swap. Those only run the older v1/v2 migrate(), so a backup
