@@ -800,3 +800,124 @@
   border-radius: var(--radius-xs);
 }
 .feed-item-official .title { font-weight: 700; }
+
+/* ==========================================================================
+   Guidance — recommendation cards that show their working
+
+   The visual job here is different from every other view: these are claims
+   about someone's future, so the evidence behind each one has to read as part
+   of the card rather than as small print under it. Hence the reason list gets
+   its own indented rail with a glyph per evidence type, and cautions are the
+   same shape as endorsements so a warning can't be mistaken for decoration.
+   ========================================================================== */
+
+.guide-sec { margin-bottom: 24px; }
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.section-head h2 { font-size: 1.05rem; margin: 0; }
+
+/* ---- callout: a statement the page is making, not a control ------------- */
+.callout {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 12px 14px;
+}
+.callout.ok     { border-left-color: var(--ok);     background: var(--ok-bg, var(--surface)); }
+.callout.warn   { border-left-color: var(--warn);   background: var(--warn-bg, var(--surface)); }
+.callout.danger { border-left-color: var(--danger); background: var(--danger-bg, var(--surface)); }
+.callout.info   { border-left-color: var(--info);   background: var(--info-bg, var(--surface)); }
+.callout strong { color: var(--text); }
+
+/* ---- the cards ---------------------------------------------------------- */
+.guide-card .card-body { padding-bottom: 14px; }
+
+.rank {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: .8rem;
+  color: var(--text-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+/* ---- evidence rail ------------------------------------------------------ */
+.reasons { list-style: none; margin: 12px 0 0; padding: 0; }
+.reasons li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  font-size: .88rem;
+  color: var(--text-2);
+  padding: 4px 0;
+}
+.reasons .r-ico {
+  color: var(--brand-600);
+  font-size: .8rem;
+  line-height: 1.5;
+  text-align: center;
+}
+/* A caution is the same shape as an endorsement so it can't read as garnish;
+   only the glyph and its colour separate them, and the text carries the rest. */
+.reasons li.caution .r-ico { color: var(--warn); font-weight: 700; }
+.reasons li.caution { color: var(--text-2); }
+
+.reality {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  font-size: .86rem;
+  color: var(--text-2);
+}
+.reality strong { color: var(--text); }
+
+.opens { margin-top: 12px; }
+.opens-k {
+  font-size: .7rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+/* A chip that is a label, not a control — no hover, no pointer. */
+.chip.static { cursor: default; }
+.chip.static:hover { border-color: var(--border); color: var(--text-2); }
+
+.chip-x {
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0 0 6px;
+  margin: 0;
+}
+.chip-x:hover { color: var(--danger); }
+
+/* Full-width tab strip, as opposed to the compact one in a page header. */
+.segmented.wide { width: 100%; }
+.segmented.wide button { flex: 1; }
+
+@media (max-width: 560px) {
+  .reasons li { grid-template-columns: 16px minmax(0, 1fr); gap: 6px; }
+  .rank { min-width: 20px; height: 20px; }
+}

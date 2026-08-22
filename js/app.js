@@ -34,6 +34,7 @@
       { id: "activities", label: "Activities", icon: "◇" },
       { id: "goals",      label: "Goals",      icon: "◎" },
       { id: "college",    label: "Applications", icon: "◉" },
+      { id: "guidance",   label: "Guidance",   icon: "✧" },
       { id: "contacts",   label: "Contacts",   icon: "☎" }
     ]},
     { group: "Connect", items: [

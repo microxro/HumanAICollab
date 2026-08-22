@@ -71,6 +71,7 @@ const surface = await page.evaluate(() => ({
   views: Object.keys(App.views),
   sync: App.sync ? Object.keys(App.sync) : [],
   planner: App.planner ? Object.keys(App.planner) : [],
+  guidance: App.guidance ? Object.keys(App.guidance) : [],
   assistant: App.assistant ? Object.keys(App.assistant) : [],
   charts: App.charts ? Object.keys(App.charts) : [],
   nlp: App.nlp ? Object.keys(App.nlp) : [],
@@ -124,7 +125,11 @@ ok("the withdrawn delivery-retries claim is gone",
    !/delivery retries/.test(roadmap) || /no delivery retries/i.test(roadmap));
 
 console.log("\ninventory: the app's public surface is intact");
-ok("all 21 views registered", surface.views.length >= 21, `${surface.views.length}`);
+ok("all 22 views registered", surface.views.length >= 22, `${surface.views.length}`);
+ok("guidance is one of them", surface.views.includes("guidance"), surface.views.join(", "));
+ok("its engine is loaded", surface.guidance && surface.guidance.length >= 6,
+   JSON.stringify(surface.guidance));
+ok("guidance is documented in the roadmap", /\*\*Guidance \(F151\)\.\*\*/.test(roadmap));
 ok("store exposes its selectors", surface.store.length > 60, `${surface.store.length}`);
 ok("F100 client methods present",
    ["mintApiToken", "listApiTokens", "revokeApiToken", "addWebhook", "listWebhooks", "removeWebhook"]

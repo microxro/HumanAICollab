@@ -18,7 +18,8 @@
     "test:controls": "node tests/controls.mjs",
     "test:inventory": "node tests/inventory.mjs",
     "test:concurrency": "node --import ./tests/stub/register.mjs tests/concurrency.mjs",
-    "test:hardening": "node --import ./tests/stub/register.mjs tests/hardening.mjs"
+    "test:hardening": "node --import ./tests/stub/register.mjs tests/hardening.mjs",
+    "test:guidance": "node tests/guidance.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1"

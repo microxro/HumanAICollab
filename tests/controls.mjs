@@ -23,7 +23,7 @@ const ok = (name, cond, extra) => {
 
 const VIEWS = ["dashboard", "calendar", "schedule", "homework", "classes", "grades",
   "planner", "focus", "flashcards", "notes", "reading", "activities", "goals",
-  "college", "contacts", "analytics", "sharing", "groups", "parent", "settings", "assistant"];
+  "college", "guidance", "contacts", "analytics", "sharing", "groups", "parent", "settings", "assistant"];
 
 /**
  * Controls skipped by the sweep, as valid CSS selectors.

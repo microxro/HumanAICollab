@@ -72,6 +72,16 @@
     need(db, "sessionRatings", []); // [{id, sessionId, quality, at}]
     need(db, "changeAlerts", []);   // dismissed/seen change-detection alerts
     need(db, "streak", { count: 0, last: null });
+
+    // Guidance: the only inputs the student supplies directly. Everything
+    // else the engine reads is already in the database, which is the point —
+    // this is four fields, not a questionnaire.
+    need(db, "guidance", {
+      stage: "high",      // middle | high | college — what they're choosing for
+      interests: [],      // free text, weighted above anything inferred
+      targets: [],        // schools they're aiming at, beyond collegeApps
+      dismissed: []       // "pw:<id>" / "el:<id>" they've waved away
+    });
     need(db.streak, "freezes", 0);  // F040
 
     // ---- settings additions

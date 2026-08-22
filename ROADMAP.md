@@ -56,6 +56,35 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+**Guidance (F151).** Added after the 150, at the owner's request, and the
+first item here that isn't on the original list. A new view that answers the
+two questions a student actually has to decide — *which electives do I pick*
+and *what field is this pointing at* — from the record Scholar already holds.
+
+The engine (`js/guidance.js`) is deterministic and entirely local: no API key,
+no network, no provider. That is a deliberate constraint rather than a
+limitation to apologise for. A recommendation about someone's education should
+be auditable line by line, and every card in the view lists the actual grades,
+hours and category averages that moved it up the ranking, so a student can
+disagree with a suggestion for a specific reason.
+
+What it reads: per-class grades and their trajectory; each subject scored
+**relative to the student's own average**, which is the only way to compare a
+91 from a hard grader with a 96 from an easy one; study minutes per class, so
+a cheap A and an expensive A are told apart; category performance pooled
+across every class, which is what identifies whether someone is a builder, a
+writer or a test-taker; voluntary depth (notes, decks, books nobody assigned);
+activities with hours and leadership roles; and stated interests, weighted
+above everything inferred, because someone telling you what they want is
+better evidence than a gradebook guess.
+
+It refuses to overclaim. A confidence score derived from how many of six
+signals are actually present sits at the top of the page, and with a thin
+profile it says so instead of inventing a destiny from two grades. The
+"What it used" tab lists every input and, just as importantly, what it cannot
+see: the school's real course list, test scores, cost and aid, and the student
+themselves.
+
 **F059 — teacher accounts.** A `teacher` role at signup, carried onto group
 membership records. A teacher's post to a class feed is flagged
 `authoritative`, badged "From your teacher", and skips the crowdsourced

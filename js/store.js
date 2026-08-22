@@ -1248,6 +1248,13 @@ App.store = (function () {
     db.activities.forEach((a) => { a.hours = []; });
     db.usage = {};
     db.streak = { count: 0, last: null, xp: 0 };
+    // seed() produces a v1-shaped database; every v3 field is added by
+    // ensureV3(). loadDemo() has always called it and this hadn't, so
+    // "Erase everything and start over" left the store missing recentViews,
+    // navVisits, moodLog and the rest — the next paint then threw on the
+    // first one it touched, and the app was dead until localStorage was
+    // cleared by hand. Same repair as loadDemo, for the same reason.
+    if (App.store && App.store.ensureV3) App.store.ensureV3();
     commit();
   }
 

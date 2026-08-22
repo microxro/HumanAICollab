@@ -48,6 +48,12 @@ Netlify Blobs needs no setup — it's provisioned automatically. The API refuses
 
 The weekly digest (`netlify/functions/weekly-digest.js`) runs on Netlify's scheduler — no extra setup, but you can change the cron expression at the bottom of that file if Monday 13:00 UTC isn't the right time for your users.
 
+**Guidance.** A view that reads your grades, study time, assessment-category
+performance, activities and stated interests, and ranks electives and fields
+of study against them. It runs entirely in the browser — no API key, nothing
+sent anywhere — and every recommendation shows the numbers behind it. It needs
+no setup; it gets more useful as there is more in the app to read.
+
 **Optional — operator diagnostics.**
 
 | Variable | Value |

@@ -21,7 +21,7 @@ const RULES = {
 const VIEWS = [
   "dashboard", "calendar", "schedule", "homework", "classes", "grades",
   "planner", "focus", "flashcards", "notes", "reading", "activities",
-  "goals", "college", "contacts", "analytics", "sharing", "groups",
+  "goals", "college", "guidance", "contacts", "analytics", "sharing", "groups",
   "parent", "settings", "assistant"
 ];
 
