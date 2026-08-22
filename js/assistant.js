@@ -50,7 +50,13 @@ App.assistant = (function () {
     if (!res.ok) {
       if (res.status === 401) throw new Error("Your session expired — sign in again to use the AI features.");
       if (res.status === 429) throw new Error((data && data.error) || "You've used your AI allowance for now.");
-      throw new Error((data && data.error) || `Request failed (${res.status})`);
+      const err = new Error((data && data.error) || `Request failed (${res.status})`);
+      // Diagnostics ride on the error, not just the success path. A failure
+      // that can show what the server actually read is the difference between
+      // "it didn't work" and a cause the user can act on.
+      if (data && data.source) err.source = data.source;
+      err.status = res.status;
+      throw err;
     }
     return data;
   }
@@ -97,6 +103,17 @@ App.assistant = (function () {
    */
   async function fromUrl(url, kind) {
     return req("/from-url", { url: String(url || "").trim(), kind: kind || "schedule" });
+  }
+
+  /**
+   * Same extraction, but from text the student pasted rather than a page.
+   *
+   * The fallback for every page the server can't read: JavaScript-rendered
+   * sites, anything behind a school login, and PDFs. Without it those pages
+   * have no route through the feature at all.
+   */
+  async function fromText(text, kind) {
+    return req("/from-url", { text: String(text || "").trim(), kind: kind || "schedule" });
   }
 
   /** Downscales + re-encodes a photo client-side before it ever leaves the device. */
@@ -389,7 +406,7 @@ App.assistant = (function () {
   }
 
   return {
-    parseText, parseImage, parseNoteImage, fromUrl, estimateAssignment,
+    parseText, parseImage, parseNoteImage, fromUrl, fromText, estimateAssignment,
     ask, act, applyAction, buildContext,
     history, pushHistory, clearHistory, checkHealth, available
   };

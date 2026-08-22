@@ -300,6 +300,41 @@ console.log("\nguidance: a trend needs enough graded work to mean anything");
   ok("six rising grades produce a positive one", r.many > 20, String(r.many));
 }
 
+/* ============================================ a school's own course list == */
+console.log("\nguidance: a real course list replaces the general catalogue");
+{
+  const r = await withData(
+    classWith("s1", "AP Computer Science", "CSC-1", [[96, 100], [95, 100], [97, 100], [96, 100]]) +
+    classWith("s2", "Spanish III", "SPA-303", [[88, 100], [87, 100], [89, 100], [88, 100]]) +
+    `db.guidance = { stage: "high", interests: [], targets: [], dismissed: [],
+      school: "Mead", catalogUrl: "", offeredAt: Date.now(), offered: [
+        { name: "AP Computer Science A", code: "CSC-340", subject: "cs", level: "ap", grades: "10-12", prereq: "", description: "Java." },
+        { name: "Spanish I", code: "SPA-101", subject: "language", level: "regular", grades: "9-12", prereq: "", description: "" },
+        { name: "Ceramics I", code: "ART-110", subject: "arts", level: "regular", grades: "9-12", prereq: "", description: "" }
+      ] };`
+  );
+  const ids = r.electives.map((e) => e.id);
+  ok("only the school's own courses are offered", ids.every((i) => i.startsWith("of-")), JSON.stringify(ids));
+  ok("none of the generic catalogue leaks in", !ids.some((i) => i.startsWith("hs-")), JSON.stringify(ids));
+  ok("the strongest subject's course leads", r.electives[0].id === "of-CSC-340", JSON.stringify(ids));
+
+  // "Spanish I" is a prefix of "Spanish III". A bare substring test drops the
+  // course the student should see; the boundary check is what saves it.
+  ok("a numbered sequence isn't confused with its own later year",
+     ids.includes("of-SPA-101"), JSON.stringify(ids));
+
+  // ...while a course genuinely on the timetable is still filtered.
+  const dup = await withData(
+    classWith("d1", "AP Computer Science A", "CSC-1", [[95, 100], [95, 100], [95, 100], [95, 100]]) +
+    `db.guidance = { stage: "high", interests: [], targets: [], dismissed: [], offered: [
+        { name: "AP Computer Science A", code: "CSC-340", subject: "cs", level: "ap", grades: "", prereq: "", description: "" },
+        { name: "Ceramics I", code: "ART-110", subject: "arts", level: "regular", grades: "", prereq: "", description: "" }
+      ] };`
+  );
+  ok("an exact match is still filtered out",
+     !dup.electives.some((e) => e.id === "of-CSC-340"), JSON.stringify(dup.electives.map((e) => e.id)));
+}
+
 /* ==================================================================== XSS = */
 console.log("\nguidance: hostile input in an interest can't become markup");
 {

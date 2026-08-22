@@ -164,5 +164,49 @@ console.log("\nurlguard: fetching re-screens every redirect");
   globalThis.fetch = realFetch;
 }
 
+/* ============================================= links and unrendered pages = */
+console.log("\nurlguard: an index page's links are offered as candidates");
+{
+  const html = `<html><body>
+    <a href="/files/course-guide.pdf">2026-27 Course Guide</a>
+    <a href="/o/mead/page/registration">Course Registration</a>
+    <a href="/o/mead/page/athletics">Athletics</a>
+    <a href="#top">Back to top</a>
+    <a href="mailto:x@y.z">Email us</a>
+    <a href="/o/mead/page/electives">Electives</a>
+  </body></html>`;
+  const links = G.pageLinks(html, "https://mead.example/o/mead/page/electives");
+  ok("anchors are absolute", links.every((l) => l.url.startsWith("https://mead.example/")), JSON.stringify(links));
+  ok("in-page anchors are dropped", !links.some((l) => l.url.includes("#top")), JSON.stringify(links));
+  ok("mailto is dropped", !links.some((l) => /mailto/.test(l.url)), JSON.stringify(links));
+  ok("a PDF is flagged", links.some((l) => l.pdf && /Course Guide/.test(l.text)), JSON.stringify(links));
+  ok("link text is kept", links.some((l) => l.text === "Course Registration"), JSON.stringify(links));
+}
+
+console.log("\nurlguard: a page whose content never arrived is recognised");
+{
+  // The signature of a single-page-app shell: a large HTML payload whose
+  // words are all navigation, because the content is fetched by JavaScript
+  // a server-side fetch never runs.
+  const shell = "<html><body>" +
+    "<nav><a href=\"/a\">About</a><a href=\"/b\">Academics</a><a href=\"/c\">Athletics</a></nav>" +
+    "<div id=\"root\"></div>" +
+    "<script>" + "x".repeat(6000) + "</script>" +
+    "</body></html>";
+  const shellText = G.htmlToText(shell);
+  ok("the shell is flagged", G.looksUnrendered(shellText, shell), JSON.stringify(shellText));
+
+  const real = "<html><body><h1>Electives</h1>" +
+    Array.from({ length: 60 }, (_, i) => `<p>Course ${i} is a semester elective open to grades 9 through 12.</p>`).join("") +
+    "</body></html>";
+  ok("a real page is not flagged", !G.looksUnrendered(G.htmlToText(real), real));
+
+  // A short page that is genuinely short must not be called unrendered just
+  // for being brief — the ratio is what distinguishes them.
+  const terse = "<html><body><p>Period 1 8:00-8:50</p><p>Period 2 8:55-9:45</p></body></html>";
+  ok("a terse but complete page is not flagged", !G.looksUnrendered(G.htmlToText(terse), terse),
+     JSON.stringify(G.htmlToText(terse)));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -921,3 +921,34 @@
   .reasons li { grid-template-columns: 16px minmax(0, 1fr); gap: 6px; }
   .rank { min-width: 20px; height: 20px; }
 }
+
+/* The extracted-text sample shown when a link can't be read. Monospaced and
+   scroll-capped: it is evidence to glance at, not content to read, and an
+   unbounded dump of a page's navigation would bury the fix underneath it. */
+.read-sample {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  max-height: 200px;
+  overflow: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .78rem;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.link-candidate {
+  justify-content: flex-start;
+  text-align: left;
+  width: 100%;
+  white-space: normal;
+}
+.link-candidate .tag {
+  background: var(--surface-2);
+  color: var(--text-3);
+  margin-right: 6px;
+}

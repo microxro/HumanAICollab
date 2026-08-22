@@ -200,7 +200,31 @@ App.aiAdd = (function () {
 
     let resultHTML = "";
     if (state.error) {
-      resultHTML = `<div class="mt-16" style="color:var(--danger)">${U.esc(state.error)}</div>`;
+      // The same rule as everywhere else here: show what the server actually
+      // read. A bare "couldn't read that" leaves the student unable to tell a
+      // wrong link from a page that renders itself with JavaScript.
+      const src = state.errorSource;
+      const cands = (src && src.candidates) || [];
+      resultHTML = `<div class="callout warn mt-16">
+        <strong>${U.esc(state.error)}</strong>
+        ${src && src.chars != null ? `<p class="small" style="margin:8px 0 0">
+          Read ${src.chars.toLocaleString()} characters${src.title ? ` from “${U.esc(src.title)}”` : ""}.</p>` : ""}
+        ${src && src.sample ? `<details style="margin-top:8px">
+          <summary class="small" style="cursor:pointer">Show what it actually read</summary>
+          <pre class="read-sample">${U.esc(src.sample)}</pre>
+        </details>` : ""}
+        ${cands.length ? `<div style="margin-top:10px">
+          <div class="small bold">Other links on that page</div>
+          <div class="col gap-4" style="margin-top:6px">
+            ${cands.map((c) => `<button type="button" class="btn btn-sm link-candidate" data-try-link="${U.esc(c.url)}">
+              ${c.pdf ? `<span class="tag">PDF</span> ` : ""}${U.esc(c.text)}
+            </button>`).join("")}
+          </div>
+        </div>` : ""}
+        <p class="small" style="margin:10px 0 0">
+          Or switch to <strong>Describe it</strong> and paste the text straight in — that always works.
+        </p>
+      </div>`;
     } else if (state.result) {
       const r = state.result;
       const entries = r.entries || [], periods = r.periods || [], events = r.events || [];
@@ -334,7 +358,7 @@ App.aiAdd = (function () {
         const ta = modalRoot.querySelector('[name="desc"]');
         state.text = ta ? ta.value : "";
         if (!state.text.trim()) return;
-        state.busy = true; state.error = null; render();
+        state.busy = true; state.error = null; state.errorSource = null; render();
         try {
           const r = await App.assistant.parseText(state.text);
           absorb(r);
@@ -348,7 +372,7 @@ App.aiAdd = (function () {
         const input = modalRoot.querySelector("[data-photo-input]");
         const file = input && input.files && input.files[0];
         if (!file) { state.error = "Choose a photo first."; render(); return; }
-        state.busy = true; state.error = null; render();
+        state.busy = true; state.error = null; state.errorSource = null; render();
         try {
           const r = await App.assistant.parseImage(file);
           absorb(r);
@@ -362,11 +386,12 @@ App.aiAdd = (function () {
         const input = modalRoot.querySelector('[name="url"]');
         state.url = input ? input.value.trim() : "";
         if (!state.url) { state.error = "Paste a link first."; render(); return; }
-        state.busy = true; state.error = null; render();
+        state.busy = true; state.error = null; state.errorSource = null; render();
         try {
           absorb(await App.assistant.fromUrl(state.url, SCOPE_COPY[state.scope].kind || "schedule"));
         } catch (e) {
           state.error = e.message;
+          state.errorSource = e.source || null;
         }
         state.busy = false; render();
       });
@@ -379,6 +404,16 @@ App.aiAdd = (function () {
         e.preventDefault();
         const btn = modalRoot.querySelector("[data-parse-link]");
         if (btn && !btn.disabled) btn.click();
+      });
+
+      // A candidate link refills the field and re-reads, so recovering from
+      // an index page is one click.
+      U.on(modalRoot, "click", "[data-try-link]", (_e, el) => {
+        state.url = el.dataset.tryLink;
+        state.tab = "link";
+        render();
+        const btn = modalRoot.querySelector("[data-parse-link]");
+        if (btn) btn.click();
       });
 
       U.on(modalRoot, "click", "[data-add-all]", (_e, el) => {

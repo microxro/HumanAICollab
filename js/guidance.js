@@ -497,7 +497,15 @@ App.guidance = (function () {
       .split(/\s+or\s+/i)
       .map((x) => x.trim().toLowerCase().replace(/^ap\s+/, ""))
       .filter((x) => x.split(/\s+/).length >= 2);
-    return alts.some((a) => takenNames.some((t) => t && t.includes(a)));
+    return alts.some((a) => {
+      // The match has to end on a word boundary. A bare substring test makes
+      // "Spanish I" a match inside "Spanish III", so a student taking the
+      // third year is told they're already in the first and the course they
+      // should actually see disappears from the list. Same for Algebra I/II,
+      // Physics 1/2, Art I/II — every sequence a school numbers.
+      const re = new RegExp(escapeRe(a) + "(?![a-z0-9])", "i");
+      return takenNames.some((t) => t && re.test(t));
+    });
   }
 
   /* ===================================================== work-style model == */

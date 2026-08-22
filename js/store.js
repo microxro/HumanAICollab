@@ -565,6 +565,22 @@ App.store = (function () {
     if (App.sync) App.sync.queue();
   }
 
+  /**
+   * Persist without notifying anyone.
+   *
+   * For a value that is stored but not yet rendered from — a text field being
+   * typed into, saved on blur. A full commit() repaints, and a repaint
+   * triggered by a blur destroys whatever was clicked to cause that blur, so
+   * the click never completes. Anything that changes what's on screen must
+   * still use commit().
+   */
+  function saveQuiet(fn) {
+    if (fn) fn(db);
+    db.ui.dirty = Date.now();
+    save();
+    if (App.sync) App.sync.queue();
+  }
+
   function subscribe(fn) {
     listeners.add(fn);
     return () => listeners.delete(fn);
@@ -1276,7 +1292,7 @@ App.store = (function () {
     scheduleFor, liveStatus,
     openAssignments, dueSoon, overdue, missingWork, assignmentsFor, progressOf, adjustedEstimate,
     withGradeOverride,
-    classGrade, categoryBreakdown, neededOnRemaining, simulateAll,
+    classGrade, categoryBreakdown, neededOnRemaining, simulateAll, saveQuiet,
     gpa, gpaBoostFor, cumulativeGpa, gradeTrend, gradeForecast,
     studyByDay, studyThisWeek, serviceHours, attendanceRate,
     habitStreak, goalProgress, readingPace, runTemplates,

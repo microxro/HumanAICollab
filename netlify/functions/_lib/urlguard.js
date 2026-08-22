@@ -139,6 +139,52 @@ function safeCodePoint(n) {
   try { return String.fromCodePoint(n); } catch (e) { return ""; }
 }
 
+/**
+ * Links out of the page, with their text.
+ *
+ * Half of school "electives" pages are an index: a paragraph, then a link to
+ * the real course guide as a PDF or a per-department subpage. Returning the
+ * candidates turns "nothing found" into "try one of these" instead of a dead
+ * end, which is the difference between a feature that works on the second
+ * click and one the student gives up on.
+ */
+function pageLinks(html, baseUrl, max) {
+  const out = [];
+  const seen = new Set();
+  const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = re.exec(html)) && out.length < (max || 40)) {
+    let href = m[1].trim();
+    if (!href || href.startsWith("#") || /^(mailto|tel|javascript):/i.test(href)) continue;
+    let abs;
+    try { abs = new URL(href, baseUrl).href; } catch (e) { continue; }
+    if (!/^https?:/i.test(abs)) continue;
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    const text = htmlToText(m[2]).replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!text) continue;
+    out.push({ url: abs, text, pdf: /\.pdf(\?|$)/i.test(abs) });
+  }
+  return out;
+}
+
+/**
+ * Does this look like a page whose content never arrived?
+ *
+ * A single-page-app shell serves navigation and an empty root div; the words
+ * are fetched by JavaScript that a server-side fetch never runs. The failure
+ * is indistinguishable from "this page has nothing on it" unless you say so,
+ * and school sites on the common CMS platforms are frequently built this way.
+ */
+function looksUnrendered(text, html) {
+  const words = String(text || "").split(/\s+/).filter(Boolean).length;
+  if (words > 220) return false;                       // plenty of real text
+  // A big HTML payload that boils down to very few words is the signature:
+  // all markup and script, no prose.
+  const ratio = String(html || "").length / Math.max(1, String(text || "").length);
+  return words < 120 && ratio > 18;
+}
+
 /** The <title>, which is often the only place an event's name appears. */
 function pageTitle(html) {
   const m = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -221,8 +267,19 @@ async function fetchPage(rawUrl, { allowHttp = true } = {}) {
       throw { status: 413, message: "That page is too large to read." };
     }
     const raw = await readCapped(res, MAX_BYTES);
+    const text = htmlToText(raw);
 
-    return { url: current, title: pageTitle(raw), text: htmlToText(raw) };
+    return {
+      url: current,
+      title: pageTitle(raw),
+      text,
+      links: pageLinks(raw, current, 40),
+      // Reported rather than thrown on: a thin page may still be exactly what
+      // the caller wanted, and only the caller knows whether it found
+      // anything. It decides what to say; this just supplies the evidence.
+      unrendered: looksUnrendered(text, raw),
+      bytes: raw.length
+    };
   }
 
   throw { status: 502, message: "That link redirected too many times." };
@@ -250,4 +307,4 @@ async function readCapped(res, max) {
   return new TextDecoder("utf-8", { fatal: false }).decode(merged);
 }
 
-export { urlProblem, privateV4, mappedV4, htmlToText, pageTitle, fetchPage, MAX_BYTES };
+export { urlProblem, privateV4, mappedV4, htmlToText, pageTitle, pageLinks, looksUnrendered, fetchPage, MAX_BYTES };

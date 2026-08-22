@@ -21,8 +21,10 @@ App.views.guidance = (function () {
 
   /* --------------------------------------------------------------- data -- */
 
-  let finding = false;   // a catalogue fetch is in flight
+  let finding = false;      // a catalogue fetch is in flight
   let findError = null;
+  let findSource = null;    // what the server actually read, on failure
+  let pasteOpen = false;    // the paste-the-text fallback
 
   function cfg() {
     const g = S.db.guidance || {};
@@ -42,6 +44,23 @@ App.views.guidance = (function () {
     if (!S.db.guidance || typeof S.db.guidance !== "object") S.db.guidance = {};
     fn(S.db.guidance);
     S.commit();
+  }
+
+  /**
+   * Save a text field without repainting.
+   *
+   * These fields fire `change` on blur, and the blur that matters is the one
+   * caused by clicking "Find what my school offers" right after typing the
+   * URL. A full commit there repaints the page and destroys the button
+   * mid-click, so the click lands on nothing and the button appears dead —
+   * exactly the "renders but does nothing" defect this codebase has been
+   * hunting. Nothing else on the page renders from these two values until
+   * the button is pressed, so there is nothing to repaint for.
+   */
+  function stash(fn) {
+    if (!S.db.guidance || typeof S.db.guidance !== "object") S.db.guidance = {};
+    fn(S.db.guidance);
+    S.saveQuiet();
   }
 
   /* -------------------------------------------------------------- intake -- */
@@ -93,7 +112,7 @@ App.views.guidance = (function () {
           </button>
           ${n ? `<button type="button" class="btn" data-clear-courses>Use the general list instead</button>` : ""}
         </div>
-        ${findError ? `<p class="small mt-8" style="color:var(--danger);margin-bottom:0">${U.esc(findError)}</p>` : ""}
+        ${findError ? failurePanel() : ""}
         ${n
           ? `<p class="tiny dim mt-8" style="margin-bottom:0">
               Electives below are ranked from your school's own catalogue${c.offeredAt
@@ -103,6 +122,76 @@ App.views.guidance = (function () {
               Without this, electives come from a general catalogue and may not match what your
               school actually runs. This works for middle school, high school and college.
              </p>`}
+      </div>
+    </div>`;
+  }
+
+  /**
+   * What happened, and what to do next.
+   *
+   * A recommender that says "that didn't look like a course list" and stops
+   * is useless: the student can't tell whether the page was wrong, the fetch
+   * failed, or the reader is broken. So this shows the text the server
+   * actually got, offers the links on that page most likely to be the real
+   * catalogue, and always leaves the paste box as a route that works.
+   */
+  function failurePanel() {
+    const src = findSource;
+    const cands = (src && src.candidates) || [];
+    return `<div class="callout warn mt-12">
+      <strong>${U.esc(findError)}</strong>
+
+      ${src && src.chars != null ? `<p class="small" style="margin:8px 0 0">
+        Read ${src.chars.toLocaleString()} characters from
+        ${src.url ? `<span class="truncate">${U.esc(src.title || src.url)}</span>` : "the text you pasted"}.
+      </p>` : ""}
+
+      ${src && src.sample ? `<details style="margin-top:8px">
+        <summary class="small" style="cursor:pointer">Show what it actually read</summary>
+        <pre class="read-sample">${U.esc(src.sample)}</pre>
+      </details>` : ""}
+
+      ${cands.length ? `<div style="margin-top:10px">
+        <div class="small bold">Links on that page that might be the real list</div>
+        <div class="col gap-4" style="margin-top:6px">
+          ${cands.map((c) => `<button type="button" class="btn btn-sm link-candidate"
+            data-try-link="${U.esc(c.url)}">
+            ${c.pdf ? "<span class=\"tag\">PDF</span> " : ""}${U.esc(c.text)}
+          </button>`).join("")}
+        </div>
+        ${cands.some((c) => c.pdf) ? `<p class="tiny dim" style="margin:6px 0 0">
+          A PDF can't be read directly yet — open it, select all, and use the paste box below.</p>` : ""}
+      </div>` : ""}
+
+      <div style="margin-top:10px">
+        <button type="button" class="btn btn-sm" data-toggle-paste>
+          ${pasteOpen ? "Hide the paste box" : "Paste the course list instead"}
+        </button>
+      </div>
+    </div>`;
+  }
+
+  /** The route that always works: the student copies the list themselves. */
+  function pasteBox() {
+    return `<div class="card mb-16">
+      <div class="card-head"><h2>Paste your course list</h2></div>
+      <div class="card-body">
+        <p class="small dim" style="margin-top:0">
+          Open the course catalogue, select the list of courses, and paste it here. Works for pages
+          that build themselves with JavaScript, anything behind a school login, and PDFs — none of
+          which a server can read on its own.
+        </p>
+        <div class="field full">
+          <label for="gPaste" class="sr-only">Course list text</label>
+          <textarea class="input" id="gPaste" name="paste" rows="8"
+            placeholder="AP Computer Science A — CSC-340 — grades 10-12&#10;Ceramics I — ART-110 — grades 9-12&#10;…"></textarea>
+        </div>
+        <div class="row wrap gap-8 mt-8">
+          <button type="button" class="btn btn-primary" data-read-paste ${finding ? "disabled" : ""}>
+            ${finding ? "Reading it…" : "Read this list"}
+          </button>
+          <button type="button" class="btn" data-toggle-paste>Cancel</button>
+        </div>
       </div>
     </div>`;
   }
@@ -447,6 +536,7 @@ App.views.guidance = (function () {
 
       ${confidenceBanner(conf)}
       ${schoolCard()}
+      ${pasteOpen ? pasteBox() : ""}
       ${interestsCard()}
 
       <div class="segmented wide mb-16" role="tablist" aria-label="Guidance sections">
@@ -519,14 +609,79 @@ App.views.guidance = (function () {
     U.on(root, "change", "[data-g]", (_e, el) => {
       const key = el.dataset.g;
       const value = el.value.trim().slice(0, 200);
-      patch((g) => { g[key] = value; });
+      stash((g) => { g[key] = value; });
+    });
+
+    /** Store a successful read, or record why it failed. Shared by both routes. */
+    function absorbCourses(r) {
+      const courses = Array.isArray(r.courses) ? r.courses : [];
+      findSource = r.source || null;
+      if (!courses.length) {
+        findError = r.clarify ||
+          "No course names came out of that. It may be an index page rather than the list itself.";
+        return false;
+      }
+      patch((g) => {
+        g.offered = courses.slice(0, 400);
+        g.offeredAt = Date.now();
+        // Only fill the school in from the page when it isn't already known —
+        // the page's wording shouldn't overwrite what the student typed.
+        if (!g.school && r.schoolName) g.school = String(r.schoolName).slice(0, 120);
+      });
+      findError = null; findSource = null; pasteOpen = false;
+      UI.toast("Read the catalogue", `${courses.length} courses — electives below are now your school's own.`, "ok");
+      return true;
+    }
+
+    U.on(root, "click", "[data-toggle-paste]", () => {
+      pasteOpen = !pasteOpen;
+      App.router.refresh();
+      if (pasteOpen) {
+        const ta = document.getElementById("gPaste");
+        if (ta) ta.focus();
+      }
+    });
+
+    // A candidate link refills the URL field and reads it, so recovering from
+    // an index page is one click rather than a copy-paste round trip.
+    U.on(root, "click", "[data-try-link]", (_e, el) => {
+      const url = el.dataset.tryLink;
+      stash((g) => { g.catalogUrl = url; });
+      const btn = root.querySelector("[data-find-courses]");
+      if (btn) btn.click();
+    });
+
+    U.on(root, "click", "[data-read-paste]", async () => {
+      const ta = root.querySelector('[name="paste"]');
+      const text = ta ? ta.value.trim() : "";
+      if (text.length < 20) {
+        findError = "Paste a bit more — that's too short to be a course list.";
+        findSource = null;
+        App.router.refresh();
+        return;
+      }
+      if (!App.assistant.available()) {
+        findError = "Reading a list runs on a shared AI quota, so it needs you signed in. Settings → Account.";
+        App.router.refresh();
+        return;
+      }
+      finding = true; findError = null; findSource = null;
+      App.router.refresh();
+      try {
+        absorbCourses(await App.assistant.fromText(text, "electives"));
+      } catch (e) {
+        findError = e.message;
+        findSource = e.source || null;
+      }
+      finding = false;
+      App.router.refresh();
     });
 
     U.on(root, "click", "[data-find-courses]", async () => {
       const c = cfg();
       const url = (root.querySelector('[data-g="catalogUrl"]') || {}).value || c.catalogUrl;
       const school = (root.querySelector('[data-g="school"]') || {}).value || c.school;
-      patch((g) => { g.catalogUrl = String(url || "").trim(); g.school = String(school || "").trim(); });
+      stash((g) => { g.catalogUrl = String(url || "").trim(); g.school = String(school || "").trim(); });
 
       if (!String(url || "").trim()) {
         findError = "Paste the link to your school's course catalogue first — the page that lists what you can take.";
@@ -539,27 +694,13 @@ App.views.guidance = (function () {
         return;
       }
 
-      finding = true; findError = null;
+      finding = true; findError = null; findSource = null;
       App.router.refresh();
       try {
-        const r = await App.assistant.fromUrl(url, "electives");
-        const courses = Array.isArray(r.courses) ? r.courses : [];
-        if (!courses.length) {
-          findError = r.clarify ||
-            "That page didn't look like a course list. Try the page that actually lists course names and codes.";
-        } else {
-          patch((g) => {
-            g.offered = courses.slice(0, 400);
-            g.offeredAt = Date.now();
-            // Only fill the school in from the page when it isn't already
-            // known — the page's own wording shouldn't overwrite what the
-            // student typed.
-            if (!g.school && r.schoolName) g.school = String(r.schoolName).slice(0, 120);
-          });
-          UI.toast("Read the catalogue", `${courses.length} courses — electives below are now your school's own.`, "ok");
-        }
+        absorbCourses(await App.assistant.fromUrl(url, "electives"));
       } catch (e) {
         findError = e.message;
+        findSource = e.source || null;
       }
       finding = false;
       App.router.refresh();

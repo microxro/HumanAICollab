@@ -351,12 +351,45 @@ own record decides which are relevant, not you. If the page is not a course list
 };
 
 /**
- * POST /assistant/from-url { url, kind }
+ * Links on the page that might be the real course list.
+ *
+ * Ranked so a PDF course guide and anything whose text says "course",
+ * "catalog", "registration" or "guide" floats to the top. This is what makes
+ * an index page recoverable rather than a dead end.
+ */
+function candidateLinks(links, kind) {
+  const want = {
+    electives: /course|catalog|catalogue|elective|registration|program of stud|curriculum|guide|handbook/i,
+    bell:      /bell|schedule|daily|period|start.*time|hour/i,
+    schedule:  /schedule|calendar|practice|season|roster/i,
+    events:    /calendar|event|schedule|athletic|game|exam|final/i
+  }[kind] || /./;
+  return (links || [])
+    .map((l) => ({ ...l, hit: want.test(l.text) || want.test(l.url) }))
+    .filter((l) => l.hit)
+    // A PDF course guide is the single most common answer, so surface it first.
+    .sort((a, b) => (b.pdf ? 1 : 0) - (a.pdf ? 1 : 0))
+    .slice(0, 8)
+    .map((l) => ({ url: l.url, text: l.text, pdf: l.pdf }));
+}
+
+/**
+ * POST /assistant/from-url { url | text, kind }
  *
  * Fetching happens here rather than in the browser for two reasons: a school
  * website will not send CORS headers to a Netlify origin, so the browser
  * simply cannot read it; and a URL somebody pasted needs SSRF screening
  * before anything requests it, which only the server can enforce.
+ *
+ * `text` is the escape hatch, and it matters more than it looks: plenty of
+ * school pages render their content with JavaScript, sit behind a login, or
+ * publish the real list as a PDF. Without a paste path those pages have no
+ * route through the feature at all.
+ *
+ * Every response carries `source`, including a sample of what was actually
+ * read. When extraction finds nothing, that sample is the difference between
+ * "it didn't work" and "the page served navigation and nothing else" — the
+ * caller can see the cause rather than guess at it.
  */
 async function fromUrl(req) {
   requireConfigured();
@@ -365,17 +398,38 @@ async function fromUrl(req) {
   const spec = LINK_KINDS[kind];
   if (!spec) return fail(400, `Unknown kind "${kind}".`);
 
+  const pasted = String(b.text || "").trim();
   const url = String(b.url || "").trim();
-  if (!url) return fail(400, "Paste a link first.");
+  if (!pasted && !url) return fail(400, "Paste a link, or paste the text itself.");
 
-  // Throws {status, message} for anything unfetchable — a private address, a
-  // login wall, a PDF, a timeout — each with a message that says what to do
-  // instead rather than a generic failure.
-  const page = await fetchPage(url, { allowHttp: true });
+  let page;
+  if (pasted) {
+    page = { url: "", title: "", text: pasted.slice(0, MAX_PAGE_TEXT * 2), links: [], unrendered: false };
+  } else {
+    // Throws {status, message} for anything unfetchable — a private address,
+    // a login wall, a PDF, a timeout — each with a message naming what to do
+    // instead rather than a generic failure.
+    page = await fetchPage(url, { allowHttp: true });
+  }
+
+  const source = {
+    url: page.url,
+    title: page.title,
+    chars: page.text.length,
+    // Enough to recognise the page, short enough not to be a second copy of it.
+    sample: page.text.slice(0, 600),
+    unrendered: !!page.unrendered,
+    candidates: pasted ? [] : candidateLinks(page.links, kind)
+  };
 
   if (!page.text || page.text.length < 40) {
-    return fail(422, "That page had almost no readable text — it may load its content with JavaScript. " +
-      "Open it, select the part you want, and paste it in as text instead.");
+    return fail(422, "That page had almost no readable text at all. Open it, select the part you want, " +
+      "and paste it in as text instead.", { source });
+  }
+  if (page.unrendered) {
+    return fail(422, "That page served its navigation but not its content — it builds the page with " +
+      "JavaScript, which a server-side fetch can't run. Paste the text instead, or try a direct link " +
+      "to the document itself.", { source });
   }
 
   const today = new Date().toISOString().slice(0, 10);
@@ -383,17 +437,13 @@ async function fromUrl(req) {
   const result = await generateJSON({
     system: LINK_SYSTEM,
     prompt: `${spec.prompt(today)}
-
-Page title: ${page.title}
-Page URL: ${page.url}
+${page.title ? `\nPage title: ${page.title}` : ""}${page.url ? `\nPage URL: ${page.url}` : ""}
 
 """${text}"""`,
     responseSchema: spec.schema()
   });
 
-  // The resolved URL and title go back so the client can show what was
-  // actually read — after redirects, that is not always the link pasted.
-  return ok({ ...result, source: { url: page.url, title: page.title, chars: page.text.length } });
+  return ok({ ...result, source });
 }
 
 /* ------------------------------------------------------- notes from a photo -- */
