@@ -221,6 +221,7 @@
     UI.makeActivatable(root);
 
     renderNav();
+    paintProfileChip();
     paintSyncBadge();
     paintTodayStrip();
     paintMobileTabbar();
@@ -987,9 +988,22 @@
       setTimeout(() => App.resetPasswordForm && App.resetPasswordForm(resetToken), 60);
     }
 
-    // Profile chip
+    paintProfileChip();
+  }
+
+  /**
+   * The name, grade and avatar in the sidebar.
+   *
+   * Called from paint(), not just once from boot(). It used to run only at
+   * startup, so saving your profile in Settings updated the store, showed a
+   * "Profile saved" toast, and left the chip showing the old name until the
+   * page was reloaded by hand — the save looked like it hadn't worked.
+   */
+  function paintProfileChip() {
+    const chip = document.getElementById("profileChip");
+    if (!chip) return;
     const p = S.profile;
-    document.getElementById("profileChip").innerHTML = `
+    chip.innerHTML = `
       ${UI.avatar(p.name, p.color)}
       <span class="grow truncate" style="min-width:0">
         <div class="small bold truncate">${U.esc(p.name)}</div>

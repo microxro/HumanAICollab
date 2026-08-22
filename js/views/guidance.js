@@ -21,13 +21,20 @@ App.views.guidance = (function () {
 
   /* --------------------------------------------------------------- data -- */
 
+  let finding = false;   // a catalogue fetch is in flight
+  let findError = null;
+
   function cfg() {
     const g = S.db.guidance || {};
     return {
       stage: g.stage || "high",
       interests: Array.isArray(g.interests) ? g.interests : [],
       targets: Array.isArray(g.targets) ? g.targets : [],
-      dismissed: Array.isArray(g.dismissed) ? g.dismissed : []
+      dismissed: Array.isArray(g.dismissed) ? g.dismissed : [],
+      school: String(g.school || (S.db.profile && S.db.profile.school) || "").trim(),
+      catalogUrl: String(g.catalogUrl || "").trim(),
+      offered: Array.isArray(g.offered) ? g.offered : [],
+      offeredAt: g.offeredAt || null
     };
   }
 
@@ -44,6 +51,59 @@ App.views.guidance = (function () {
     return `<div class="segmented" role="group" aria-label="What are you choosing for?">
       ${G.STAGES.map((s) => `<button type="button" class="${s.id === c.stage ? "active" : ""}"
         data-stage="${s.id}" aria-pressed="${s.id === c.stage}">${U.esc(s.label)}</button>`).join("")}
+    </div>`;
+  }
+
+  /**
+   * School and course catalogue.
+   *
+   * The school name comes from the profile by default — it is already asked
+   * for in Settings, and asking twice for the same fact is how a form starts
+   * feeling like paperwork. The catalogue URL is the part that turns generic
+   * advice into real advice: with it, the recommendations name courses the
+   * school actually runs, with their real codes.
+   */
+  function schoolCard() {
+    const c = cfg();
+    const n = c.offered.length;
+    return `<div class="card mb-16">
+      <div class="card-head">
+        <h2>Your school</h2>
+        ${n ? `<span class="badge ok">${n} course${n === 1 ? "" : "s"} loaded</span>` : ""}
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="gSchool">School</label>
+            <input class="input" id="gSchool" data-g="school" value="${U.esc(c.school)}"
+              placeholder="Lincoln High School" />
+            <div class="tiny dim mt-4">${S.db.profile && S.db.profile.school && !(S.db.guidance || {}).school
+              ? "From your profile in Settings." : "Used to look up what's offered."}</div>
+          </div>
+          <div class="field">
+            <label for="gCatalog">Course catalogue link</label>
+            <input class="input" type="url" id="gCatalog" inputmode="url" data-g="catalogUrl"
+              value="${U.esc(c.catalogUrl)}" placeholder="yourschool.edu/course-catalog" />
+            <div class="tiny dim mt-4">The page listing the courses you can pick from.</div>
+          </div>
+        </div>
+        <div class="row wrap gap-8 mt-12">
+          <button type="button" class="btn btn-primary" data-find-courses ${finding ? "disabled" : ""}>
+            ${finding ? "Reading the catalogue…" : n ? "Read it again" : "Find what my school offers"}
+          </button>
+          ${n ? `<button type="button" class="btn" data-clear-courses>Use the general list instead</button>` : ""}
+        </div>
+        ${findError ? `<p class="small mt-8" style="color:var(--danger);margin-bottom:0">${U.esc(findError)}</p>` : ""}
+        ${n
+          ? `<p class="tiny dim mt-8" style="margin-bottom:0">
+              Electives below are ranked from your school's own catalogue${c.offeredAt
+                ? `, read ${U.esc(U.relDate(String(c.offeredAt).slice(0, 10)))}` : ""}.
+             </p>`
+          : `<p class="tiny dim mt-8" style="margin-bottom:0">
+              Without this, electives come from a general catalogue and may not match what your
+              school actually runs. This works for middle school, high school and college.
+             </p>`}
+      </div>
     </div>`;
   }
 
@@ -150,9 +210,10 @@ App.views.guidance = (function () {
       <div class="card-body">
         <div class="row between gap-8 wrap" style="align-items:flex-start">
           <div style="min-width:0;flex:1 1 240px">
-            <div class="row gap-8" style="align-items:baseline">
+            <div class="row gap-8 wrap" style="align-items:baseline">
               <span class="rank">${rank}</span>
               <h3 style="margin:0">${U.esc(e.name)}</h3>
+              ${e.real ? `<span class="badge ok">at your school${e.code ? ` · ${U.esc(e.code)}` : ""}</span>` : ""}
             </div>
             <p class="small dim" style="margin:4px 0 0">${U.esc(e.why)}</p>
           </div>
@@ -385,6 +446,7 @@ App.views.guidance = (function () {
       </div>
 
       ${confidenceBanner(conf)}
+      ${schoolCard()}
       ${interestsCard()}
 
       <div class="segmented wide mb-16" role="tablist" aria-label="Guidance sections">
@@ -449,6 +511,69 @@ App.views.guidance = (function () {
       UI.toast("Hidden", "It won't be suggested again.", "ok", {
         label: "Undo",
         onClick: () => patch((g) => { g.dismissed = (g.dismissed || []).filter((x) => x !== key); })
+      });
+    });
+
+    // Persist on blur rather than on every keystroke: a commit repaints the
+    // whole page, which would move the caret out of the field being typed in.
+    U.on(root, "change", "[data-g]", (_e, el) => {
+      const key = el.dataset.g;
+      const value = el.value.trim().slice(0, 200);
+      patch((g) => { g[key] = value; });
+    });
+
+    U.on(root, "click", "[data-find-courses]", async () => {
+      const c = cfg();
+      const url = (root.querySelector('[data-g="catalogUrl"]') || {}).value || c.catalogUrl;
+      const school = (root.querySelector('[data-g="school"]') || {}).value || c.school;
+      patch((g) => { g.catalogUrl = String(url || "").trim(); g.school = String(school || "").trim(); });
+
+      if (!String(url || "").trim()) {
+        findError = "Paste the link to your school's course catalogue first — the page that lists what you can take.";
+        App.router.refresh();
+        return;
+      }
+      if (!App.assistant.available()) {
+        findError = "Reading a page runs on a shared AI quota, so it needs you signed in. Settings → Account.";
+        App.router.refresh();
+        return;
+      }
+
+      finding = true; findError = null;
+      App.router.refresh();
+      try {
+        const r = await App.assistant.fromUrl(url, "electives");
+        const courses = Array.isArray(r.courses) ? r.courses : [];
+        if (!courses.length) {
+          findError = r.clarify ||
+            "That page didn't look like a course list. Try the page that actually lists course names and codes.";
+        } else {
+          patch((g) => {
+            g.offered = courses.slice(0, 400);
+            g.offeredAt = Date.now();
+            // Only fill the school in from the page when it isn't already
+            // known — the page's own wording shouldn't overwrite what the
+            // student typed.
+            if (!g.school && r.schoolName) g.school = String(r.schoolName).slice(0, 120);
+          });
+          UI.toast("Read the catalogue", `${courses.length} courses — electives below are now your school's own.`, "ok");
+        }
+      } catch (e) {
+        findError = e.message;
+      }
+      finding = false;
+      App.router.refresh();
+    });
+
+    U.on(root, "click", "[data-clear-courses]", () => {
+      UI.confirm({
+        title: "Go back to the general list?",
+        message: "The courses read from your school's catalogue will be forgotten. You can read the page again any time.",
+        okLabel: "Use the general list",
+        onConfirm() {
+          patch((g) => { g.offered = []; g.offeredAt = null; });
+          UI.toast("Cleared", "Electives come from the general catalogue again.", "ok");
+        }
       });
     });
 

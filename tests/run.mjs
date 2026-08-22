@@ -12,7 +12,7 @@ import net from "node:net";
 const PORT = Number(process.env.PORT || 8899);
 const BASE = `http://localhost:${PORT}`;
 
-const NODE_SUITES = ["tests/migration.mjs", "tests/assets.mjs", "tests/email.mjs"];
+const NODE_SUITES = ["tests/migration.mjs", "tests/assets.mjs", "tests/email.mjs", "tests/urlguard.mjs"];
 // These drive the real Netlify functions with only the storage layer stubbed,
 // so they need the loader that redirects _lib/blobs.js.
 const STUBBED_SUITES = ["tests/security.mjs", "tests/api.mjs", "tests/teacher.mjs", "tests/concurrency.mjs", "tests/hardening.mjs"];

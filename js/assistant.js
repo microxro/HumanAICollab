@@ -85,6 +85,20 @@ App.assistant = (function () {
     return req("/parse-text", { text });
   }
 
+  /**
+   * Read a page the student pasted a link to, and pull structured data out.
+   *
+   * The fetch is done by the server, not here. A school website sends no CORS
+   * headers to this origin, so the browser is not permitted to read it at
+   * all — and a pasted URL needs screening against private addresses before
+   * anything requests it, which only the server can enforce.
+   *
+   * `kind` is "schedule" | "bell" | "events" | "electives".
+   */
+  async function fromUrl(url, kind) {
+    return req("/from-url", { url: String(url || "").trim(), kind: kind || "schedule" });
+  }
+
   /** Downscales + re-encodes a photo client-side before it ever leaves the device. */
   function fileToImagePayload(file) {
     return new Promise((resolve, reject) => {
@@ -375,7 +389,7 @@ App.assistant = (function () {
   }
 
   return {
-    parseText, parseImage, parseNoteImage, estimateAssignment,
+    parseText, parseImage, parseNoteImage, fromUrl, estimateAssignment,
     ask, act, applyAction, buildContext,
     history, pushHistory, clearHistory, checkHealth, available
   };

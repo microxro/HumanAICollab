@@ -80,8 +80,18 @@
       stage: "high",      // middle | high | college — what they're choosing for
       interests: [],      // free text, weighted above anything inferred
       targets: [],        // schools they're aiming at, beyond collegeApps
-      dismissed: []       // "pw:<id>" / "el:<id>" they've waved away
+      dismissed: [],      // "pw:<id>" / "el:<id>" they've waved away
+      school: "",         // falls back to profile.school when blank
+      catalogUrl: "",     // the school's course-list page
+      offered: [],        // courses read off that page — replaces the generic list
+      offeredAt: null
     });
+    // Older stored guidance predates the catalogue fields.
+    if (db.guidance && typeof db.guidance === "object") {
+      need(db.guidance, "school", "");
+      need(db.guidance, "catalogUrl", "");
+      need(db.guidance, "offered", []);
+    }
     need(db.streak, "freezes", 0);  // F040
 
     // ---- settings additions

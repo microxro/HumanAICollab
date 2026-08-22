@@ -80,6 +80,7 @@ import {
   randomId, randomCode, toB64Url
 } from "./_lib/auth.js";
 import { readJSON, updateJSON, readJSONWithEtag, writeJSONIf, rateLimit, writeJSON, remove } from "./_lib/blobs.js";
+import { urlProblem } from "./_lib/urlguard.js";
 import { sendEmail, layout, configured as emailConfigured, deliverable as emailDeliverable, fromAddress, SANDBOX_FROM } from "./_lib/email.js";
 
 const MAX_STATE_BYTES = 5 * 1024 * 1024;
@@ -1071,72 +1072,15 @@ async function revokeApiToken(user, id) {
  * primitive: without this, a webhook pointed at 169.254.169.254 or
  * http://localhost:8888 would have the function fetch internal endpoints and
  * report back. This is the first thing a security tester probes.
+ *
+ * The screening itself now lives in _lib/urlguard.js, because "add this from
+ * a link" needs exactly the same check and a duplicated security check is one
+ * that drifts — the copy that gets fixed is whichever one someone was looking
+ * at. Webhooks stay https-only: the URL is stored and replayed rather than
+ * followed once by the person who typed it.
  */
-/**
- * The IPv4 octets inside an IPv4-mapped IPv6 literal, or null.
- * Handles both `::ffff:10.0.0.1` and the normalised `::ffff:a00:1`.
- */
-function mappedV4(h) {
-  const m = h.match(/^::ffff:(.+)$/i);
-  if (!m) return null;
-  const dotted = m[1].match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (dotted) return dotted.slice(1, 5).map(Number);
-  const hex = m[1].match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
-  if (!hex) return null;
-  const hi = parseInt(hex[1], 16), lo = parseInt(hex[2], 16);
-  return [hi >> 8, hi & 255, lo >> 8, lo & 255];
-}
-
-/** Loopback, private, link-local and CGNAT IPv4 ranges. */
-function privateV4(a, b) {
-  return a === 10 || a === 127 || a === 0 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 169 && b === 254) ||
-    (a === 100 && b >= 64 && b <= 127);
-}
-
 function webhookUrlProblem(raw) {
-  let u;
-  try { u = new URL(String(raw || "")); } catch (e) { return "That isn't a valid URL."; }
-  if (u.protocol !== "https:") return "Webhook URLs must use https.";
-  if (u.username || u.password) return "Webhook URLs can't carry credentials.";
-
-  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
-      host.endsWith(".internal") || host === "metadata.google.internal") {
-    return "That host isn't reachable from the internet.";
-  }
-  // IPv4 literals: block loopback, private, link-local and CGNAT ranges.
-  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4 && privateV4(Number(v4[1]), Number(v4[2]))) {
-    return "That address is on a private network.";
-  }
-  // IPv6 loopback, unique-local (fc00::/7) and link-local (fe80::/10).
-  //
-  // Gated on the host actually *being* an IPv6 literal. These are hex-digit
-  // prefix tests, and applied to a name they reject any domain beginning
-  // "fc", "fd" or "fe80" — fcbarcelona.com, fda.gov, fdic.gov and every
-  // hook.fd-something endpoint were refused as "on a private network", which
-  // is the kind of arbitrary rejection nobody can debug from the message.
-  // URL parsing puts a literal in brackets, and a bare hostname can never
-  // contain a colon, so `:` is a reliable discriminator.
-  const isV6Literal = u.hostname.startsWith("[") || host.includes(":");
-  if (isV6Literal) {
-    const h = host.replace(/%.*$/, "");   // drop any zone id
-    if (h === "::1" || h === "::" || /^f[cd]/.test(h) || /^fe[89ab]/.test(h)) {
-      return "That address is on a private network.";
-    }
-    // ::ffff:10.0.0.1 — an IPv4 private address wearing IPv6 clothes. Note
-    // that `new URL()` rewrites the dotted form into hex (::ffff:a00:1), so
-    // matching only on dots misses every one of these; both spellings are
-    // reduced to the four octets before the range check.
-    const mapped = mappedV4(h);
-    if (mapped && privateV4(mapped[0], mapped[1])) {
-      return "That address is on a private network.";
-    }
-  }
-  return null;
+  return urlProblem(raw, { allowHttp: false });
 }
 
 async function listWebhooks(user) {

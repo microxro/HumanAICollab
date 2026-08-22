@@ -493,6 +493,7 @@ App.views.calendar = (function () {
             <button class="${mode === "agenda" ? "active" : ""}" data-mode="agenda">Agenda</button>
           </div>
           <button class="btn" data-export-ics>⬇ Export .ics</button>
+          <button class="btn" data-ai-events>✦ Add from a link</button>
           <button class="btn btn-primary" data-new>+ New event</button>
         </div>
       </div>
@@ -522,6 +523,12 @@ App.views.calendar = (function () {
       else cursor = new Date(cursor.getFullYear(), cursor.getMonth() + n, 1);
       App.router.refresh();
     });
+    // Most of these dates are already published somewhere — a school
+    // calendar, an athletics page, an exam timetable. Reading the page is
+    // faster than typing twenty events, and the review list means a
+    // misread date is caught before it reaches the calendar.
+    U.on(root, "click", "[data-ai-events]", () => App.aiAdd.open({ scope: "events" }));
+
     U.on(root, "click", "[data-new]", () => eventForm(null));
     U.on(root, "click", "[data-export-ics]", exportDialog);
     U.on(root, "click", "[data-day]", (_e, el) => dayDetail(el.dataset.day));

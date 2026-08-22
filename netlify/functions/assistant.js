@@ -8,6 +8,7 @@
      POST /assistant/parse-text    { text }                → { entries, periods, summary, clarify }
      POST /assistant/parse-image   { imageBase64, mimeType} → { entries, periods, summary, clarify }
      POST /assistant/parse-note-image { imageBase64, mimeType } → { title, body, tags, … }
+     POST /assistant/from-url      { url, kind }             → schedule | events | courses
      POST /assistant/estimate      { title, type, … }      → { minutes, low, high, suggestedSteps }
      POST /assistant/act           { message, context }    → { answer, actions[] }
      POST /assistant/ask           { question, context }   → { answer }
@@ -24,10 +25,16 @@
 import { configured, generateText, generateJSON, DEFAULT_MODEL as DEFAULT_MODEL_NAME } from "./_lib/gemini.js";
 import { verifyToken } from "./_lib/auth.js";
 import { readJSON, rateLimit } from "./_lib/blobs.js";
+import { fetchPage } from "./_lib/urlguard.js";
 
 const MAX_TEXT_LEN = 2000;
 const MAX_IMAGE_B64_LEN = 6 * 1024 * 1024; // ~4.5MB decoded, well under Gemini's per-image limit
 const MAX_CONTEXT_LEN = 60000;
+// A school page is mostly navigation chrome. 40k characters of extracted text
+// is far more than any bell-times table or events page needs, and keeping the
+// cap here rather than at the fetch means a huge page is truncated instead of
+// refused — the schedule is usually near the top anyway.
+const MAX_PAGE_TEXT = 40000;
 const ASK_MAX_OUTPUT_TOKENS = 220; // hard cap so an answer can't run long even if the model ignores the prompt
 
 /* --------------------------------------------------------- quota limits -- */
@@ -249,6 +256,144 @@ school bell/period-times table, or both. Extract everything you can read.`;
     image: { base64: imageBase64, mimeType }
   });
   return ok(result);
+}
+
+/* ------------------------------------------------------------ from a link -- */
+
+const EVENT_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    events: {
+      type: "ARRAY",
+      description: "Every dated event found on the page. Empty array if none.",
+      items: {
+        type: "OBJECT",
+        properties: {
+          title: { type: "STRING" },
+          date: { type: "STRING", description: "YYYY-MM-DD. Empty string if no date is stated." },
+          endDate: { type: "STRING", description: "YYYY-MM-DD for a multi-day event, else empty string." },
+          start: { type: "STRING", description: "24-hour HH:MM, or empty string." },
+          end: { type: "STRING", description: "24-hour HH:MM, or empty string." },
+          allDay: { type: "BOOLEAN" },
+          location: { type: "STRING", description: "Room, building or address — empty string if not stated." },
+          type: { type: "STRING", enum: ["Exam", "Holiday", "Trip", "Meeting", "Deadline", "Sport", "Performance", "Other"] },
+          notes: { type: "STRING", description: "Anything else stated that matters. Empty string if nothing." }
+        },
+        required: ["title", "date", "endDate", "start", "end", "allDay", "location", "type", "notes"]
+      }
+    },
+    summary: { type: "STRING", description: "One short sentence on what was found." },
+    clarify: { type: "STRING", description: "A short question if something important was ambiguous. Empty string if nothing." }
+  },
+  required: ["events", "summary", "clarify"]
+};
+
+const ELECTIVE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    courses: {
+      type: "ARRAY",
+      description: "Every course offered that a student could choose. Empty array if the page isn't a course list.",
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: { type: "STRING" },
+          code: { type: "STRING", description: "Course code if given, else empty string." },
+          subject: { type: "STRING", enum: ["cs", "math", "physics", "chem", "bio", "eng", "english", "history", "econ", "psych", "language", "arts", "music", "health", "other"], description: "Best-fit subject area." },
+          level: { type: "STRING", enum: ["regular", "honors", "ap", "ib", "dual", "unknown"] },
+          grades: { type: "STRING", description: "Which year groups can take it, as written. Empty string if not stated." },
+          prereq: { type: "STRING", description: "Prerequisites as written. Empty string if none stated." },
+          description: { type: "STRING", description: "One short sentence from the catalogue. Empty string if none." }
+        },
+        required: ["name", "code", "subject", "level", "grades", "prereq", "description"]
+      }
+    },
+    schoolName: { type: "STRING", description: "The school's name if the page states it, else empty string." },
+    summary: { type: "STRING" },
+    clarify: { type: "STRING" }
+  },
+  required: ["courses", "schoolName", "summary", "clarify"]
+};
+
+const LINK_SYSTEM = `You are reading the text of a real web page a student pasted a link to, so they
+don't have to retype what's on it. Extract only what the page actually states. Never invent a date,
+time, room or course that isn't there — leave the field blank instead, and mention the gap in
+"clarify". Web pages carry a lot of navigation and footer text; ignore it and extract only the
+substantive content. Times are 24-hour HH:MM, dates are YYYY-MM-DD.`;
+
+const LINK_KINDS = {
+  schedule: {
+    schema: () => SCHEDULE_SCHEMA,
+    prompt: (t) => `Today's date is ${t}. This page is a class schedule, an activity schedule, a school
+bell/period-times table, or several of those. Extract everything you can read. If it is a bell
+schedule, put the periods in "periods" and leave "entries" empty.`
+  },
+  bell: {
+    schema: () => SCHEDULE_SCHEMA,
+    prompt: (t) => `Today's date is ${t}. This page contains a school bell schedule — the period
+times for a normal day. Put every period, lunch and passing period into "periods" in the order they
+occur, and leave "entries" empty. If the page shows several different day types (regular, early
+release, assembly), extract the regular/standard one and say in "clarify" which others exist.`
+  },
+  events: {
+    schema: () => EVENT_SCHEMA,
+    prompt: (t) => `Today's date is ${t}. This page lists events — a school calendar, an athletics
+schedule, an exam timetable, or a single event page. Extract every dated event. When a year isn't
+stated, choose the one that makes the date fall in the current school year relative to today.`
+  },
+  electives: {
+    schema: () => ELECTIVE_SCHEMA,
+    prompt: () => `This page is a school's course catalogue or course-selection list. Extract every
+course a student could choose to take. Include core courses as well as electives — the student's
+own record decides which are relevant, not you. If the page is not a course list, return an empty
+"courses" array and say so in "clarify".`
+  }
+};
+
+/**
+ * POST /assistant/from-url { url, kind }
+ *
+ * Fetching happens here rather than in the browser for two reasons: a school
+ * website will not send CORS headers to a Netlify origin, so the browser
+ * simply cannot read it; and a URL somebody pasted needs SSRF screening
+ * before anything requests it, which only the server can enforce.
+ */
+async function fromUrl(req) {
+  requireConfigured();
+  const b = await body(req);
+  const kind = String(b.kind || "schedule");
+  const spec = LINK_KINDS[kind];
+  if (!spec) return fail(400, `Unknown kind "${kind}".`);
+
+  const url = String(b.url || "").trim();
+  if (!url) return fail(400, "Paste a link first.");
+
+  // Throws {status, message} for anything unfetchable — a private address, a
+  // login wall, a PDF, a timeout — each with a message that says what to do
+  // instead rather than a generic failure.
+  const page = await fetchPage(url, { allowHttp: true });
+
+  if (!page.text || page.text.length < 40) {
+    return fail(422, "That page had almost no readable text — it may load its content with JavaScript. " +
+      "Open it, select the part you want, and paste it in as text instead.");
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const text = page.text.slice(0, MAX_PAGE_TEXT);
+  const result = await generateJSON({
+    system: LINK_SYSTEM,
+    prompt: `${spec.prompt(today)}
+
+Page title: ${page.title}
+Page URL: ${page.url}
+
+"""${text}"""`,
+    responseSchema: spec.schema()
+  });
+
+  // The resolved URL and title go back so the client can show what was
+  // actually read — after redirects, that is not always the link pasted.
+  return ok({ ...result, source: { url: page.url, title: page.title, chars: page.text.length } });
 }
 
 /* ------------------------------------------------------- notes from a photo -- */
@@ -557,6 +702,12 @@ export default async (req) => {
     if (path === "parse-note-image" && method === "POST") {
       const user = await requireUser(req); await charge(user, "image");
       return await parseNoteImage(req);
+    }
+    // Costs a page fetch plus a long-context call, so it is charged at the
+    // image rate rather than the text rate.
+    if (path === "from-url" && method === "POST") {
+      const user = await requireUser(req); await charge(user, "image");
+      return await fromUrl(req);
     }
     if (path === "estimate" && method === "POST") {
       const user = await requireUser(req); await charge(user, "text");

@@ -48,6 +48,15 @@ Netlify Blobs needs no setup — it's provisioned automatically. The API refuses
 
 The weekly digest (`netlify/functions/weekly-digest.js`) runs on Netlify's scheduler — no extra setup, but you can change the cron expression at the bottom of that file if Monday 13:00 UTC isn't the right time for your users.
 
+**Add from a link.** Paste the URL of a page — your school's bell schedule,
+its calendar, an athletics or exam timetable, the course catalogue — and the
+server reads it and turns it into schedule periods, calendar events or a
+course list, with an **Add all** button and a per-row review before anything
+is saved. The fetch happens server-side because a school website sends no CORS
+headers to this origin, and because a pasted URL is screened against private
+and link-local addresses before anything requests it (`_lib/urlguard.js`).
+Needs `GEMINI_API_KEY`; pages behind a school login can't be read.
+
 **Guidance.** A view that reads your grades, study time, assessment-category
 performance, activities and stated interests, and ranks electives and fields
 of study against them. It runs entirely in the browser — no API key, nothing

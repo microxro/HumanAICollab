@@ -283,7 +283,44 @@ App.guidance = (function () {
       stage: g.stage || "high",
       interests: Array.isArray(g.interests) ? g.interests : [],
       targets: Array.isArray(g.targets) ? g.targets : [],
-      dismissed: Array.isArray(g.dismissed) ? g.dismissed : []
+      dismissed: Array.isArray(g.dismissed) ? g.dismissed : [],
+      // Falls back to the profile, so a school entered once in Settings
+      // doesn't have to be entered again here.
+      school: String(g.school || (S.db.profile && S.db.profile.school) || "").trim(),
+      catalogUrl: String(g.catalogUrl || "").trim(),
+      // Courses read off the school's own catalogue page. When this is
+      // populated it *replaces* the built-in list, because a real course the
+      // school actually offers beats a generic suggestion every time.
+      offered: Array.isArray(g.offered) ? g.offered : [],
+      offeredAt: g.offeredAt || null
+    };
+  }
+
+  /**
+   * A school's own course, in the shape the ranker already understands.
+   *
+   * Mapping to the same record as a catalogue elective is what lets one
+   * scoring function serve both — the alternative was a second ranker for
+   * real courses, which would inevitably disagree with the first.
+   */
+  function offeredToElective(c, i) {
+    const subject = SUBJECT_BY_ID[c && c.subject] ? c.subject : null;
+    const level = String((c && c.level) || "unknown");
+    const advanced = level === "ap" || level === "ib" || level === "dual";
+    return {
+      id: "of-" + ((c && c.code) || i),
+      stage: (S.db.guidance && S.db.guidance.stage) || "high",
+      name: String((c && c.name) || "Untitled course"),
+      subjects: subject ? [subject] : [],
+      // An AP/IB/dual course is exam-weighted; anything else we don't know,
+      // so claim nothing rather than inventing a work-style match.
+      modes: advanced ? ["exam"] : [],
+      opens: [c && c.grades, c && c.prereq ? "needs " + c.prereq : ""].filter(Boolean),
+      why: String((c && c.description) || "").trim() ||
+        (advanced ? `Offered at your school as ${level.toUpperCase()}.` : "Offered at your school."),
+      real: true,
+      code: String((c && c.code) || ""),
+      level
     };
   }
 
@@ -655,6 +692,10 @@ App.guidance = (function () {
    */
   function electives() {
     const cfg = conf();
+    // Real courses win outright when we have them: "ask whether your school
+    // offers AP Statistics" is a much weaker thing to say than "your school
+    // offers MATH-340 AP Statistics, and here is why it fits you".
+    const catalogue = cfg.offered.length ? cfg.offered.map(offeredToElective) : ELECTIVES;
     const subjects = subjectProfile();
     const byId = {};
     subjects.forEach((s) => { byId[s.id] = s; });
@@ -663,7 +704,7 @@ App.guidance = (function () {
     const topIds = top.map((p) => p.id);
     const taken = (S.db.classes || []).map((c) => `${c.name || ""} ${c.code || ""}`.toLowerCase());
 
-    return ELECTIVES
+    return catalogue
       .filter((e) => e.stage === cfg.stage)
       .filter((e) => !cfg.dismissed.includes("el:" + e.id))
       // Don't recommend what's already on the timetable — suggesting a course
@@ -696,8 +737,16 @@ App.guidance = (function () {
           reasons.push({ kind: "pathway", text: `Keeps ${feeds.map((f) => f.name).join(" and ")} open — currently your top match.` });
         }
 
+        // A course the school actually lists is worth more than a generic
+        // suggestion, and worth saying so on the card.
+        if (e.real) {
+          score += 8;
+          reasons.push({ kind: "pathway", text: `Your school offers this${e.code ? ` as ${e.code}` : ""}.` });
+        }
+
         return {
           id: e.id, name: e.name, why: e.why, opens: e.opens || [],
+          real: !!e.real, code: e.code || "", level: e.level || "",
           score: U.round(score, 1), reasons
         };
       })
@@ -792,7 +841,7 @@ App.guidance = (function () {
   ];
 
   return {
-    SUBJECTS, MODES, ELECTIVES, PATHWAYS, STAGES,
+    SUBJECTS, MODES, ELECTIVES, PATHWAYS, STAGES, offeredToElective,
     subjectOf, modeOf,
     subjectProfile, workStyle, activitySignal, confidence,
     pathways, electives, gaps, evidence, trendFor

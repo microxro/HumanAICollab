@@ -1,10 +1,11 @@
 # Testing
 
-`npm test` runs everything. Eighteen suites, roughly three minutes.
+`npm test` runs everything. Nineteen suites, roughly three minutes.
 
 Individual suites: `npm run test:node`, `test:security`, `test:api`,
 `test:teacher`, `test:browser`, `test:a11y`, `test:abuse`, `test:controls`,
-`test:inventory`, `test:concurrency`, `test:hardening`, `test:guidance`.
+`test:inventory`, `test:concurrency`, `test:hardening`, `test:guidance`,
+`test:urlguard`.
 
 Browser suites need a static server on port 8899; the runner starts one if
 nothing is already listening, and stops it afterwards.
@@ -29,6 +30,7 @@ nothing is already listening, and stops it afterwards.
 | `controls` | Clicks all ~184 interactive controls in all 21 views and asserts each observably does something. Catches the "renders but does nothing" defect. |
 | `inventory` | Every one of the 150 roadmap items is either marked in source or documented as blocked. Prints the built/blocked/unaccounted table. |
 | `concurrency` | Two people writing the same blob in the same instant. Every case fires both requests with `Promise.all` and asserts **both** edits survived — group notes, tasks, comments, joins, challenge totals, guardian notes, check-ins and friend requests. This is the failure mode that returns 200 twice and silently loses one of them. |
+| `urlguard` | Screening and fetching a URL somebody else chose — the defence behind "paste a link and I'll read it". Tested at the three places this kind of check usually fails: the **redirect** (a permitted host that 302s to 169.254.169.254), the **IPv4-mapped IPv6 form** that `new URL()` silently rewrites to hex, and **over-blocking** (a guard that rejects `fda.gov` is a bug report too). Also covers HTML→text: script/style dropped, entities decoded, table rows kept on separate lines. |
 | `guidance` | The recommendation engine. Less "does it render" than "does the ranking mean what the card claims": subject classification, ranking that reverses when the underlying grades do, relative-not-absolute scoring across a lenient and a harsh grader, pooled work style, a typed interest outweighing an incidental keyword, leadership over membership, an empty database admitting low confidence instead of guessing, and hostile input in an interest field never reaching the DOM as markup. |
 | `hardening` | One test per finding from the line-by-line read of the backend: the API-token flag that used to be persisted and lock an account out, tokens hashed at rest, webhook screening that must reject `fd00::` without rejecting `fda.gov`, `/v1` answering identically for empty and populated accounts, deployment configuration withheld from non-operator accounts, link-code and friend-request guessing limits, the byte-accurate body cap, and every feed sub-route reaching its own handler. |
 

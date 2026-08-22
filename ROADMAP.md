@@ -56,6 +56,27 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+**Add from a link (F152).** Most of what a student retypes into a school
+tracker is already published on a web page. Paste the link instead: the server
+fetches the page, strips it to text, and extracts bell-schedule periods, a
+calendar of events, or a course catalogue, each into the same review-then-add
+list the photo importer already used. An **Add all** button handles the case
+that motivated it — a bell schedule is eight rows, and clicking Add eight
+times was the chore.
+
+The fetch is server-side of necessity: a school website sends no CORS headers
+to a Netlify origin, so the browser is not permitted to read it. That makes it
+a server-side request forgery surface, so screening lives in
+`_lib/urlguard.js` and is shared with webhook delivery rather than duplicated
+— every redirect hop is re-screened, because a permitted host that 302s to
+169.254.169.254 defeats a check that only ran on the URL the user typed.
+
+**Guidance now knows your school (F153).** The school name comes from the
+profile, and a course-catalogue link makes the elective recommendations name
+real courses with their real codes instead of a general catalogue. Works for
+middle school, high school and college. Without a catalogue link it falls back
+to the built-in list and says so.
+
 **Guidance (F151).** Added after the 150, at the owner's request, and the
 first item here that isn't on the original list. A new view that answers the
 two questions a student actually has to decide — *which electives do I pick*
