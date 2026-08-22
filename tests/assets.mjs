@@ -43,5 +43,44 @@ console.log("\nassets: the shell is not served stale-first");
 ok("shell strategy is network-first", !/App shell: stale-while-revalidate/.test(sw),
    "a cached-first shell pairs new HTML with old JS");
 
+/* ------------------------------------------------ deploy freshness ------ */
+// This class of bug is invisible locally — a dev server sends no max-age, so
+// everything looks correct right up until a release reaches a real browser
+// and a fraction of users keep running last hour's code. It is checked here
+// because there is nowhere else it *can* be checked.
+console.log("\nassets: a release can actually reach a returning browser");
+{
+  const toml = readFileSync("netlify.toml", "utf8");
+
+  // Pull the Cache-Control for each header block, keyed by its `for` glob.
+  const blocks = {};
+  let currentFor = null;
+  for (const line of toml.split("\n")) {
+    const f = line.match(/^\s*for\s*=\s*"([^"]+)"/);
+    if (f) { currentFor = f[1]; continue; }
+    const cc = line.match(/^\s*Cache-Control\s*=\s*"([^"]+)"/);
+    if (cc && currentFor) blocks[currentFor] = cc[1];
+  }
+
+  // These filenames carry no content hash, so any max-age above zero is a
+  // window during which a deploy cannot reach a browser that has the file.
+  for (const glob of ["/js/*", "/css/*"]) {
+    const cc = blocks[glob] || "";
+    ok(`${glob} has a Cache-Control`, !!cc, JSON.stringify(blocks));
+    const age = Number((cc.match(/max-age=(\d+)/) || [])[1] ?? -1);
+    ok(`${glob} does not cache un-hashed files past a revalidation`,
+       age === 0 && /must-revalidate|no-cache/.test(cc),
+       `${glob} → "${cc}" — filenames aren't content-hashed, so a positive max-age serves stale code for that long`);
+  }
+
+  const swCc = blocks["/sw.js"] || "";
+  ok("/sw.js is never cached", /no-cache|no-store|max-age=0/.test(swCc), `"${swCc}"`);
+
+  // ...and the worker must not let the HTTP cache answer its own fetch, or
+  // "network-first" quietly becomes "whatever the browser already had".
+  ok("the shell fetch bypasses the HTTP cache", /cache:\s*"reload"/.test(sw),
+     'sw.js should fetch shell files with { cache: "reload" }');
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

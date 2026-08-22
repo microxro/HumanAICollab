@@ -46,12 +46,26 @@
   [headers.values]
     Content-Type = "application/manifest+json"
 
+# Revalidate every load rather than trusting a timer.
+#
+# These filenames are not content-hashed — js/views/guidance.js is the same
+# URL in every deploy — so any max-age above zero serves stale code for that
+# long after a release. It did: an hour-old guidance.js paired with a
+# just-deployed function, giving an app that showed the new error text inside
+# the old UI. The service worker's network-first fetch does not save you,
+# because that fetch is answered by the browser's own HTTP cache and never
+# reaches the CDN.
+#
+# max-age=0 + must-revalidate is not "no caching": the copy is kept and an
+# ETag revalidation returns 304 with no body. The cost is one conditional
+# request per file per load; the alternative is shipping a release that some
+# fraction of users cannot receive for an hour.
 [[headers]]
   for = "/css/*"
   [headers.values]
-    Cache-Control = "public, max-age=3600"
+    Cache-Control = "public, max-age=0, must-revalidate"
 
 [[headers]]
   for = "/js/*"
   [headers.values]
-    Cache-Control = "public, max-age=3600"
+    Cache-Control = "public, max-age=0, must-revalidate"

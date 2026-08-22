@@ -554,8 +554,23 @@ App.ui = (function () {
 
   /* --------------------------------------------------- shared fragments -- */
 
+  /**
+   * Initials on a coloured disc.
+   *
+   * The background is darkened until white initials clear 4.5:1 against it.
+   * The colour comes from a palette or from whatever a user picked, and
+   * several perfectly ordinary blues land just under the line — the default
+   * profile colour measured 4.41:1, a real WCAG AA failure that axe reports
+   * as serious and that shipped on every screen with a sidebar.
+   *
+   * 4.5, not 3.0: the initials are ~12.5px bold, and the large-text exemption
+   * needs 18.66px bold. Adjusting the background rather than the text keeps
+   * the design — white initials on colour — instead of flipping some avatars
+   * to dark text and making the set look inconsistent.
+   */
   function avatar(name, color, size) {
-    return `<span class="avatar${size ? " " + size : ""}" style="background:${U.esc(color || "#64748b")}">${U.esc(U.initials(name))}</span>`;
+    const bg = U.readableOn(color || "#64748b", "#ffffff", 4.5);
+    return `<span class="avatar${size ? " " + size : ""}" style="background:${U.esc(bg)}">${U.esc(U.initials(name))}</span>`;
   }
 
   /* -------------------------------------------------- U16 empty states -- */

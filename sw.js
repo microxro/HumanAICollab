@@ -13,7 +13,7 @@
 // with the current VERSION, so this string is the only thing that evicts a
 // stale shell. It sat at v2.0.0 across every release, which meant returning
 // users kept whatever they first cached.
-const VERSION = "scholar-v2.2.0";
+const VERSION = "scholar-v2.3.0";
 const SHELL_CACHE = VERSION + "-shell";
 const RUNTIME_CACHE = VERSION + "-runtime";
 
@@ -135,7 +135,13 @@ self.addEventListener("fetch", (event) => {
   // works, and a warm HTTP cache makes the repeat cost small.
   if (isShell(url)) {
     event.respondWith(
-      fetch(req)
+      // `cache: "reload"` bypasses the browser's own HTTP cache on the way
+      // out. Without it "network-first" is a misnomer: the fetch is answered
+      // from the HTTP cache and never reaches the network, so a max-age on
+      // these files silently defeats the whole strategy. Belt and braces with
+      // the must-revalidate headers in netlify.toml, because a user whose
+      // browser already cached the *old* headers is only fixed by this half.
+      fetch(new Request(req, { cache: "reload" }))
         .then((res) => {
           if (res && res.status === 200) {
             const copy = res.clone();
