@@ -343,7 +343,7 @@ App.views.sharing = (function () {
             ${UI.avatar(p.name, "#94a3b8")}
             <span class="grow">${U.esc(p.name)}</span><span class="badge">Pending</span>
           </div>`).join("")}</div>` : ""}
-        ${!list.length ? `<p class="dim small">No requests yet — add a friend by their Scholar account email.</p>` : ""}
+        ${!list.length ? `<p class="dim small">No requests yet — add a friend by their StudyHold account email.</p>` : ""}
       </div>
     </div>`;
   }
@@ -421,15 +421,15 @@ App.views.sharing = (function () {
   function realFriendForm() {
     UI.prompt({
       title: "Send a friend request",
-      label: "Their Scholar account email",
+      label: "Their StudyHold account email",
       placeholder: "friend@school.edu",
       okLabel: "Send request",
       onSubmit(email) {
         App.sync.requestFriend(email).then(() => {
           // The server answers the same way whether or not that address has
-          // an account, so it can't be used to check who's on Scholar. The
+          // an account, so it can't be used to check who's on StudyHold. The
           // copy has to match that, rather than claim delivery it can't know.
-          UI.toast("Request sent", `If ${email} has a Scholar account, they'll see it.`, "ok");
+          UI.toast("Request sent", `If ${email} has a StudyHold account, they'll see it.`, "ok");
           loadRealFriends();
         }).catch((e) => UI.toast("Couldn't send request", e.message, "danger"));
       }

@@ -164,8 +164,8 @@ App.views.focus = (function () {
     if (btn) btn.textContent = timer.running ? "⏸ Pause" : "▶ Start";
 
     document.title = timer.running
-      ? `${U.clock(timer.remaining)} · ${timer.phase === "focus" ? "Focus" : "Break"} — Scholar`
-      : "Scholar — School Tracker";
+      ? `${U.clock(timer.remaining)} · ${timer.phase === "focus" ? "Focus" : "Break"} — StudyHold`
+      : "StudyHold — School Tracker";
   }
 
   /* ------------------------------------------------------------ render -- */

@@ -1,4 +1,4 @@
-# Scholar — proposed updates
+# StudyHold — proposed updates
 
 150 proposed changes: **100 functionality** and **50 interface**. None duplicate the twenty
 screens or twenty-five features already built — everything here is additive.
@@ -80,7 +80,7 @@ to the built-in list and says so.
 **Guidance (F151).** Added after the 150, at the owner's request, and the
 first item here that isn't on the original list. A new view that answers the
 two questions a student actually has to decide — *which electives do I pick*
-and *what field is this pointing at* — from the record Scholar already holds.
+and *what field is this pointing at* — from the record StudyHold already holds.
 
 The engine (`js/guidance.js`) is deterministic and entirely local: no API key,
 no network, no provider. That is a deliberate constraint rather than a

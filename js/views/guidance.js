@@ -376,7 +376,7 @@ App.views.guidance = (function () {
           <h2>Electives to pick${c.stage === "college" ? "" : " next"}</h2>
         </div>
         <p class="small dim" style="margin-top:-4px">
-          A general catalogue — Scholar has no way to know your school's course list, so treat each
+          A general catalogue — StudyHold has no way to know your school's course list, so treat each
           of these as a question to ask your counselor rather than a course you can definitely take.
         </p>
         ${els.length
@@ -503,7 +503,7 @@ App.views.guidance = (function () {
         <div class="card"><div class="card-body">
           <ul style="margin:0">
             <li>Your school's actual course list, prerequisites, and whether any of this fits your timetable.</li>
-            <li>Test scores, class rank, and anything a transcript holds that Scholar doesn't.</li>
+            <li>Test scores, class rank, and anything a transcript holds that StudyHold doesn't.</li>
             <li>Cost, financial aid, and whether a programme is worth its price — the biggest factor in most of these decisions.</li>
             <li>You. A counselor who has met you knows things no gradebook contains, and this is a
                 starting point for that conversation rather than a replacement for it.</li>

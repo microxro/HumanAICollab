@@ -101,7 +101,7 @@ App.views.settings = (function () {
               forgot.hidden = false;
             } else {
               slot.innerHTML = `<span class="hint">Password reset by email isn't available on this
-                deployment. Your data lives on this device, so you can keep using Scholar signed out —
+                deployment. Your data lives on this device, so you can keep using StudyHold signed out —
                 or sign up again with a different address.</span>`;
             }
           });
@@ -182,7 +182,7 @@ App.views.settings = (function () {
           <div class="card-head"><h3>Cloud sync</h3><span class="badge">Signed out</span></div>
           <div class="card-body">
             <p class="small muted mb-16">
-              Scholar works completely offline — everything you've entered is saved in this browser.
+              StudyHold works completely offline — everything you've entered is saved in this browser.
               An account adds cross-device sync, the parent portal, and study groups.
             </p>
             <div class="row gap-8">
@@ -237,7 +237,7 @@ App.views.settings = (function () {
       </div>
       <div class="card-body">
         <p class="small muted mb-12">
-          Your parent creates their own Scholar account, then enters this code once.
+          Your parent creates their own StudyHold account, then enters this code once.
           They'll see whatever your Sharing toggles allow — nothing more.
         </p>
         <div id="linkCodeBox"></div>
@@ -430,11 +430,11 @@ App.views.settings = (function () {
         </div>
         <div class="card-body">
           <p class="small muted mb-12">
-            Scholar is a progressive web app. Installing gives it its own window and full offline access —
+            StudyHold is a progressive web app. Installing gives it its own window and full offline access —
             all your data is already stored locally, so nothing breaks without a connection.
           </p>
           <div class="row gap-8 wrap">
-            <button class="btn btn-primary" data-install>⬇ Install Scholar</button>
+            <button class="btn btn-primary" data-install>⬇ Install StudyHold</button>
             <button class="btn" data-update-sw>↻ Check for updates</button>
           </div>
           <p class="hint mt-12" id="installHint">
@@ -623,7 +623,7 @@ App.views.settings = (function () {
             <button class="icon-btn btn-sm" data-del-template="${t.id}" aria-label="Delete">✕</button>
           </div>`).join("")}
         </div>` : `<div class="card-body"><p class="dim small">
-          No recurring assignments. Add one for a weekly problem set or reading quiz and Scholar will create
+          No recurring assignments. Add one for a weekly problem set or reading quiz and StudyHold will create
           each occurrence automatically.</p></div>`}
       </div>
 
@@ -812,7 +812,7 @@ App.views.settings = (function () {
       <div class="card">
         <div class="card-head"><h3>About</h3></div>
         <div class="card-body small muted">
-          <p><strong style="color:var(--text)">Scholar ${S.SCHEMA === 2 ? "2.0" : ""}</strong> —
+          <p><strong style="color:var(--text)">StudyHold ${S.SCHEMA === 2 ? "2.0" : ""}</strong> —
           a school tracker built with plain HTML, CSS, and JavaScript. No framework, no build step.</p>
           <p class="mt-8">Accounts, cross-device sync, the parent portal, and study groups run on
           Netlify Functions with Netlify Blobs. Everything else works entirely offline in your browser.</p>
@@ -872,7 +872,7 @@ App.views.settings = (function () {
       <div class="card mb-16">
         <div class="card-head"><h3>API tokens</h3></div>
         <div class="card-body">
-          <p class="small dim" style="margin-top:0">A token lets a script you write read your own Scholar
+          <p class="small dim" style="margin-top:0">A token lets a script you write read your own StudyHold
           data. Treat it like a password — anyone holding it can read everything below.</p>
 
           ${devState.freshToken ? `
@@ -903,7 +903,7 @@ App.views.settings = (function () {
       <div class="card mb-16">
         <div class="card-head"><h3>Webhooks</h3></div>
         <div class="card-body">
-          <p class="small dim" style="margin-top:0">Scholar POSTs to a URL you choose when something changes.
+          <p class="small dim" style="margin-top:0">StudyHold POSTs to a URL you choose when something changes.
           Each delivery is signed, so your endpoint can verify it really came from here.</p>
 
           <div id="devHooks">${devState.hooks ? hookRows(devState.hooks) : `<div class="dim small">Loading…</div>`}</div>
@@ -911,7 +911,7 @@ App.views.settings = (function () {
           <div class="form-grid mt-12">
             <div class="field full">
               <label>Endpoint URL</label>
-              <input class="input" id="devHookUrl" type="url" placeholder="https://example.com/scholar-hook" />
+              <input class="input" id="devHookUrl" type="url" placeholder="https://example.com/studyhold-hook" />
             </div>
             <div class="field full">
               <label>Events</label>
@@ -948,7 +948,7 @@ App.views.settings = (function () {
           </div>
           <p class="tiny dim mt-12">Verify a webhook by computing
           <span class="mono">HMAC-SHA256</span> of the raw request body with your hook's secret and comparing it
-          to the <span class="mono">X-Scholar-Signature</span> header.</p>
+          to the <span class="mono">X-StudyHold-Signature</span> header.</p>
         </div>
       </div>`;
   }
@@ -1072,7 +1072,7 @@ App.views.settings = (function () {
 
   function importDialog() {
     UI.modal({
-      title: "Import a Scholar backup",
+      title: "Import a StudyHold backup",
       okLabel: "Import",
       body: `<div class="field">
           <label>Choose a backup file</label>
@@ -1240,7 +1240,7 @@ App.views.settings = (function () {
     if (!classes.length) { UI.toast("Add a class first"); return; }
     UI.modal({
       title: "Recurring assignment",
-      sub: "Scholar creates each occurrence automatically",
+      sub: "StudyHold creates each occurrence automatically",
       size: "wide",
       okLabel: "Create",
       body: `<div class="form-grid">
@@ -1543,7 +1543,7 @@ App.views.settings = (function () {
 
     /* --- data */
     U.on(root, "click", "[data-export]", () => {
-      U.download(`scholar-backup-${U.today()}.json`, S.exportJSON());
+      U.download(`studyhold-backup-${U.today()}.json`, S.exportJSON());
       UI.toast("Backup downloaded", "Keep it somewhere safe.", "ok");
     });
     // Every commit repaints the page, and mount() re-runs — so toggling any

@@ -606,7 +606,7 @@
   };
   S.importDeck = function (json, classId) {
     const parsed = JSON.parse(json);
-    if (!parsed || !Array.isArray(parsed.cards)) throw new Error("That doesn't look like a Scholar deck file.");
+    if (!parsed || !Array.isArray(parsed.cards)) throw new Error("That doesn't look like a StudyHold deck file.");
     const cards = parsed.cards.map((c) => Object.assign({}, c, { id: U.uid("c") }));
     return S.insert("decks", { name: parsed.name || "Imported deck", classId: classId || null, cards });
   };

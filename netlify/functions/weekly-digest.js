@@ -133,7 +133,7 @@ async function runDigest() {
     try {
       result = await sendEmail({
         to: profile.email,
-        subject: "Your weekly Scholar summary",
+        subject: "Your weekly StudyHold summary",
         html: layout("This week", sections.join(""))
       });
     } catch (e) {

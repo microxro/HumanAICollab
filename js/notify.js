@@ -84,7 +84,7 @@ App.notify = (function () {
       };
       return n;
     } catch (e) {
-      console.warn("[scholar] notification failed", e);
+      console.warn("[studyhold] notification failed", e);
       return null;
     }
   }
@@ -214,7 +214,7 @@ App.notify = (function () {
 
   function test() {
     if (permission() !== "granted") return false;
-    show("Test reminder", "This is what a Scholar reminder looks like.", "test:" + Date.now());
+    show("Test reminder", "This is what a StudyHold reminder looks like.", "test:" + Date.now());
     return true;
   }
 

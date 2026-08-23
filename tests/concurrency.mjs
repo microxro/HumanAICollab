@@ -15,7 +15,7 @@
    ========================================================================== */
 
 process.env.SCHOLAR_SECRET = "test-secret-value-at-least-16-chars-long";
-process.env.SITE_URL = "https://scholar.example";
+process.env.SITE_URL = "https://studyhold.example";
 
 const api = (await import("../netlify/functions/api.js")).default;
 const stub = await import("./stub/blobs-stub.mjs");
@@ -26,7 +26,7 @@ const ok = (name, cond, extra) => {
   else { fail++; console.log(`  FAIL ${name}${extra ? " — " + extra : ""}`); }
 };
 
-const BASE = "https://scholar.example/api/";
+const BASE = "https://studyhold.example/api/";
 async function call(path, { method = "GET", body, token } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (token) headers.Authorization = "Bearer " + token;
