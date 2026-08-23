@@ -169,7 +169,7 @@ App.views.parent = (function () {
 
         ${fresh.stale && st ? `<div class="card" style="background:var(--warn-bg);border:none">
           <div class="card-body small" style="color:var(--warn);padding:10px 12px">
-            ⚠ This status is ${fresh.text} — their app may be closed. Location only updates while Scholar is open.
+            ⚠ This status is ${fresh.text} — their app may be closed. Location only updates while StudyHold is open.
           </div></div>` : ""}
 
         <div class="grid g-4">
@@ -247,7 +247,7 @@ App.views.parent = (function () {
           <span style="font-size:1.1rem">ℹ️</span>
           <div class="small muted">
             <div class="bold" style="color:var(--text)">What you can and can't see</div>
-            <p class="mt-4">Your student controls every toggle. Location only updates while Scholar is open on
+            <p class="mt-4">Your student controls every toggle. Location only updates while StudyHold is open on
             their device — this is a web app, not a background tracker, so a closed app means a stale status.
             Grades appear only if they've turned on grade sharing.</p>
           </div>

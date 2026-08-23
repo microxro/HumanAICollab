@@ -171,7 +171,7 @@
       root.innerHTML = view.render();
     } catch (err) {
       renderFailed = true;
-      console.error("[scholar] render failed in view:", current, err);
+      console.error("[studyhold] render failed in view:", current, err);
       root.innerHTML = errorPanelHTML(view.title || current, err);
     }
 
@@ -205,7 +205,7 @@
         // Handlers are half-bound at this point, which is worse than a clean
         // failure — replace the body so the user gets an explanation rather
         // than a page where some controls silently do nothing.
-        console.error("[scholar] mount failed in view:", current, err);
+        console.error("[studyhold] mount failed in view:", current, err);
         root.innerHTML = errorPanelHTML(view.title || current, err);
         bindErrorPanel(root);
       }
@@ -225,7 +225,7 @@
     paintSyncBadge();
     paintTodayStrip();
     paintMobileTabbar();
-    document.title = `${view.title} · Scholar`;
+    document.title = `${view.title} · StudyHold`;
 
     // A re-render triggered by a data change shouldn't jump the user to the top.
     page.scrollTop = scrollTop;
@@ -390,7 +390,7 @@
       { group: "Create", label: "New college application", icon: "◉", run: () => { router.go("college"); setTimeout(() => { const b = document.querySelector("[data-add]"); if (b) b.click(); }, 60); } },
       { group: "Actions", label: "Toggle dark mode", icon: "☾", sub: "T", run: toggleTheme },
       { group: "Actions", label: "Export backup", icon: "⬇", run: () => {
-          U.download(`scholar-backup-${U.today()}.json`, S.exportJSON());
+          U.download(`studyhold-backup-${U.today()}.json`, S.exportJSON());
           UI.toast("Backup downloaded", "", "ok");
         }},
       { group: "Actions", label: "Export calendar (.ics)", icon: "📅", run: () => {
@@ -621,7 +621,7 @@
           }
         });
       });
-    }).catch((e) => console.info("[scholar] service worker not registered:", e.message));
+    }).catch((e) => console.info("[studyhold] service worker not registered:", e.message));
   }
 
   /* ------------------------------------------------- U37 today strip ---- */
@@ -735,7 +735,7 @@
 
   function runOnboarding() {
     UI.modal({
-      title: "Welcome to Scholar",
+      title: "Welcome to StudyHold",
       sub: "Let's set up your classes, bell schedule, and first assignment — about a minute.",
       footer: `<button type="button" class="btn" data-skip>Skip for now</button>
                <button type="button" class="btn btn-primary" data-next>Get started →</button>`,
@@ -1021,13 +1021,13 @@
    * loaded successfully.
    */
   function fatal(err) {
-    console.error("[scholar] boot failed", err);
+    console.error("[studyhold] boot failed", err);
     const msg = (err && (err.message || String(err))) || "Unknown error";
     const stack = (err && err.stack) || "";
     const host = document.getElementById("page") || document.body;
     host.innerHTML = `
       <div style="max-width:620px;margin:48px auto;padding:24px;font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.55">
-        <h2 style="margin:0 0 8px">Scholar couldn't start</h2>
+        <h2 style="margin:0 0 8px">StudyHold couldn't start</h2>
         <p style="color:#5b6478;margin:0 0 16px">Your saved data is still on this device — the app just
         couldn't load it. Try these in order.</p>
         <pre style="white-space:pre-wrap;background:#f4f5f8;color:#10141f;padding:10px;border-radius:8px;font-size:12px;overflow-x:auto">${msg
@@ -1050,7 +1050,7 @@
         const raw = localStorage.getItem("scholar.db.v2") || localStorage.getItem("scholar.db.v1") || "{}";
         const a = document.createElement("a");
         a.href = URL.createObjectURL(new Blob([raw], { type: "application/json" }));
-        a.download = "scholar-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+        a.download = "studyhold-backup-" + new Date().toISOString().slice(0, 10) + ".json";
         a.click();
       } catch (e) { alert("Couldn't build a backup: " + e.message); }
     });
@@ -1068,7 +1068,7 @@
 
     const rs = document.getElementById("fatalReset");
     if (rs) rs.addEventListener("click", () => {
-      if (!window.confirm("Erase all Scholar data on this device? This cannot be undone.")) return;
+      if (!window.confirm("Erase all StudyHold data on this device? This cannot be undone.")) return;
       try {
         localStorage.removeItem("scholar.db.v2");
         localStorage.removeItem("scholar.db.v1");
@@ -1083,13 +1083,13 @@
   // app produced a silent no-op, which is how a one-line bug became an
   // unreproducible bug report.
   window.addEventListener("error", (e) => {
-    console.error("[scholar] uncaught error", e.error || e.message);
+    console.error("[studyhold] uncaught error", e.error || e.message);
     if (App.ui && App.ui.toast) {
       App.ui.toast("Something went wrong", (e.error && e.error.message) || e.message || "", "danger");
     }
   });
   window.addEventListener("unhandledrejection", (e) => {
-    console.error("[scholar] unhandled rejection", e.reason);
+    console.error("[studyhold] unhandled rejection", e.reason);
     if (App.ui && App.ui.toast) {
       const r = e.reason;
       App.ui.toast("Something went wrong", (r && (r.message || String(r))) || "", "danger");
@@ -1100,7 +1100,7 @@
     // ?reset=1 recovers an app that won't boot without needing devtools.
     try {
       if (new URL(location.href).searchParams.get("reset") === "1") {
-        if (window.confirm("Reset Scholar's local data on this device? Export a backup first if you need one.")) {
+        if (window.confirm("Reset StudyHold's local data on this device? Export a backup first if you need one.")) {
           localStorage.removeItem("scholar.db.v2");
           localStorage.removeItem("scholar.db.v1");
         }

@@ -36,7 +36,7 @@ for (const p of shell) {
 }
 
 console.log("\nassets: the cache version is not the stale default");
-ok("VERSION moved past v2.0.0", !/const VERSION = "scholar-v2\.0\.0"/.test(sw),
+ok("VERSION moved past v2.0.0", !/const VERSION = "studyhold-v2\.0\.0"/.test(sw),
    "bump VERSION in sw.js on every deploy or returning users keep the old shell");
 
 console.log("\nassets: the shell is not served stale-first");

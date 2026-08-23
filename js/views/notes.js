@@ -303,7 +303,7 @@ App.views.notes = (function () {
         size: "narrow",
         okLabel: "Got it",
         footer: `<button type="button" class="btn btn-primary" data-close>Got it</button>`,
-        body: `<p class="small muted">Scholar looks for lines shaped like a term and a definition —
+        body: `<p class="small muted">StudyHold looks for lines shaped like a term and a definition —
           separated by a colon, a dash, or an em dash. For example:</p>
           <pre class="md-pre"><code>Mitochondria — powerhouse of the cell
 Ribosome: makes proteins

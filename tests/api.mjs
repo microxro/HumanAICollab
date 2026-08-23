@@ -10,7 +10,7 @@
    ========================================================================== */
 
 process.env.SCHOLAR_SECRET = "test-secret-value-at-least-16-chars-long";
-process.env.SITE_URL = "https://scholar.example";
+process.env.SITE_URL = "https://studyhold.example";
 
 const api = (await import("../netlify/functions/api.js")).default;
 const stub = await import("./stub/blobs-stub.mjs");
@@ -21,7 +21,7 @@ const ok = (name, cond, extra) => {
   else { fail++; console.log(`  FAIL ${name}${extra ? " — " + extra : ""}`); }
 };
 
-const BASE = "https://scholar.example/api/";
+const BASE = "https://studyhold.example/api/";
 async function call(path, { method = "GET", body, token } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (token) headers.Authorization = "Bearer " + token;
@@ -203,7 +203,7 @@ console.log("\napi: webhook registration rejects anything not publicly reachable
   }
 
   const good = await call("webhooks", {
-    method: "POST", token: t, body: { url: "https://example.com/scholar", events: ["state.updated"] }
+    method: "POST", token: t, body: { url: "https://example.com/studyhold", events: ["state.updated"] }
   });
   ok("a public https URL is accepted", good.status === 200, JSON.stringify(good.data));
   ok("a signing secret is issued", !!(good.data.webhook && good.data.webhook.secret));
@@ -220,7 +220,7 @@ console.log("\napi: a delivery fires on change and is signed");
   const u = await makeUser("deliver@x.com");
   const t = u.token;
   const reg = await call("webhooks", {
-    method: "POST", token: t, body: { url: "https://example.com/scholar", events: ["state.updated"] }
+    method: "POST", token: t, body: { url: "https://example.com/studyhold", events: ["state.updated"] }
   });
   const secret = reg.data.webhook.secret;
 
@@ -236,12 +236,12 @@ console.log("\napi: a delivery fires on change and is signed");
 
   ok("exactly one delivery was attempted", seen.length === 1, `${seen.length}`);
   const d = seen[0];
-  ok("to the registered URL", d && d.url === "https://example.com/scholar", d && d.url);
+  ok("to the registered URL", d && d.url === "https://example.com/studyhold", d && d.url);
   ok("as a POST", d && d.opts.method === "POST");
-  ok("carrying the event name", d && d.opts.headers["X-Scholar-Event"] === "state.updated");
+  ok("carrying the event name", d && d.opts.headers["X-StudyHold-Event"] === "state.updated");
 
   // Verify the signature the way a receiver would.
-  const sigHeader = d.opts.headers["X-Scholar-Signature"] || "";
+  const sigHeader = d.opts.headers["X-StudyHold-Signature"] || "";
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey("raw",
     enc.encode(process.env.SCHOLAR_SECRET + ":" + secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);

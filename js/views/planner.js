@@ -60,7 +60,7 @@ App.views.planner = (function () {
       return `<div class="card"><div class="card-head"><h3>Estimate accuracy</h3></div>
         <div class="card-body">
           <p class="small muted">Finish ${4 - c.n} more assignment${4 - c.n === 1 ? "" : "s"} with time
-          logged and Scholar will learn how far off your time estimates run, then correct future plans automatically.</p>
+          logged and StudyHold will learn how far off your time estimates run, then correct future plans automatically.</p>
         </div></div>`;
     }
 

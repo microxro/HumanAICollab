@@ -2,7 +2,7 @@
 
 ## The boundary
 
-Scholar is a static front end plus three Netlify Functions. **Everything the
+StudyHold is a static front end plus three Netlify Functions. **Everything the
 browser runs is public**, and that is not a defect to be fixed — it is how the
 web works. Anyone can open developer tools, read `js/store.js`, edit it, and
 run the modified version. So can any visitor to any website ever built. What
