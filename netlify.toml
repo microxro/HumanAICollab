@@ -13,11 +13,18 @@
   for = "/*"
   [headers.values]
     X-Content-Type-Options = "nosniff"
-    X-Frame-Options = "SAMEORIGIN"
+    # DENY, not SAMEORIGIN. The app contains no iframe and is never framed by
+    # anything, so allowing same-origin framing buys nothing and leaves a
+    # clickjacking path open through any same-origin HTML an attacker manages
+    # to get hosted. frame-ancestors 'none' below is the modern equivalent;
+    # both are sent because older browsers only honour the header.
+    X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "geolocation=(self), microphone=(), camera=(self)"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains"
     Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+    X-Permitted-Cross-Domain-Policies = "none"
     # Content-Security-Policy
     #
     # script-src has no 'unsafe-inline': every <script> in index.html uses
@@ -34,7 +41,7 @@
     # class covers and generated exports. connect-src is same-origin only —
     # the Gemini and Resend calls happen server-side in Netlify Functions, so
     # the browser never talks to a provider directly.
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 
 [[headers]]
   for = "/sw.js"

@@ -1510,6 +1510,13 @@ async function readLocation(user, studentId) {
 /* --------------------------------------------------------------- groups -- */
 
 async function createGroup(req, user) {
+  // Tighter than the global write ceiling because each group permanently
+  // allocates two blobs and burns a six-character code from a finite space.
+  // Twenty an hour is far past what any student does and far short of what
+  // it takes to exhaust anything.
+  const rl = await rateLimit("mkgroup", user.id, 20, 60 * 60 * 1000);
+  if (!rl.allowed) return fail(429, "You've created a lot of groups. Try again in an hour.");
+
   const b = await body(req);
   const name = String(b.name || "").trim().slice(0, 60);
   if (!name) return fail(400, "Give the group a name.");
@@ -2235,6 +2242,20 @@ export default async (req) => {
       return fail(503, "The server isn't configured yet — set SCHOLAR_SECRET in the Netlify environment.");
     }
 
+    // Every path segment is a candidate blob key.
+    //
+    // Sixty-odd handlers take an id straight out of the URL and hand it to
+    // Blobs — group ids, note ids, task ids, user ids. validBlobKey() was
+    // applied at five call sites and not the rest, so a malformed segment
+    // reached storage and came back as a 500 with a stack in the logs. That
+    // is a fuzzing target: garbage in, server error out, on any of sixty
+    // routes. Validating once here covers all of them and cannot be
+    // forgotten by the next handler, which is the point — a check repeated
+    // per call site is a check that gets missed.
+    for (const seg of parts) {
+      if (!validBlobKey(seg)) return fail(400, "That request has a malformed path.");
+    }
+
     // --- public
     // Public. Reports only whether a *capability* is available, never any
     // configuration detail — the sign-in screen needs this to decide whether
@@ -2264,6 +2285,31 @@ export default async (req) => {
 
     // --- everything below needs a valid token
     const user = await requireUser(req);
+
+    /*
+     * A ceiling on writes, per account, as a backstop.
+     *
+     * Individual limits guard the routes where abuse has a specific shape —
+     * guessing a join code, walking a list of emails, spending AI quota. But
+     * every other mutating route had none, so one signed-in account could
+     * loop POST /sync, POST /groups or POST /location as fast as the network
+     * allowed: unbounded storage churn, unbounded blob growth, and a bill.
+     * Enumerating the ~50 mutating routes and limiting each would leave the
+     * next one added uncovered, so the ceiling lives here where every write
+     * passes through.
+     *
+     * 900/hour is roughly one write every four seconds sustained for an
+     * hour. Real use is nowhere near it — sync is debounced and the app
+     * writes on user actions — so this is invisible until something is
+     * looping, which is exactly when it should not be.
+     */
+    if (method !== "GET" && method !== "HEAD") {
+      const writes = await rateLimit("writes", user.id, 900, 60 * 60 * 1000);
+      if (!writes.allowed) {
+        const mins = Math.max(1, Math.ceil((writes.resetAt - Date.now()) / 60000));
+        return fail(429, `That's a lot of changes at once — this account is paused for ${mins} minute${mins === 1 ? "" : "s"}.`);
+      }
+    }
 
     // Diagnostics for outbound email. Authenticated because ?probe=1 sends.
     if (parts[0] === "email-health" && method === "GET") return await emailHealth(req, user);

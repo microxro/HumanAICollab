@@ -62,7 +62,38 @@ function childSection(name, loc) {
   </div>`;
 }
 
-export default async () => {
+/**
+ * Netlify invokes a scheduled function with a JSON body carrying `next_run`,
+ * and states that these are not reachable by ordinary HTTP request. This
+ * checks anyway.
+ *
+ * The cost of being wrong is not small: an unguarded trigger sends real mail
+ * to every linked parent, so anyone who could reach it would have a spam
+ * relay pointed at children's guardians and a way to burn the Resend quota.
+ * That is not a guarantee worth taking on trust from outside the platform,
+ * and the check costs one comparison.
+ */
+function invokedBySchedule(req, payload) {
+  if (!req) return true;                       // direct call from a test
+  if (payload && payload.next_run) return true;
+  const h = req.headers;
+  if (h && (h.get("x-nf-event") === "schedule" || h.get("X-NF-Event") === "schedule")) return true;
+  return false;
+}
+
+export default async (req) => {
+  let payload = null;
+  try { payload = req && req.json ? await req.json() : null; } catch (e) { payload = null; }
+  if (!invokedBySchedule(req, payload)) {
+    console.warn("[weekly-digest] refused a non-scheduled invocation");
+    return new Response(JSON.stringify({ error: "This function runs on a schedule." }), {
+      status: 403, headers: { "Content-Type": "application/json" }
+    });
+  }
+  return await runDigest();
+};
+
+async function runDigest() {
   const profileKeys = await listKeys("profiles");
   let sent = 0, skipped = 0, failed = 0;
 
@@ -115,7 +146,7 @@ export default async () => {
 
   console.log(`[weekly-digest] done — sent ${sent}, skipped ${skipped}, failed ${failed}`);
   return new Response(JSON.stringify({ sent, skipped, failed }), { headers: { "Content-Type": "application/json" } });
-};
+}
 
 // Every Monday at 13:00 UTC. Netlify's cron scheduling docs:
 // https://docs.netlify.com/functions/scheduled-functions/
