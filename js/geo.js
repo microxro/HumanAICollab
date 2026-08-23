@@ -341,12 +341,18 @@ App.geo = (function () {
 
     // Pause the watch in a hidden tab to save battery; resume on return.
     document.addEventListener("visibilitychange", () => {
-      if (!S.settings.geo.enabled) return;
       if (document.hidden) {
         if (isWatching()) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; }
-      } else if (S.settings.geo.watching && !isWatching()) {
-        startWatch();
+        return;
       }
+      // The browser's own permission decision can change while this tab is
+      // backgrounded — the user fixes it from the browser's own settings, not
+      // from here — and nothing else re-polls it, so pick that up the moment
+      // focus returns instead of leaving a stale "blocked" badge on screen.
+      checkPermission().then(() => {
+        if (S.settings.geo.enabled && S.settings.geo.watching && !isWatching()) startWatch();
+        emit();
+      });
     });
   }
 

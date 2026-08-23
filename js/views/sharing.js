@@ -34,8 +34,18 @@ App.views.sharing = (function () {
 
         ${perm === "denied" ? `<div class="card mb-16" style="background:var(--danger-bg);border:none">
           <div class="card-body small" style="color:var(--danger);padding:10px 12px">
-            Location is blocked for this site. Allow it from the padlock icon in your address bar,
-            then reload. Until then, your status falls back to your timetable.
+            <p style="margin:0 0 8px">Location is blocked for this site — this is a browser setting,
+            not something on/off in this app. Where to fix it depends on what you're using:</p>
+            <ul style="margin:0 0 8px;padding-left:18px">
+              <li><strong>Safari on iPhone/iPad:</strong> tap "aA" at the left edge of the address bar
+                → Website Settings → Location → Allow.</li>
+              <li><strong>Safari on Mac:</strong> Safari menu → Settings for This Website → Location → Allow.</li>
+              <li><strong>Chrome/Edge:</strong> tap the icon left of the address bar (padlock or site info)
+                → Permissions → Location → Allow.</li>
+            </ul>
+            <p style="margin:0 0 8px">Reloading the page or closing the tab doesn't change this setting —
+            it has to be switched in the browser itself, and it can take a moment to notice once you have.</p>
+            <button type="button" class="btn btn-sm" data-geo-recheck>Check again</button>
           </div></div>` : ""}
 
         <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
@@ -580,6 +590,13 @@ App.views.sharing = (function () {
       if (key === "locationSharing" && el.checked) App.geo.maybePush(true);
       UI.toast(el.checked ? "Sharing enabled" : "Sharing disabled",
         U.titleCase(key.replace(/([A-Z])/g, " $1")));
+    });
+
+    const geoRecheck = root.querySelector("[data-geo-recheck]");
+    if (geoRecheck) geoRecheck.addEventListener("click", () => {
+      geoRecheck.disabled = true;
+      geoRecheck.textContent = "Checking…";
+      App.geo.checkPermission().then(() => App.router.refresh());
     });
 
     const geoToggle = root.querySelector("#geoToggle");
