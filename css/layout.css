@@ -427,7 +427,10 @@
   }
   .tab-dot.alert { background: var(--danger); }
 
-  .fab-add {
+  /* Element+class beats the plain [data-tip] attribute selector in
+     components.css that also sets position — that tie previously left
+     this button relatively positioned in normal flow instead of fixed. */
+  button.fab-add {
     display: grid;
     place-items: center;
     position: fixed;
