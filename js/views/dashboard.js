@@ -53,6 +53,27 @@ App.views.dashboard = (function () {
   }
 
   /**
+   * One real quote per app open, about being a decent person rather than a
+   * productive one. The attribution is a link out to the person's biography,
+   * because a line worth reading is usually attached to a life worth knowing
+   * about — and because naming a source is what separates a real quote from
+   * the anonymous inspirational wallpaper this could easily have been.
+   */
+  function quoteHTML() {
+    if (!App.quotes) return "";
+    const q = App.quotes.today();
+    if (!q) return "";
+    return `<figure class="quote-card">
+      <blockquote>${U.esc(q.text)}</blockquote>
+      <figcaption>
+        <a href="${U.esc(q.url)}" target="_blank" rel="noopener noreferrer"
+           title="Read about ${U.esc(q.author)}">${U.esc(q.author)}</a>
+        ${q.source ? `<span class="quote-source">${U.esc(q.source)}</span>` : ""}
+      </figcaption>
+    </figure>`;
+  }
+
+  /**
    * Surfaces genuine crunch — clustered tests, over-booked evenings, a game
    * the night before an exam — before it arrives, not after.
    */
@@ -211,6 +232,7 @@ App.views.dashboard = (function () {
     const { weekStudy, trend } = aggregates();
     switch (id) {
       case "hero": return heroHTML();
+      case "quote": return quoteHTML();
       case "warnings": return warningsHTML();
       case "stats": return statsHTML();
       case "countdowns": return countdownsHTML();
@@ -264,7 +286,7 @@ App.views.dashboard = (function () {
     </div>`;
   }
 
-  const TOP = ["hero", "warnings", "stats", "countdowns"];
+  const TOP = ["hero", "quote", "warnings", "stats", "countdowns"];
   const LEFT = ["schedule", "trend"];
   const RIGHT = ["due", "grades", "study"];
 

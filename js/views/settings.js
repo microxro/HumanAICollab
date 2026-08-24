@@ -774,7 +774,7 @@ App.views.settings = (function () {
   }
 
   const DASHBOARD_WIDGET_LABELS = {
-    hero: "Live status banner", warnings: "Heads-up warnings", stats: "Stat cards",
+    hero: "Live status banner", quote: "Daily quote", warnings: "Heads-up warnings", stats: "Stat cards",
     countdowns: "Key date countdowns", schedule: "Today's schedule", due: "Due soon",
     trend: "Grade trend", grades: "Class averages", study: "Study activity"
   };

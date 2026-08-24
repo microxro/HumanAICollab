@@ -952,3 +952,49 @@
   color: var(--text-3);
   margin-right: 6px;
 }
+
+/* ------------------------------------------------- daily quote (dashboard) */
+
+/* Styled through tokens only, so it follows the accent picker and both
+   themes without a second definition. The left rule and the oversized
+   opening mark are the whole decoration — this sits directly under the hero
+   banner and would fight it if it were another filled card. */
+.quote-card {
+  position: relative;
+  margin: 0;
+  padding: 16px 18px 16px 22px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-500);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xs);
+}
+.quote-card blockquote {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: var(--text);
+  text-wrap: pretty;
+}
+.quote-card blockquote::before { content: "\201C"; }
+.quote-card blockquote::after  { content: "\201D"; }
+
+.quote-card figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-top: 10px;
+  font-size: .82rem;
+}
+.quote-card figcaption a {
+  font-weight: 650;
+  color: var(--brand-text);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.quote-card figcaption a:hover,
+.quote-card figcaption a:focus-visible { border-bottom-color: currentColor; }
+.quote-card figcaption a::before { content: "\2014\00a0"; color: var(--text-3); }
+
+.quote-card .quote-source { color: var(--text-3); font-size: .76rem; }
