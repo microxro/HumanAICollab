@@ -147,6 +147,26 @@
 }
 .cal-num { font-size: .755rem; font-weight: 650; align-self: flex-start; }
 
+/* Desktop: identical to any other .page-actions row — five controls fit on
+   one line, so nothing below applies until the toolbar actually runs out of
+   room. */
+.cal-more-btn { display: none; }
+
+@media (max-width: 640px) {
+  /* Five buttons of equal visual weight wrapped into three uneven rows here
+     before there was room for a single day of the calendar. Month/Week/Agenda
+     is the control reached for most, so it gets its own full-width row;
+     Export .ics and Add from a link move behind the "more" menu so New
+     Event — the one primary action — isn't competing with two others for
+     the same line. */
+  .cal-actions { width: 100%; }
+  .cal-actions .segmented { flex: 1 1 100%; }
+  .cal-actions .segmented button { flex: 1; text-align: center; }
+  .cal-actions-secondary { display: none; }
+  .cal-actions [data-new] { flex: 1; }
+  .cal-more-btn { display: grid; flex: 0 0 auto; }
+}
+
 /* U40 — workload heat: shade each day by how much is due, so a crunch
    week is visible before opening a single item. Levels 3-4 also carry
    an explicit "Xh due" chip, so the heaviest days never rest on color

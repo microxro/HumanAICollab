@@ -486,15 +486,16 @@ App.views.calendar = (function () {
           <div class="sub">${U.plural(monthEvents, "event")} in ${monthLabel} ·
             classes, deadlines, activities, and study blocks in one place</div>
         </div>
-        <div class="page-actions">
+        <div class="page-actions cal-actions">
           <div class="segmented">
             <button class="${mode === "month" ? "active" : ""}" data-mode="month">Month</button>
             <button class="${mode === "week" ? "active" : ""}" data-mode="week">Week</button>
             <button class="${mode === "agenda" ? "active" : ""}" data-mode="agenda">Agenda</button>
           </div>
-          <button class="btn" data-export-ics>⬇ Export .ics</button>
-          <button class="btn" data-ai-events>✦ Add from a link</button>
+          <button class="btn cal-actions-secondary" data-export-ics>⬇ Export .ics</button>
+          <button class="btn cal-actions-secondary" data-ai-events>✦ Add from a link</button>
           <button class="btn btn-primary" data-new>+ New event</button>
+          <button class="icon-btn cal-more-btn" data-cal-more aria-label="More calendar actions" title="More">⋯</button>
         </div>
       </div>
 
@@ -531,6 +532,17 @@ App.views.calendar = (function () {
 
     U.on(root, "click", "[data-new]", () => eventForm(null));
     U.on(root, "click", "[data-export-ics]", exportDialog);
+    // Narrow screens hide Export .ics / Add from a link as standalone
+    // buttons (see .cal-actions-secondary in layout.css) so the toolbar
+    // fits in one row instead of wrapping into three; this menu is the
+    // only way to reach them there, so it reuses the exact same handlers.
+    U.on(root, "click", "[data-cal-more]", (e, el) => {
+      const r = el.getBoundingClientRect();
+      UI.menu([
+        { icon: "⬇", label: "Export .ics", run: exportDialog },
+        { icon: "✦", label: "Add from a link", run: () => App.aiAdd.open({ scope: "events" }) }
+      ], r.right, r.bottom + 4);
+    });
     U.on(root, "click", "[data-day]", (_e, el) => dayDetail(el.dataset.day));
     U.on(root, "click", "[data-ev]", (e, el) => {
       e.stopPropagation();
