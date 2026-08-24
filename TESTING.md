@@ -1,11 +1,11 @@
 # Testing
 
-`npm test` runs everything. Twenty suites, roughly four minutes.
+`npm test` runs everything. Twenty-two suites, roughly four minutes.
 
 Individual suites: `npm run test:node`, `test:security`, `test:api`,
 `test:teacher`, `test:browser`, `test:a11y`, `test:abuse`, `test:controls`,
 `test:inventory`, `test:concurrency`, `test:hardening`, `test:guidance`,
-`test:urlguard`, `test:authwall`.
+`test:urlguard`, `test:authwall`, `test:activities`, `test:portal`.
 
 Browser suites need a static server on port 8899; the runner starts one if
 nothing is already listening, and stops it afterwards.
@@ -33,6 +33,8 @@ nothing is already listening, and stops it afterwards.
 | `authwall` | Every endpoint, attacked. Walks the whole route table of both functions and tries each one with no token, garbage, a token signed with a different secret, an expired token, a token whose subject was swapped to someone else's, and an `sk_` that was never minted — 68 API routes and 7 AI routes against 8 credentials each. Then cross-account authorization, CORS, revocation, malformed path segments, the write ceiling, the scheduled digest's invocation guard, and the deployed security headers. A route added later without auth fails the completeness check rather than going unnoticed. |
 | `urlguard` | Screening and fetching a URL somebody else chose — the defence behind "paste a link and I'll read it". Tested at the three places this kind of check usually fails: the **redirect** (a permitted host that 302s to 169.254.169.254), the **IPv4-mapped IPv6 form** that `new URL()` silently rewrites to hex, and **over-blocking** (a guard that rejects `fda.gov` is a bug report too). Also covers HTML→text: script/style dropped, entities decoded, table rows kept on separate lines. |
 | `guidance` | The recommendation engine. Less "does it render" than "does the ranking mean what the card claims": subject classification, ranking that reverses when the underlying grades do, relative-not-absolute scoring across a lenient and a harsh grader, pooled work style, a typed interest outweighing an incidental keyword, leadership over membership, an empty database admitting low confidence instead of guessing, and hostile input in an interest field never reaching the DOM as markup. |
+| `activities` | F154 — outside-school activities. The store math (what a per-session, per-term and one-off fee each add up to per month, and that a school club's stale fee is never counted), the backfill of a record written before the feature existed, the scheduling rule that stopped hiding a Saturday lesson on an A/B timetable, and the guardian-suggestion endpoints: authorization, the field whitelist a cross-account object has to survive, answering once and only once, and two guardians suggesting in the same instant. |
+| `portal` | The screens that render nothing until you're signed in, which every other browser suite therefore sees empty: the card offering a guardian-suggested activity (adding it, declining it, and a failed answer that must leave it pending rather than half-done), and the parent portal's own view of the outside-school half — in the student's currency, not the parent's — plus the form that sends one. |
 | `hardening` | One test per finding from the line-by-line read of the backend: the API-token flag that used to be persisted and lock an account out, tokens hashed at rest, webhook screening that must reject `fd00::` without rejecting `fda.gov`, `/v1` answering identically for empty and populated accounts, deployment configuration withheld from non-operator accounts, link-code and friend-request guessing limits, the byte-accurate body cap, and every feed sub-route reaching its own handler. |
 
 ## The standard
@@ -57,6 +59,12 @@ than a red one:
   test message and reports Resend's verbatim answer.
 - **A webhook round-trip to an external URL**, and an API token used from
   an outside client. Both need the deployed site.
+- **A real signed-in session in the browser.** `portal` drives Sharing's
+  guardian cards and the whole parent portal with `App.sync`'s network calls
+  replaced by in-memory ones, so the views, handlers and store are real and
+  the transport is not. The transport those stubs stand in for is tested
+  against the real `api.js` in `activities`. What neither covers is the two
+  meeting over a live network.
 - **Real iOS/Android browsers.** Mobile behaviour is tested at mobile
   viewports in Chromium, which catches layout and target sizing but not
   platform quirks.

@@ -91,6 +91,8 @@ const GUARDED = [
   ["POST", "focus-windows/propose"], ["POST", "focus-windows/respond"],
   ["POST", "focus-windows/end"], ["GET", "focus-windows"],
   ["GET", "guardian-notes"], ["POST", "guardian-notes"],
+  ["GET", "activity-suggestions"], ["POST", "activity-suggestions"],
+  ["POST", "activity-suggestions/respond"],
   ["GET", "groups"], ["POST", "groups"], ["POST", "groups/join"], ["POST", "groups/broadcast"],
   ["GET", "groups/g1"], ["POST", "groups/g1/deck"], ["GET", "groups/g1/deck/d1"],
   ["POST", "groups/g1/feed"], ["POST", "groups/g1/feed/f1/comment"],
@@ -247,6 +249,7 @@ console.log("\nauthwall: a signed-in account is a stranger to every other accoun
     ["send A's guardian a note", () => callApi("guardian-notes", { method: "POST", token: b.token, body: { studentId: a.user.id, text: "x" } }), (r) => r.status === 403],
     ["demand a check-in from A", () => callApi("checkin/request", { method: "POST", token: b.token, body: { studentId: a.user.id } }), (r) => r.status === 403],
     ["impose a focus window on A", () => callApi("focus-windows/propose", { method: "POST", token: b.token, body: { studentId: a.user.id, startAt: Date.now(), endAt: Date.now() + 1000 } }), (r) => r.status === 403],
+    ["put an activity in A's app", () => callApi("activity-suggestions", { method: "POST", token: b.token, body: { studentId: a.user.id, activity: { name: "Judo" } } }), (r) => r.status === 403],
     ["read a group A is in", () => callApi("groups/anything", { token: b.token }), (r) => r.status === 404 || r.status === 403],
     ["broadcast as a teacher", () => callApi("groups/broadcast", { method: "POST", token: b.token, body: { title: "x" } }), (r) => r.status === 403],
     ["mint a link code as a parent", () => callApi("link/code", { method: "POST", token: parent.token }), (r) => r.status !== 200 || !r.data.code]

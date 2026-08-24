@@ -656,6 +656,7 @@
     { id: "assignment", icon: "✎", label: "Assignment", sub: "Homework, an essay, a test", go: () => App.views.homework.form(null) },
     { id: "class", icon: "▣", label: "Class", sub: "A course on your timetable", go: () => App.views.classes.classForm(null) },
     { id: "activity", icon: "◇", label: "Activity", sub: "Practice, a club, a job", go: () => App.views.activities.form(null) },
+    { id: "external", icon: "🌍", label: "Outside school", sub: "A lesson, an external class, a club team", go: () => App.views.activities.form(null, { external: true }) },
     { id: "event", icon: "▤", label: "Event", sub: "A one-off on the calendar", go: () => App.views.calendar.eventForm && App.views.calendar.eventForm(null) },
     { id: "note", icon: "✐", label: "Note", sub: "Something to write down", go: () => App.views.notes.form(null) },
     { id: "ai", icon: "✦", label: "Add with AI", sub: "Describe it, or upload a photo", go: () => App.aiAdd.open({ scope: "activities" }) }

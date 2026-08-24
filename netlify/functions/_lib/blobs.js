@@ -12,6 +12,7 @@
      checkins       studentId → [{ id, fromId, fromName, at, respondedAt }]
      guardianNotes  studentId → [{ id, fromId, fromName, text, at, read }]
      focusWindows   studentId → [{ id, fromId, fromName, startAt, endAt, note, status, ... }]
+     activitySuggestions studentId → [{ id, fromId, fromName, activity, at, status }]
      locationEvents studentId → [{ type: "arrival"|"departure", at }]
      icsTokens      userId    → { token }
      icsFeeds       token     → { ics, updatedAt }
@@ -25,6 +26,7 @@ import { getStore } from "@netlify/blobs";
 const STORES = [
   "users", "profiles", "state", "links", "locations", "groups", "codes",
   "checkins", "guardianNotes", "focusWindows", "locationEvents",
+  "activitySuggestions",
   "icsTokens", "icsFeeds", "passwordResets", "apiTokens", "rateLimits"
 ];
 

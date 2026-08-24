@@ -21,7 +21,9 @@
     "test:hardening": "node --import ./tests/stub/register.mjs tests/hardening.mjs",
     "test:guidance": "node tests/guidance.mjs",
     "test:urlguard": "node tests/urlguard.mjs",
-    "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs"
+    "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs",
+    "test:activities": "node --import ./tests/stub/register.mjs tests/activities.mjs",
+    "test:portal": "node tests/portal.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1"

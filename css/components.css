@@ -2,6 +2,14 @@
    Component library
    ========================================================================== */
 
+/* `hidden` has to actually hide. The UA stylesheet sets `display: none` for
+   it at the lowest possible specificity, so any class that declares a display
+   — `.field` is flex, `.row` is flex, `.card` is block — silently wins and the
+   "hidden" element stays on screen. Every conditionally-shown block in a form
+   depends on this one line; `.today-strip[hidden]` in css/layout.css was a
+   one-off patch for the same problem. */
+[hidden] { display: none !important; }
+
 /* ------------------------------------------------------------ buttons -- */
 
 .btn {
