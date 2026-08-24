@@ -698,7 +698,7 @@ App.views.grades = (function () {
               <button class="btn btn-sm" data-cols-toggle>⚙ Columns</button>
               <div class="col-picker" ${colPickerOpen ? "" : "hidden"}>
                 ${RECENT_COL_DEFS.filter((d) => !d.always).map((d) => `
-                  <label class="row gap-6 small"><input type="checkbox" data-col="${d.key}" ${rtCfg.cols[d.key] ? "checked" : ""}/> ${U.esc(d.label)}</label>
+                  <label class="row gap-6 small"><input type="checkbox" class="check" data-col="${d.key}" ${rtCfg.cols[d.key] ? "checked" : ""}/> ${U.esc(d.label)}</label>
                 `).join("")}
               </div>
             </div>
