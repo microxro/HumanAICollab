@@ -567,7 +567,10 @@ const ACTION_SCHEMA = {
       items: {
         type: "OBJECT",
         properties: {
-          kind: { type: "STRING", enum: ["addAssignment", "completeAssignment", "addActivity", "addNote", "addEvent"] },
+          kind: { type: "STRING", enum: [
+            "addAssignment", "completeAssignment", "addActivity", "addNote", "addEvent",
+            "deleteAssignment", "deleteActivity", "deleteNote", "deleteEvent"
+          ] },
           title: { type: "STRING" },
           className: { type: "STRING", description: "Class name to attach to, or empty string." },
           due: { type: "STRING", description: "YYYY-MM-DD, or empty string." },
@@ -576,7 +579,7 @@ const ACTION_SCHEMA = {
           start: { type: "STRING", description: "24-hour HH:MM, or empty string." },
           end: { type: "STRING", description: "24-hour HH:MM, or empty string." },
           body: { type: "STRING", description: "For addNote only." },
-          targetId: { type: "STRING", description: "For completeAssignment: the exact id from context. Empty string otherwise." },
+          targetId: { type: "STRING", description: "For completeAssignment and every delete* kind: the exact id from context. Empty string otherwise." },
           summary: { type: "STRING", description: "One plain-language line describing this change, shown for confirmation." }
         },
         required: ["kind", "title", "className", "due", "type", "days", "start", "end", "body", "targetId", "summary"]
@@ -597,10 +600,12 @@ Propose actions ONLY when the student is clearly asking to record or change some
 "I have a test Friday", "mark X done"). A question like "what's due?" gets an answer and an empty
 actions array. Never propose an action the student didn't ask for.
 
-For completeAssignment, targetId must be an exact id copied from the context — never invent one; if
-you can't find a confident match, ask which one instead of guessing. Dates are YYYY-MM-DD; resolve
-relative dates ("Friday", "next week") against today's date in the context. Match className to a
-real class name in the context when you can, otherwise leave it blank.
+For completeAssignment and every delete* kind, targetId must be an exact id copied from the
+context — never invent one; if you can't find a confident match, ask which one instead of guessing.
+Only propose a delete* action when the student clearly asks to remove or cancel something, never as
+a side effect of another request. Dates are YYYY-MM-DD; resolve relative dates ("Friday", "next
+week") against today's date in the context. Match className to a real class name in the context when
+you can, otherwise leave it blank.
 
 Keep "answer" brief — a sentence or two. Every action needs a clear "summary", because the student
 sees it and confirms before anything is saved.`;

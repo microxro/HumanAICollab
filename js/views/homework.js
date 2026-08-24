@@ -76,14 +76,19 @@ App.views.homework = (function () {
   /* -------------------------------------------------------------- form -- */
 
   function form(as, onDone) {
+    // Distinguish "editing a real record" from "a hint for a new one" by id,
+    // not truthiness — lets a caller pass e.g. { type: "Project" } to
+    // pre-fill a field on an otherwise-new assignment (the Projects tab does
+    // this) without it being mistaken for an edit of a nonexistent record.
+    const editing = !!(as && as.id);
     const a = as || {};
     const cls = S.cls(a.classId) || S.db.classes[0];
 
     UI.modal({
-      title: as ? "Edit assignment" : "New assignment",
+      title: editing ? "Edit assignment" : "New assignment",
       size: "wide",
-      okLabel: as ? "Save" : "Add assignment",
-      footer: as ? `<button type="button" class="btn btn-danger left" data-del>Delete</button>
+      okLabel: editing ? "Save" : "Add assignment",
+      footer: editing ? `<button type="button" class="btn btn-danger left" data-del>Delete</button>
                     <button type="button" class="btn" data-close>Cancel</button>
                     <button type="submit" class="btn btn-primary">Save</button>` : undefined,
       body: `<div class="form-grid">
@@ -286,13 +291,15 @@ App.views.homework = (function () {
           estMinutes: Number(d.estMinutes) || 0, points: Number(d.points) || 0,
           earned, graded: earned != null, notes: d.notes.trim(), subtasks
         };
-        if (as) {
+        let rec;
+        if (editing) {
           if (as.graded && as.earned !== earned) S.logGradeChange(as.id, "earned", as.earned, earned);
           S.update("assignments", as.id, patch); UI.toast("Assignment updated", patch.title);
+          rec = as;
         }
-        else { S.insert("assignments", Object.assign({ assigned: U.today(), actualMinutes: 0 }, patch));
+        else { rec = S.insert("assignments", Object.assign({ assigned: U.today(), actualMinutes: 0 }, patch));
                UI.toast("Assignment added", `${patch.title} · due ${U.relDate(patch.due)}`, "ok"); }
-        if (onDone) setTimeout(onDone, 60);   // U49 onboarding wizard step chain
+        if (onDone) setTimeout(() => onDone(rec), 60);   // U49 onboarding wizard step chain
       }
     });
   }
@@ -934,6 +941,72 @@ App.views.homework = (function () {
     </div>`;
   }
 
+  /* --------------------------------------------------------- projects -- */
+
+  /**
+   * Projects, purpose-built rather than a filtered assignment list. The data
+   * underneath is exactly the existing "break into checkpoints" mechanism
+   * (S.splitAssignment/S.subAssignments, F018/F026) — a Project-type
+   * assignment with children linked by parentId — this only gives it its
+   * own card and checkpoint list instead of surfacing that one click deep
+   * inside a generic assignment's detail modal.
+   */
+  function projectsHTML() {
+    const projects = S.db.assignments.filter((a) => a.type === "Project" && !a.parentId && !a.archived);
+
+    if (!projects.length) {
+      return UI.emptyState("homework", "No projects yet",
+        "Start one with \"+ New project\", then add checkpoints as the work breaks down.");
+    }
+
+    const card = (p) => {
+      const c = S.cls(p.classId);
+      const kids = S.subAssignments(p.id);
+      const done = kids.filter((k) => k.status === "done").length;
+      const pct = kids.length ? Math.round((done / kids.length) * 100) : 0;
+
+      return `<div class="card mb-16" data-project="${p.id}">
+        <div class="card-head">
+          <div style="min-width:0">
+            <h3 class="truncate">${U.esc(p.title)}</h3>
+            <div class="sub">${c ? U.esc(c.name) + " · " : ""}${UI.dueBadge(p.due)}</div>
+          </div>
+          <button class="icon-btn btn-sm" data-edit-project="${p.id}" aria-label="Edit project" title="Edit project">✎</button>
+        </div>
+        <div class="card-body">
+          ${kids.length ? `
+            <div class="row gap-8 mb-8" style="align-items:center">
+              <div class="bar thin grow"><i style="width:${pct}%"></i></div>
+              <span class="tiny dim" style="white-space:nowrap">${done}/${kids.length} checkpoints</span>
+            </div>
+            <div class="list mb-12" style="border:1px solid var(--border);border-radius:var(--radius)">
+              ${kids.map((k) => `<div class="list-item" data-checkpoint="${k.id}">
+                <input type="checkbox" class="check" data-checkpoint-done="${k.id}" ${k.status === "done" ? "checked" : ""}
+                       aria-label="Checkpoint done" />
+                <span class="grow ${k.status === "done" ? "dim" : ""}" style="${k.status === "done" ? "text-decoration:line-through" : ""}">
+                  ${U.esc(k.title)}</span>
+                ${UI.dueBadge(k.due)}
+                <button class="icon-btn btn-sm" data-checkpoint-del="${k.id}" aria-label="Remove checkpoint" title="Remove checkpoint">✕</button>
+              </div>`).join("")}
+            </div>`
+            : `<p class="tiny dim mb-12">No checkpoints yet.</p>`}
+
+          <div class="row gap-8 wrap" style="align-items:center">
+            <input class="input input-sm grow" style="min-width:160px" data-new-checkpoint-title="${p.id}"
+                   placeholder="Add a checkpoint…" />
+            <input class="input input-sm" type="date" style="width:150px" data-new-checkpoint-due="${p.id}"
+                   value="${U.esc(p.due)}" title="When this checkpoint is due" />
+            <button type="button" class="btn btn-sm" data-add-checkpoint="${p.id}">+ Add</button>
+            ${kids.length ? "" : `<button type="button" class="btn btn-sm" data-split-project="${p.id}"
+              title="Add several checkpoints at once, with dates spread out for you">Break it down…</button>`}
+          </div>
+        </div>
+      </div>`;
+    };
+
+    return projects.map(card).join("");
+  }
+
   function boardHTML(rows) {
     return `<div class="board">${COLUMNS.map((col) => {
       const items = rows.filter((a) => (a.status || "todo") === col.id);
@@ -977,9 +1050,12 @@ App.views.homework = (function () {
             <button class="${mode === "list" ? "active" : ""}" data-mode="list">List</button>
             <button class="${mode === "board" ? "active" : ""}" data-mode="board">Board</button>
             <button class="${mode === "timeline" ? "active" : ""}" data-mode="timeline" title="Multi-week projects as bars across a calendar">Timeline</button>
+            <button class="${mode === "projects" ? "active" : ""}" data-mode="projects" title="Projects with their own checkpoint due dates">Projects</button>
           </div>
           ${mode === "list" ? `<button class="btn ${selectMode ? "active" : ""}" data-select-mode>${selectMode ? "Done selecting" : "Select"}</button>` : ""}
-          <button class="btn btn-primary" data-add>+ Add assignment</button>
+          ${mode === "projects"
+            ? `<button class="btn btn-primary" data-add-project>+ New project</button>`
+            : `<button class="btn btn-primary" data-add>+ Add assignment</button>`}
         </div>
       </div>
 
@@ -993,7 +1069,7 @@ App.views.homework = (function () {
         <button class="btn btn-sm btn-danger" data-bulk="delete">Delete</button>
       </div></div>` : ""}
 
-      <div class="card mb-16">
+      ${mode === "projects" ? "" : `<div class="card mb-16">
         <div class="card-body tight">
           <div class="row gap-8">
             <span class="dim" style="font-size:1.05rem">⚡</span>
@@ -1003,9 +1079,9 @@ App.views.homework = (function () {
           </div>
           <div id="quickPreview" class="row wrap gap-6 mt-8" hidden></div>
         </div>
-      </div>
+      </div>`}
 
-      <div class="card mb-16"><div class="card-body tight">
+      ${mode === "projects" ? "" : `<div class="card mb-16"><div class="card-body tight">
         <div class="row wrap gap-8">
           <input class="input input-sm" id="hwSearch" placeholder="Search assignments…"
                  value="${U.esc(filter.q)}" style="max-width:230px" />
@@ -1039,10 +1115,11 @@ App.views.homework = (function () {
           </div>
           <span class="small dim">${U.plural(rows.length, "result")}</span>
         </div>
-      </div></div>
+      </div></div>`}
 
       ${mode === "list" ? `<div class="card">${listHTML(rows)}</div>`
         : mode === "timeline" ? timelineHTML(rows)
+        : mode === "projects" ? projectsHTML()
         : boardHTML(rows)}
     </div>`;
   }
@@ -1101,6 +1178,32 @@ App.views.homework = (function () {
     U.on(root, "click", "[data-open]", (_e, el) => detail(el.dataset.open));
     U.on(root, "click", "[data-card]", (_e, el) => detail(el.dataset.card));
     U.on(root, "click", "[data-edit]", (e, el) => { e.stopPropagation(); form(S.byId("assignments", el.dataset.edit)); });
+
+    /* ------------------------------------------------------- projects -- */
+    U.on(root, "click", "[data-add-project]", () => {
+      // A brand-new project has no checkpoints yet — offer to add some right
+      // away rather than leaving the student to find "Break into checkpoints"
+      // on their own.
+      form({ type: "Project" }, (rec) => { if (rec) splitForm(rec.id); });
+    });
+    U.on(root, "click", "[data-edit-project]", (_e, el) => form(S.byId("assignments", el.dataset.editProject)));
+    U.on(root, "click", "[data-split-project]", (_e, el) => splitForm(el.dataset.splitProject));
+    U.on(root, "change", "[data-checkpoint-done]", (_e, el) => {
+      S.update("assignments", el.dataset.checkpointDone, { status: el.checked ? "done" : "todo" });
+    });
+    U.on(root, "click", "[data-checkpoint-del]", (_e, el) => {
+      const k = S.byId("assignments", el.dataset.checkpointDel);
+      UI.deleteWithUndo("assignments", el.dataset.checkpointDel, k ? k.title : "checkpoint");
+    });
+    U.on(root, "click", "[data-add-checkpoint]", (_e, el) => {
+      const id = el.dataset.addCheckpoint;
+      const titleEl = root.querySelector(`[data-new-checkpoint-title="${id}"]`);
+      const dueEl = root.querySelector(`[data-new-checkpoint-due="${id}"]`);
+      const title = titleEl ? titleEl.value.trim() : "";
+      if (!title) { if (titleEl) titleEl.focus(); return; }
+      S.splitAssignment(id, [{ title, due: (dueEl && dueEl.value) || undefined }]);
+      UI.toast("Checkpoint added", title, "ok");
+    });
 
     U.on(root, "click", "[data-select-mode]", () => {
       selectMode = !selectMode;

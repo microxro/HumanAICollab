@@ -8,7 +8,7 @@ App.views.focus = (function () {
   // Timer state lives outside render() so it survives view re-renders and
   // keeps running while you browse other tabs.
   const timer = {
-    phase: "focus",        // focus | short | long
+    phase: "focus",        // focus | short | long | custom
     remaining: null,       // seconds
     running: false,
     round: 1,
@@ -21,7 +21,8 @@ App.views.focus = (function () {
 
   function phaseSeconds(phase) {
     const c = cfg();
-    return (phase === "focus" ? c.focus : phase === "short" ? c.short : c.long) * 60;
+    return (phase === "focus" ? c.focus : phase === "short" ? c.short
+      : phase === "custom" ? (c.custom || 25) : c.long) * 60;
   }
 
   function ensure() {
@@ -208,6 +209,8 @@ App.views.focus = (function () {
               <button class="${timer.phase === "focus" ? "active" : ""}" data-phase="focus">Focus ${cfg().focus}m</button>
               <button class="${timer.phase === "short" ? "active" : ""}" data-phase="short">Short ${cfg().short}m</button>
               <button class="${timer.phase === "long"  ? "active" : ""}" data-phase="long">Long ${cfg().long}m</button>
+              <button class="${timer.phase === "custom" ? "active" : ""}" data-phase="custom"
+                title="Set a one-off length">Custom${cfg().custom ? " " + cfg().custom + "m" : "…"}</button>
             </div>
 
             <div class="ring-wrap" style="width:${size}px;height:${size}px">
@@ -309,15 +312,35 @@ App.views.focus = (function () {
       </div>`,
       onSubmit(d) {
         S.commit((db) => {
-          db.settings.pomodoro = {
+          // Merge rather than replace — a wholesale overwrite here would
+          // silently wipe out a saved custom length every time someone just
+          // changes the regular focus/break minutes.
+          Object.assign(db.settings.pomodoro, {
             focus: U.clamp(Number(d.focus) || 25, 1, 120),
             short: U.clamp(Number(d.short) || 5, 1, 60),
             long: U.clamp(Number(d.long) || 15, 1, 60),
             rounds: U.clamp(Number(d.rounds) || 4, 1, 12)
-          };
+          });
         });
         timer.remaining = phaseSeconds(timer.phase);
         UI.toast("Timer settings saved");
+      }
+    });
+  }
+
+  function customForm() {
+    const c = cfg();
+    UI.modal({
+      title: "Custom length",
+      okLabel: "Use it",
+      body: `<div class="field">
+        <label>Minutes</label>
+        <input class="input" type="number" name="minutes" min="1" max="180" value="${c.custom || 25}" autofocus />
+      </div>`,
+      onSubmit(d) {
+        const minutes = U.clamp(Math.round(Number(d.minutes)) || 25, 1, 180);
+        S.commit((db) => { db.settings.pomodoro.custom = minutes; });
+        setPhase("custom");
       }
     });
   }
@@ -356,7 +379,13 @@ App.views.focus = (function () {
     root.querySelector("#timerToggle").addEventListener("click", () => (timer.running ? pause() : start()));
     U.on(root, "click", "[data-reset]", reset);
     U.on(root, "click", "[data-skip]", () => complete(true));
-    U.on(root, "click", "[data-phase]", (_e, el) => setPhase(el.dataset.phase));
+    U.on(root, "click", "[data-phase]", (_e, el) => {
+      // Custom always opens the modal — both to set it the first time and to
+      // change it later, since tapping the segment again is the only way
+      // back into a length you'd want to adjust.
+      if (el.dataset.phase === "custom") customForm();
+      else setPhase(el.dataset.phase);
+    });
     U.on(root, "click", "[data-settings]", settingsForm);
     U.on(root, "click", "[data-log]", logForm);
     U.on(root, "click", "[data-del-ss]", (_e, el) => {

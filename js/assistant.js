@@ -370,6 +370,30 @@ App.assistant = (function () {
         });
         return `Added “${rec.title}”`;
       }
+      case "deleteAssignment": {
+        const target = a.targetId ? S.byId("assignments", a.targetId) : null;
+        if (!target) throw new Error(`Couldn't find that assignment any more.`);
+        S.remove("assignments", target.id);
+        return `Removed “${target.title}”`;
+      }
+      case "deleteActivity": {
+        const target = a.targetId ? S.byId("activities", a.targetId) : null;
+        if (!target) throw new Error(`Couldn't find that activity any more.`);
+        S.remove("activities", target.id);
+        return `Removed “${target.name}”`;
+      }
+      case "deleteNote": {
+        const target = a.targetId ? S.byId("notes", a.targetId) : null;
+        if (!target) throw new Error(`Couldn't find that note any more.`);
+        S.remove("notes", target.id);
+        return `Removed note “${target.title}”`;
+      }
+      case "deleteEvent": {
+        const target = a.targetId ? S.byId("events", a.targetId) : null;
+        if (!target) throw new Error(`Couldn't find that event any more.`);
+        S.remove("events", target.id);
+        return `Removed “${target.title}”`;
+      }
       default:
         throw new Error(`Don't know how to do "${a.kind}".`);
     }
