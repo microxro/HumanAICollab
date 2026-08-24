@@ -492,10 +492,10 @@ App.views.calendar = (function () {
             <button class="${mode === "week" ? "active" : ""}" data-mode="week">Week</button>
             <button class="${mode === "agenda" ? "active" : ""}" data-mode="agenda">Agenda</button>
           </div>
-          <button class="btn cal-actions-secondary" data-export-ics>⬇ Export .ics</button>
-          <button class="btn cal-actions-secondary" data-ai-events>✦ Add from a link</button>
+          <button class="btn act-secondary" data-export-ics>⬇ Export .ics</button>
+          <button class="btn act-secondary" data-ai-events>✦ Add from a link</button>
           <button class="btn btn-primary" data-new>+ New event</button>
-          <button class="icon-btn cal-more-btn" data-cal-more aria-label="More calendar actions" title="More">⋯</button>
+          <button class="icon-btn act-overflow" data-cal-more aria-label="More calendar actions" title="More">⋯</button>
         </div>
       </div>
 

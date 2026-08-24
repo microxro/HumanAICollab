@@ -641,11 +641,12 @@ Ribosome: makes proteins
         </div>
         <div class="page-actions">
           ${S.spacedNotes().length ? `<button class="btn" data-review-notes>📅 Review due (${S.spacedNotes().length})</button>` : ""}
-          <button class="btn" data-formula-sheets>📐 Formula sheets</button>
-          <button class="btn" data-vocab-lists>🔤 Vocabulary</button>
-          <button class="btn" data-concept-maps>🕸 Concept maps</button>
-          <button class="btn" data-photo-note title="Photograph handwritten or printed notes and turn them into a note">📷 From a photo</button>
+          <button class="btn act-secondary" data-formula-sheets>📐 Formula sheets</button>
+          <button class="btn act-secondary" data-vocab-lists>🔤 Vocabulary</button>
+          <button class="btn act-secondary" data-concept-maps>🕸 Concept maps</button>
+          <button class="btn act-secondary" data-photo-note title="Photograph handwritten or printed notes and turn them into a note">📷 From a photo</button>
           <button class="btn btn-primary" data-new>+ New note</button>
+          <button class="icon-btn act-overflow" data-notes-more aria-label="More note actions" title="More">⋯</button>
         </div>
       </div>
 
@@ -696,6 +697,18 @@ Ribosome: makes proteins
     U.on(root, "click", "[data-formula-sheets]", () => formulaSheets());
     U.on(root, "click", "[data-vocab-lists]", () => vocabLists());
     U.on(root, "click", "[data-concept-maps]", () => conceptMaps());
+    // Below 640px the four buttons above are hidden (.act-secondary) so the
+    // toolbar doesn't fill the screen before a single note is visible; this
+    // is how they stay reachable there. Same functions, one tap deeper.
+    U.on(root, "click", "[data-notes-more]", (_e, el) => {
+      const r = el.getBoundingClientRect();
+      UI.menu([
+        { icon: "📐", label: "Formula sheets", run: () => formulaSheets() },
+        { icon: "🔤", label: "Vocabulary", run: () => vocabLists() },
+        { icon: "🕸", label: "Concept maps", run: () => conceptMaps() },
+        { icon: "📷", label: "From a photo", run: () => photoNoteDialog() }
+      ], r.right, r.bottom + 4);
+    });
 
     const s = root.querySelector("#nSearch");
     if (s) s.addEventListener("input", U.debounce((e) => {
