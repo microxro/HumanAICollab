@@ -337,7 +337,7 @@ App.store = (function () {
         theme: "light", weekStartsMonday: true, gpaWeighted: false,
         locationSharing: true, peerSharing: true, shareGrades: false,
         dueSoonDays: 3,
-        pomodoro: { focus: 25, short: 5, long: 15, rounds: 4 },
+        pomodoro: { focus: 25, short: 5, long: 15, rounds: 4, custom: 25 },
         schedule: {
           mode: "weekly",                 // "weekly" | "rotating"
           cycle: ["A", "B"],

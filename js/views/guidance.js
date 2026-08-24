@@ -110,6 +110,9 @@ App.views.guidance = (function () {
           <button type="button" class="btn btn-primary" data-find-courses ${finding ? "disabled" : ""}>
             ${finding ? "Reading the catalogue…" : n ? "Read it again" : "Find what my school offers"}
           </button>
+          <button type="button" class="btn btn-sm" data-toggle-paste>
+            ${pasteOpen ? "Hide the paste box" : "Or paste your elective list"}
+          </button>
           ${n ? `<button type="button" class="btn" data-clear-courses>Use the general list instead</button>` : ""}
         </div>
         ${findError ? failurePanel() : ""}
