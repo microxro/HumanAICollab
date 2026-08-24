@@ -22,6 +22,7 @@ App.views.sharing = (function () {
 
     const permBadge = perm === "granted" ? `<span class="badge ok">Allowed</span>`
       : perm === "denied" ? `<span class="badge danger">Blocked</span>`
+      : perm === "denied-live" ? `<span class="badge danger">Blocked (device setting)</span>`
       : perm === "unsupported" ? `<span class="badge">Unsupported</span>`
       : `<span class="badge">Not asked</span>`;
 
@@ -45,6 +46,24 @@ App.views.sharing = (function () {
             </ul>
             <p style="margin:0 0 8px">Reloading the page or closing the tab doesn't change this setting —
             it has to be switched in the browser itself, and it can take a moment to notice once you have.</p>
+            <button type="button" class="btn btn-sm" data-geo-recheck>Check again</button>
+          </div></div>` : ""}
+
+        ${perm === "denied-live" ? `<div class="card mb-16" style="background:var(--danger-bg);border:none">
+          <div class="card-body small" style="color:var(--danger);padding:10px 12px">
+            <p style="margin:0 0 8px">Safari says this site is <strong>allowed</strong> to use your
+            location, but the actual request still failed. That's a different, system-level setting —
+            not the per-site permission you already fixed.</p>
+            <ul style="margin:0 0 8px;padding-left:18px">
+              <li>Open the iPhone/iPad <strong>Settings</strong> app (not Safari) →
+                <strong>Privacy &amp; Security → Location Services</strong>.</li>
+              <li>Make sure the toggle at the top of that screen is on.</li>
+              <li>Scroll down to <strong>Safari Websites</strong> in the app list and set it to
+                <strong>"While Using the App"</strong> (or "Ask Next Time").</li>
+            </ul>
+            <p style="margin:0 0 8px">Come back here afterward and tap "Check again" — this actually
+            tries to get a location fix, not just reread the setting, so it will only clear once the
+            request truly succeeds.</p>
             <button type="button" class="btn btn-sm" data-geo-recheck>Check again</button>
           </div></div>` : ""}
 
@@ -596,7 +615,13 @@ App.views.sharing = (function () {
     if (geoRecheck) geoRecheck.addEventListener("click", () => {
       geoRecheck.disabled = true;
       geoRecheck.textContent = "Checking…";
-      App.geo.checkPermission().then(() => App.router.refresh());
+      // Re-reading the per-site permission alone can't confirm an OS-level
+      // fix (see denied-live above) — only an actual fix attempt can, so this
+      // deliberately tries for a real location rather than just re-polling
+      // the permission the browser reports.
+      App.geo.checkPermission()
+        .then(() => App.geo.locate().catch(() => {}))
+        .then(() => App.router.refresh());
     });
 
     const geoToggle = root.querySelector("#geoToggle");
