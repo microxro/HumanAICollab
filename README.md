@@ -2,7 +2,7 @@
 
 A full student platform built with **plain HTML, CSS, and JavaScript** — no framework, no build step, no bundler — plus a small **Netlify Functions** backend for the things that genuinely need a server.
 
-Twenty screens covering classes, homework, grades, scheduling, study tools, extracurriculars, college applications, analytics, and a real parent portal with live GPS.
+Twenty screens covering classes, homework, grades, scheduling, study tools, extracurriculars in and out of school, college applications, analytics, and a real parent portal with live GPS.
 
 ---
 
@@ -115,6 +115,7 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 
 ### Life
 - **Activities** — practices, clubs, and volunteering with hour logging. Optionally date-bounded (a season that starts and ends on real dates, not just "Fall"). **"Add with AI"** *(needs `GEMINI_API_KEY`)* turns a plain-English description ("swimming 6-6:45pm weekdays, Sept 5 to Oct 25") or a photo of a schedule or bell-times page into editable drafts — nothing saves until you review and confirm each one.
+- **Outside school** — the half of the week a school tracker usually ignores: music lessons, a club team, a language school, tutoring, a dojo, a weekend coding class. Each carries who runs it, the instructor and how to reach them, an address, and what it costs (per session / week / month / term / year, or one-off), rolled up into a monthly figure. They are not bound to the school calendar, so a Saturday squad session and a lesson in the holidays both show up on the schedule where a school club correctly doesn't. **A parent can add one from the parent portal** — it arrives as a suggestion the student adds or dismisses, so the portal stays read-only.
 - **Goals & habits** — goals that auto-track from live data (GPA, service hours, study minutes), habit streaks, attendance.
 - **Applications** — college and scholarship tracker with deadlines, essay status, recommendation-letter tracking, and a **pre-written recommendation request email**.
 - **Contacts** — teacher directory with office hours and one-tap pre-filled email.
@@ -122,7 +123,7 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 ### Connect *(needs an account)*
 - **Sharing** — privacy toggles and a live preview of exactly what a parent sees.
 - **Study groups** — shared flashcard decks and a **crowdsourced "what was the homework?" feed** with confirmations, one tap to add a post to your own homework list.
-- **Parent portal** — link with a single-use code, then see live status, screen time, attendance, upcoming work, and (if shared) grades.
+- **Parent portal** — link with a single-use code, then see live status, screen time, attendance, upcoming work, outside-school activities and what they cost, and (if shared) grades. Parents can also **suggest an outside-school activity**, which the student confirms in their own app.
 
 ### Everywhere
 - **Command palette** (`⌘K`) over every screen, assignment, class, note, and contact.

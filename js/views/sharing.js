@@ -359,6 +359,58 @@ App.views.sharing = (function () {
       .catch(() => {});
   }
 
+  /* ------------------------------- guardian-suggested outside activities -- */
+
+  let suggestions = null;
+
+  function loadSuggestions() {
+    if (!App.sync.isSignedIn()) return;
+    App.sync.listActivitySuggestions()
+      .then((list) => { suggestions = list; App.router.refresh(); })
+      .catch(() => {});
+  }
+
+  function suggestionLine(act) {
+    const bits = [];
+    if (act.provider) bits.push(act.provider);
+    if ((act.days || []).length) bits.push(`${act.days.join(", ")} · ${U.fmtTime(act.start)}–${U.fmtTime(act.end)}`);
+    if (act.cost != null && act.cost > 0) bits.push(`${S.money(act.cost)} ${act.costPer === "total" ? "one-off" : "per " + act.costPer}`);
+    return bits.join(" · ");
+  }
+
+  /**
+   * Nothing here writes to the store until the student presses Add — a
+   * guardian can suggest a Saturday class, not schedule one on the student's
+   * behalf. Adding it is a normal local insert, so it syncs like anything
+   * else the student typed in themselves.
+   */
+  function suggestedActivityCard() {
+    if (!App.sync.isSignedIn()) return "";
+    const pending = (suggestions || []).filter((x) => x.status === "pending");
+    if (!pending.length) return "";
+
+    return `<div class="card">
+      <div class="card-head"><h3>Suggested activities ${UI.helpHint("A parent can add an outside-school activity — a lesson, a club team, a weekend class — from their portal. It only lands in your app if you add it here.")}</h3></div>
+      <div class="card-body col gap-12">
+        ${pending.map((x) => {
+          const act = x.activity || {};
+          const line = suggestionLine(act);
+          return `<div class="col gap-8" style="background:var(--info-bg);padding:12px;border-radius:var(--radius-sm)">
+            <div>
+              <div class="small bold">${U.esc(act.name || "Untitled")}</div>
+              <div class="tiny dim">${U.esc(x.fromName)} suggested this${line ? " · " + U.esc(line) : ""}</div>
+              ${act.notes ? `<div class="tiny dim mt-4">${U.esc(act.notes)}</div>` : ""}
+            </div>
+            <div class="row gap-6">
+              <button class="btn btn-sm" data-suggest-no="${U.esc(x.id)}">No thanks</button>
+              <button class="btn btn-sm btn-primary" data-suggest-yes="${U.esc(x.id)}">Add to my activities</button>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>`;
+  }
+
   /* ------------------------------------------------- F070 focus windows -- */
 
   let focusWindows = null;
@@ -525,6 +577,8 @@ App.views.sharing = (function () {
                 "Let opted-in classmates see my class list")}
               ${toggleRow("shareGrades", "Share grades",
                 "Include GPA and class averages in the parent view")}
+              ${toggleRow("shareActivities", "Share outside-school activities",
+                "Lessons, club teams and classes that aren't run by school — not your school clubs")}
             </div>
           </div>
           ${geoCard()}
@@ -533,6 +587,7 @@ App.views.sharing = (function () {
         <div class="col gap-16">
           ${parentPreview()}
           ${guardianInboxCard()}
+          ${suggestedActivityCard()}
           ${focusWindowCard()}
           ${realFriendsCard()}
           ${peerSection()}
@@ -545,6 +600,7 @@ App.views.sharing = (function () {
     if (App.sync.isSignedIn() && realFriends == null) loadRealFriends();
     if (App.sync.isSignedIn() && checkins == null) loadGuardianInbox();
     if (App.sync.isSignedIn() && focusWindows == null) loadFocusWindows();
+    if (App.sync.isSignedIn() && suggestions == null) loadSuggestions();
 
     U.on(root, "click", "[data-checkin-respond]", (_e, el) => {
       App.sync.respondCheckin(el.dataset.checkinRespond).then(() => { UI.toast("Sent", "Your guardian will see you're okay.", "ok"); loadGuardianInbox(); });
@@ -567,6 +623,58 @@ App.views.sharing = (function () {
     U.on(root, "click", "[data-friend-accept]", (_e, el) => {
       App.sync.respondFriend(el.dataset.friendAccept, true).then(() => { UI.toast("Friend added", "", "ok"); loadRealFriends(); });
     });
+    /**
+     * The server is answered first, and only then is the activity written
+     * locally.
+     *
+     * The other order is tempting because it feels instant, but a failed call
+     * then leaves the suggestion still pending on the server and the activity
+     * already in the app — and the next visit offers to add the same lesson a
+     * second time. "answering" holds it out of the pending list meanwhile, so
+     * a double-click can't send twice either.
+     */
+    function answerSuggestion(id, accept) {
+      const item = (suggestions || []).find((x) => x.id === id);
+      if (!item || item.status !== "pending") return;
+      item.status = "answering";
+      App.router.refresh();
+
+      App.sync.respondActivitySuggestion(id, accept)
+        .then(() => {
+          item.status = accept ? "added" : "dismissed";
+          if (!accept) { UI.toast("Dismissed", "They won't be told why.", "warn"); return; }
+          const act = item.activity || {};
+          // Stored exactly like one the student added themselves, plus who it
+          // came from — so the Activities view can say so rather than the
+          // record just appearing out of nowhere.
+          const rec = S.insert("activities", {
+            name: act.name, type: act.type || "Class", role: act.role || "",
+            external: true, provider: act.provider || "",
+            contactName: act.contactName || "", contactEmail: act.contactEmail || "",
+            contactPhone: act.contactPhone || "", address: act.address || "",
+            website: act.website || "", cost: act.cost == null ? null : Number(act.cost),
+            costPer: act.costPer || "month", notes: act.notes || "",
+            location: act.address || act.provider || "",
+            days: Array.isArray(act.days) ? act.days : [],
+            start: act.start || "16:00", end: act.end || "17:00",
+            season: act.season || "Year-round",
+            startDate: act.startDate || "", endDate: act.endDate || "",
+            color: S.PALETTE[S.db.activities.length % S.PALETTE.length],
+            advisorId: null, hours: [], addedBy: item.fromName || "a parent"
+          });
+          UI.toast("Added", `${rec.name} is in your activities.`, "ok",
+            { label: "Open", onClick: () => App.router.go("activities") });
+        })
+        .catch((e) => {
+          item.status = "pending";
+          UI.toast("Couldn't answer that", e.message, "danger");
+        })
+        .then(() => App.router.refresh());
+    }
+
+    U.on(root, "click", "[data-suggest-yes]", (_e, el) => answerSuggestion(el.dataset.suggestYes, true));
+    U.on(root, "click", "[data-suggest-no]", (_e, el) => answerSuggestion(el.dataset.suggestNo, false));
+
     U.on(root, "click", "[data-friend-decline]", (_e, el) => {
       App.sync.respondFriend(el.dataset.friendDecline, false).then(() => { UI.toast("Declined"); loadRealFriends(); });
     });
@@ -663,7 +771,10 @@ App.views.sharing = (function () {
     unsub = App.geo.on(repaint);
   }
 
-  function unmount() { if (unsub) { unsub(); unsub = null; } realFriends = null; checkins = null; guardianNotes = null; focusWindows = null; }
+  function unmount() {
+    if (unsub) { unsub(); unsub = null; }
+    realFriends = null; checkins = null; guardianNotes = null; focusWindows = null; suggestions = null;
+  }
 
   return { render, mount, unmount, title: "Sharing" };
 })();

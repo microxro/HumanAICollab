@@ -5,10 +5,27 @@
 App.views.schedule = (function () {
   const U = App.utils, S = App.store, UI = App.ui;
 
-  let showWeekend = false;
+  /**
+   * null until the first render decides for itself.
+   *
+   * A Mon–Fri grid is right for school and wrong for the outside-school half
+   * of this app: a student whose only Saturday commitment is a club swim
+   * squad opened this screen and saw a week with nothing in it. So the
+   * weekend shows by default whenever something is actually scheduled on
+   * one, and the toggle below still wins for the rest of the session.
+   */
+  let showWeekend = null;
+
+  function weekendVisible() {
+    if (showWeekend === null) {
+      showWeekend = S.db.activities.some((a) =>
+        (a.days || []).some((d) => d === "Sat" || d === "Sun"));
+    }
+    return showWeekend;
+  }
 
   function days() {
-    return showWeekend
+    return weekendVisible()
       ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
       : ["Mon", "Tue", "Wed", "Thu", "Fri"];
   }
@@ -73,18 +90,26 @@ App.views.schedule = (function () {
       });
     });
 
-    // After-school row for activities (weekday-based, so skipped in cycle view)
+    // Everything that isn't a timetabled class — an after-school club, and
+    // (since these can fall on a Saturday) an outside-school lesson too.
+    // Weekday-based, so skipped in cycle view.
     const anyActivity = S.db.activities.length > 0 && !rotating;
     if (anyActivity) {
-      html += `<div class="tt-time"><span>After</span><span class="dim">school</span></div>`;
+      html += `<div class="tt-time"><span>Outside</span><span class="dim">class</span></div>`;
       D.forEach((d) => {
-        const acts = S.db.activities.filter((a) => a.days.includes(d));
+        const acts = U.sortBy(S.db.activities.filter((a) => (a.days || []).includes(d)), (a) => U.toMin(a.start));
         if (!acts.length) { html += `<div class="tt-cell empty"></div>`; return; }
         const a = acts[0];
         const fg = U.contrastText(a.color);
+        // Two activities on one day used to render as "Robotics Club, Piano
+        // lessons" under the *first* one's time and room — a cell that names
+        // two things and gives one set of details for both. With more than
+        // one, each gets its own line and its own click target.
+        const inner = acts.length === 1
+          ? `${U.esc(a.name)}<small>${U.fmtTime(a.start)} · ${U.esc(a.location || "—")}</small>`
+          : acts.map((x) => `<div data-activity="${x.id}" class="truncate">${U.fmtTime(x.start)} ${U.esc(x.name)}</div>`).join("");
         html += `<div class="tt-cell" data-activity="${a.id}" style="background:${U.esc(a.color)};color:${fg}">
-            ${U.esc(acts.map((x) => x.name).join(", "))}
-            <small>${U.fmtTime(a.start)} · ${U.esc(a.location)}</small>
+            ${inner}
           </div>`;
       });
     }
@@ -147,7 +172,7 @@ App.views.schedule = (function () {
 
   function render() {
     const start = U.startOfWeek(new Date(), true);
-    const week = Array.from({ length: showWeekend ? 7 : 5 }, (_, i) => U.dateKey(U.addDays(start, i)));
+    const week = Array.from({ length: weekendVisible() ? 7 : 5 }, (_, i) => U.dateKey(U.addDays(start, i)));
     const totalClassMin = U.sum(S.db.classes, (c) => {
       const p = S.period(c.periodId);
       return p ? (U.toMin(p.end) - U.toMin(p.start)) * c.days.length : 0;
@@ -161,7 +186,7 @@ App.views.schedule = (function () {
           <div class="sub">${U.fmtDur(totalClassMin)} of class + ${U.fmtDur(totalActMin)} of activities per week</div>
         </div>
         <div class="page-actions">
-          <button class="btn btn-sm" data-weekend>${showWeekend ? "Hide" : "Show"} weekend</button>
+          <button class="btn btn-sm" data-weekend>${weekendVisible() ? "Hide" : "Show"} weekend</button>
           <button class="btn" data-periods>🔔 Bell schedule</button>
           <button class="btn" data-print title="A wall-friendly printout of this timetable">🖨 Print</button>
           <button class="btn btn-primary" data-add>+ Add class</button>
@@ -216,7 +241,7 @@ App.views.schedule = (function () {
     // Open the editor directly. This used to just navigate to Classes and
     // leave the student to find the button again.
     U.on(root, "click", "[data-periods]", () => App.views.classes.periodsEditor());
-    U.on(root, "click", "[data-weekend]", () => { showWeekend = !showWeekend; App.router.refresh(); });
+    U.on(root, "click", "[data-weekend]", () => { showWeekend = !weekendVisible(); App.router.refresh(); });
     U.on(root, "click", "[data-print]", () => window.print());
     U.on(root, "change", "[data-bell-variant]", (_e, el) => {
       S.setBellVariant(el.dataset.bellVariant, el.value || null);

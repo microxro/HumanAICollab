@@ -56,6 +56,43 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+**Outside-school activities (F154).** The Activities screen assumed every
+extracurricular belonged to the school: its adult was picked from the staff
+list, its location was a room number, and the timetable drew it only on a day
+the school was open. That is not what most of a family's week outside class
+actually looks like — music lessons, a club team, a language school, tutoring,
+a weekend class. Those are run by somebody else, meet somewhere with an
+address, cost money, and very often fall on a Saturday.
+
+An activity now says which of the two it is, and the outside-school side
+carries the fields the school side has no use for: who runs it, the instructor
+and how to reach them, an address and website, and a fee with its billing
+period, rolled up into what the family pays per month (one-off fees are
+reported separately rather than folded into a monthly figure they are not part
+of). Fees are formatted with `Intl` from a currency setting, so this is not a
+US-only feature.
+
+The scheduling rule changed with it. v2 drew an activity only when
+`isSchoolDay(iso) || mode === "weekly"`; weekly is the default, so most
+installs never saw the gap, but a school on an A/B cycle sets rotating mode
+and there the condition collapses to "only when the school is open" — the
+Saturday squad session and the lesson in the holidays disappeared. Outside-school
+activities are no longer bound to the school calendar; school clubs still are,
+because a club really doesn't meet when the school is shut.
+
+**Parents can add one.** The parent portal is read-only by design, and that is
+why it is safe to hand a parent, so this is not a write into the student's
+data. A guardian fills in the activity from their portal; it lands as a
+suggestion in the student's Sharing screen, where they add it (their own
+device does the insert, and the record is marked with who suggested it) or
+dismiss it. The server whitelists the posted fields rather than trimming them,
+because the object crosses accounts: no `id` that could collide with one of
+the student's own records, no `javascript:` website, no unknown field at all.
+Whether the student added it is reported back to the parent who sent it.
+Outside-school activities also appear in the parent summary, behind their own
+privacy toggle — school clubs never do, since which clubs someone joined is
+theirs to tell.
+
 **Add from a link (F152).** Most of what a student retypes into a school
 tracker is already published on a web page. Paste the link instead: the server
 fetches the page, strips it to text, and extracts bell-schedule periods, a

@@ -459,7 +459,13 @@ App.aiAdd = (function () {
             name: draft.name, type: draft.type, role: "", advisorId: null,
             location: draft.location, start: draft.start, end: draft.end,
             season: "AI add", color: S.PALETTE[i % S.PALETTE.length],
-            days: draft.days, startDate: draft.startDate, endDate: draft.endDate, hours: []
+            days: draft.days, startDate: draft.startDate, endDate: draft.endDate, hours: [],
+            // Explicit rather than left to ensureV3's backfill on the next
+            // boot: a record that reads as school-run from the moment it is
+            // created can't be shown with an outside-school badge in between.
+            external: false, provider: "", contactName: "", contactEmail: "",
+            contactPhone: "", address: "", website: "", cost: null, costPer: "month",
+            notes: "", addedBy: ""
           });
           state.result.entries[i].added = true;
           if (!quiet) UI.toast("Added", draft.name, "ok");

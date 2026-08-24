@@ -206,7 +206,24 @@ App.store = (function () {
         role: "Software Lead", hours: [{ date: d(-6), hours: 1.5, note: "Build session" }, { date: d(-13), hours: 1.5, note: "Build session" }] },
       { id: "ac3", name: "Key Club (Volunteer)", type: "Service", advisorId: "tc3", location: "Room 210",
         days: ["Fri"], start: "15:15", end: "16:15", season: "Year-round", color: PALETTE[7],
-        role: "Member", hours: [{ date: d(-9), hours: 3, note: "Food bank" }, { date: d(-16), hours: 4, note: "Park cleanup" }, { date: d(-23), hours: 2.5, note: "Tutoring" }] }
+        role: "Member", hours: [{ date: d(-9), hours: 3, note: "Food bank" }, { date: d(-16), hours: 4, note: "Park cleanup" }, { date: d(-23), hours: 2.5, note: "Tutoring" }] },
+      // Two that have nothing to do with school: no advisor from the teacher
+      // list, an address rather than a room, a bill, and — the part a school
+      // club never has — a Saturday.
+      { id: "ac4", name: "Piano lessons", type: "Music", advisorId: null, location: "Northside Music Academy",
+        days: ["Wed"], start: "17:30", end: "18:15", season: "Year-round", color: PALETTE[3],
+        role: "Grade 6", external: true, provider: "Northside Music Academy",
+        contactName: "Ms. Halvorsen", contactEmail: "lessons@northsidemusic.example", contactPhone: "555-0128",
+        address: "412 Beaumont Ave", website: "https://northsidemusic.example",
+        cost: 32, costPer: "session", notes: "Bring the theory book on the first Wednesday of the month.",
+        hours: [{ date: d(-7), hours: 0.75, note: "Lesson" }, { date: d(-14), hours: 0.75, note: "Lesson" }] },
+      { id: "ac5", name: "Club swim squad", type: "Sport", advisorId: null, location: "Riverside Aquatic Centre",
+        days: ["Sat", "Sun"], start: "08:00", end: "09:30", season: "Year-round", color: PALETTE[0],
+        role: "Squad B", external: true, provider: "Riverside Swim Club",
+        contactName: "Coach Adeyemi", contactEmail: "squad@riverside-swim.example", contactPhone: "555-0164",
+        address: "9 Mill Lane", website: "",
+        cost: 68, costPer: "month", notes: "",
+        hours: [{ date: d(-6), hours: 1.5, note: "Squad session" }, { date: d(-13), hours: 1.5, note: "Squad session" }] }
     ];
 
     const events = [
