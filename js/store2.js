@@ -54,6 +54,7 @@
       graduationReqs: [], apiTokens: [], webhooks: [], focusWindows: [],
       guardianNotes: [], checkIns: [], emergencyContacts: [], notifications: [],
       assistantChat: [],  // [{role: "user"|"assistant", text, at}] — the private assistant's thread
+      studyProofs: [],   // photos of work done, each one a token payout (js/shop.js)
       feedComments: {}   // { feedItemId: [{id, byName, text, at}] }
     };
     // A stored value of the wrong *kind* is as bad as a missing one — an
@@ -94,6 +95,21 @@
     }
     need(db.streak, "freezes", 0);  // F040
 
+    // The study-token wallet (F155). Named `wallet`, not `tokens`: this app
+    // already has session tokens and `apiTokens`, and those are credentials.
+    // `seen` is the photo-fingerprint ledger behind the no-paying-twice rule,
+    // and it deliberately outlives the proofs themselves — see js/shop.js.
+    need(db, "wallet", { balance: 0, earned: 0, spent: 0, owned: [], daily: {}, seen: [], lastProofAt: 0 });
+    if (db.wallet && typeof db.wallet === "object") {
+      need(db.wallet, "balance", 0);
+      need(db.wallet, "earned", 0);
+      need(db.wallet, "spent", 0);
+      need(db.wallet, "owned", []);
+      need(db.wallet, "daily", {});
+      need(db.wallet, "seen", []);
+      need(db.wallet, "lastProofAt", 0);
+    }
+
     // ---- settings additions
     need(db, "settings", {});
     const s = db.settings;
@@ -105,6 +121,11 @@
     need(s, "fontSize", "normal");      // U11
     need(s, "dyslexicFont", false);     // U11
     need(s, "trueBlack", false);        // U13
+    // Cosmetics bought in the study shop. Each is the [data-*] value the CSS
+    // keys off; App.shop.sanitize() resets any of them that isn't owned.
+    need(s, "skin", "none");            // surface re-tint, layered over either theme
+    need(s, "avatarRing", "none");      // frame around your own avatar
+    need(s, "nameplate", "");           // title under your name in the sidebar
     need(s, "collapsedNavGroups", []);  // U07
     need(s, "onboarded", true);         // U49 — only for data predating the flag; a fresh seed sets it false explicitly
     need(s, "emptyStateStyle", "drawn"); // U16 — "drawn" or "emoji"
@@ -934,6 +955,22 @@
       const before1 = db.studySessions.length;
       db.studySessions = db.studySessions.filter((s2) => s2.date >= studyCut);
       n += before1 - db.studySessions.length;
+
+      // A study photo is the heaviest thing this app writes — a year of daily
+      // proofs is hundreds of megabytes of IndexedDB — so the same retention
+      // window that drops old study sessions drops the photos behind them.
+      // The fingerprint ledger is deliberately NOT swept: it is what keeps an
+      // old photo from being re-submitted for a second payout, and it has its
+      // own cap (RULES.seenLimit) measured in kilobytes, not megabytes.
+      if (Array.isArray(db.studyProofs)) {
+        const keep = [];
+        db.studyProofs.forEach((p) => {
+          if (p && p.date >= studyCut) { keep.push(p); return; }
+          if (p && p.photoId && App.idb) App.idb.del(p.photoId).catch(() => {});
+          n++;
+        });
+        db.studyProofs = keep;
+      }
 
       const usageCut = U.dateKey(U.addDays(new Date(), -r.usageDays));
       Object.keys(db.usage).forEach((k) => { if (k < usageCut) { delete db.usage[k]; n++; } });
