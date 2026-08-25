@@ -662,5 +662,13 @@ App.views.calendar = (function () {
     });
   }
 
-  return { render, mount, eventForm, title: "Calendar" };
+  /** U51 — `#calendar/agenda` opens straight in that mode. */
+  function openSub(id) {
+    if (!["month", "week", "agenda"].includes(id)) return false;
+    mode = id;
+    App.router.refresh();
+    return true;
+  }
+
+  return { render, mount, eventForm, openSub, title: "Calendar" };
 })();

@@ -517,16 +517,18 @@ App.views.guidance = (function () {
 
   /* ------------------------------------------------------------- render -- */
 
+  // Module scope rather than inside render(), so openSub() below can validate
+  // a deep-linked section against the same list the tab strip is built from.
+  const TABS = [
+    { id: "advice",    label: "Advice" },
+    { id: "strengths", label: "Your profile" },
+    { id: "evidence",  label: "What it used" }
+  ];
+
   function render() {
     const c = cfg();
     const conf = G.confidence();
     const dismissed = c.dismissed.length;
-
-    const TABS = [
-      { id: "advice",    label: "Advice" },
-      { id: "strengths", label: "Your profile" },
-      { id: "evidence",  label: "What it used" }
-    ];
 
     return `<div class="page-inner">
       <div class="page-head">
@@ -727,5 +729,13 @@ App.views.guidance = (function () {
     });
   }
 
-  return { render, mount, title: "Guidance" };
+  /** U51 — `#guidance/strengths` opens straight onto that section. */
+  function openSub(id) {
+    if (!TABS.some((t) => t.id === id)) return false;
+    tab = id;
+    App.router.refresh();
+    return true;
+  }
+
+  return { render, mount, openSub, tabs: () => TABS.map((t) => ({ id: t.id, label: t.label })), title: "Guidance" };
 })();

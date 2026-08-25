@@ -1668,5 +1668,23 @@ App.views.settings = (function () {
     });
   }
 
-  return { render, mount, title: "Settings" };
+  /**
+   * U51 — `#settings/prefs` opens straight onto Preferences.
+   *
+   * Returns false for anything that isn't one of our tabs so the router can
+   * try its other openers rather than silently swallowing the path.
+   */
+  function openSub(id) {
+    if (!TABS.some((t) => t.id === id)) return false;
+    tab = id;
+    App.router.refresh();
+    // `.tabs` scrolls sideways and six labels do not fit a phone, so arriving
+    // by link rather than by tap could leave the selected tab off the right
+    // edge — the content changes and nothing on screen says why.
+    const active = document.querySelector('#page .tab.active');
+    if (active) active.scrollIntoView({ inline: "center", block: "nearest", behavior: "instant" });
+    return true;
+  }
+
+  return { render, mount, openSub, tabs: () => TABS.map((t) => ({ id: t.id, label: t.label })), title: "Settings" };
 })();
