@@ -56,6 +56,40 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+**Study tokens and the shop (F155).** A student photographs the work they
+did, the photo earns tokens, and the tokens buy how Scholar looks — accent
+colours, surface skins, an avatar ring, a nameplate in the sidebar.
+
+The honest part first: **nothing here proves anyone studied.** A photo is
+evidence a person chose to show, on their own device, to their own copy of the
+app; there is no invigilator and no server, and the UI says so rather than
+implying otherwise. What the design can honestly promise is narrower — the
+obvious ways to farm the number don't work, and each refusal names its reason:
+
+- every photo is fingerprinted (64-bit average hash) before it counts, so the
+  same page re-cropped or re-compressed still collides;
+- the fingerprint ledger outlives the photo, so deleting a proof frees storage,
+  not the payout;
+- an image with almost no detail (a wall, a blank screen) has nothing to
+  fingerprint and is refused as such;
+- 10 minutes between submissions, 4 hours and 4 tokens per photo maximum, and
+  8 tokens a day. Past the cap a photo still saves and still logs as study
+  time — it just stops paying.
+
+Every proof also writes a real study session, so time proved this way lands in
+the heatmap, the weekly total and any study goal, exactly like a finished focus
+block. Photos live in IndexedDB beside class attachments — local, never
+uploaded.
+
+The cosmetics were the part with a trap in it: a shop full of colours is a shop
+full of ways to make the app unreadable. So every purchasable accent's text
+colour clears 4.5:1 on all four surfaces in both themes, and every skin is a
+re-tint at *matched luminance* — each surface was mixed toward a hue and scaled
+back to the relative luminance of the colour it replaces, so every contrast
+ratio in the app is arithmetically unchanged. `tests/shop.mjs` re-derives both
+from `css/theme.css`, and `App.shop.sanitize()` takes off any cosmetic a
+restored backup names but this wallet never bought.
+
 **Outside-school activities (F154).** The Activities screen assumed every
 extracurricular belonged to the school: its adult was picked from the staff
 list, its location was a room number, and the timetable drew it only on a day
