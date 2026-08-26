@@ -101,25 +101,130 @@ indistinguishable from a broken timer; a setting restores the old behaviour.
 The fourth segment reads **Custom** rather than "Custom 25m" — the length
 moved to its tooltip.
 
-**The token shop.** Tokens are earned only from work the app already tracks:
-focus minutes (3 each, plus 20 for finishing the block), a completed
-assignment (45, plus 25 if it wasn't late), a streak day (50, plus 150 every
-seventh), flashcards, reading, habits and goals. Existing XP converted once at
-2× so an established account doesn't arrive at an empty wallet.
+**Tiers on the study shop.** This branch arrived with a second, parallel token
+shop — built against a base that predated F155, and therefore unaware that one
+already existed. Merging the two was the interesting part of the work, and the
+resolution is that F155's shop is the one that survives: it has the photo
+proofs, the fingerprint ledger, the contrast-validated skins and the settings-
+backed equipping, and none of that was worth rebuilding. What the second shop
+actually contributed — the thing that was asked for — is folded into it:
 
-Four tiers — **Common** (40–120), **Rare** (150–350), **Ultra** (420–700) and
-**Elite** (800–1000) — across 32 items. Every one of them does something the
-app renders or hands over: accent palettes (the same `[data-accent]`
-mechanism as the free ones in Settings, with values that only become
-selectable once owned), avatar frames, dashboard banners, worn titles and
-stickers, the eight alarm voices, streak freezes, and 2×/3× earning
-multipliers. Nothing is bought with money, nothing is random, and nothing that
-used to be free moved behind it.
+  - **Four tiers.** Common (150–200), Rare (300–450), Ultra (500–750), Elite
+    (800–1000), with every item carrying its tier and the suite asserting that
+    each price sits inside its own band. The Shop tab groups by tier rather
+    than by kind, because the tier is what a price *means* to a student.
+  - **A second earning route.** Tokens now also come from work the app already
+    measured: focus minutes (3 each, +20 for finishing the block), a completed
+    assignment (45, +25 if it wasn't late), a streak day (50, +150 every
+    seventh), flashcards, reading, habits, goals. These carry no photo, no
+    cooldown and no daily cap, because there is no claim to check — the guards
+    that matter for them are narrower and sit at the point of payment: an
+    assignment pays once ever however often it is reopened, and a focus block
+    pays for the minutes actually spent.
+  - **Inflated denomination.** Prices and rates were multiplied by 25 together,
+    which changes no ratio and no attainability but puts the top tier at a
+    number worth showing. A wallet written before the change is redenominated
+    by the same factor exactly once, flagged on the wallet, so no balance
+    silently lost 96% of its purchasing power.
+  - **More to buy.** Six alarm voices (the timer's, so a purchase changes what
+    a finished block sounds like), four consumables (streak freezes and 2×/3×
+    earning boosts), a Valedictorian nameplate and a prismatic Elite ring —
+    the last built in the same masked-band idiom as F155's aurora ring, so it
+    can't cover the initials the avatar sized for 4.5:1.
 
-Two anti-farm rules, both learned from bugs this codebase already had: an
-assignment pays once ever (`tokensPaid` on the record), so mark-done →
-reopen → mark-done is not a two-click faucet, and a focus block pays per
-minute actually spent, so Start-then-Skip earns what it deserves.
+One behaviour changed on the way through: the daily streak used to pay on the
+touch that *creates* a streak, which fires on first open — an economy paying
+for launching the app. It now pays only when a streak continues, and a fresh
+install starts at zero.
+
+**Feedback (F154).** A Feedback tab in Settings: pick what it's about, write
+the message, and send it to humanai736@gmail.com. It composes a `mailto:` and
+hands it to whatever mail app the device already has rather than posting to
+the backend, which is a deliberate choice — server mail only works when
+`RESEND_API_KEY` and `EMAIL_FROM` are both set, so a form wired to it would
+fail silently on a deploy that hasn't configured them, and it would need the
+student signed in, which reporting a bug should never require. The `mailto:`
+route works offline, needs no key, and leaves the sender reading the message
+before it goes.
+
+An optional **app details** block attaches the browser, screen size, settings
+and *counts* of records — never their contents. No class name, note body or
+signed-in address is included, and the full text is shown on screen before
+sending, because a feedback form is the last place that should quietly
+exfiltrate someone's schoolwork. Long messages are put on the clipboard
+instead of into the URL: mail clients disagree on how long a `mailto:` may be
+and the ones that dislike a long one drop the body without saying so.
+
+**Study tokens and the shop (F155).** A student photographs the work they
+did, the photo earns tokens, and the tokens buy how StudyHold looks — accent
+colours, surface skins, an avatar ring, a nameplate in the sidebar.
+
+The honest part first: **nothing here proves anyone studied.** A photo is
+evidence a person chose to show, on their own device, to their own copy of the
+app; there is no invigilator and no server, and the UI says so rather than
+implying otherwise. What the design can honestly promise is narrower — the
+obvious ways to farm the number don't work, and each refusal names its reason:
+
+- every photo is fingerprinted (64-bit average hash) before it counts, so the
+  same page re-cropped or re-compressed still collides;
+- the fingerprint ledger outlives the photo, so deleting a proof frees storage,
+  not the payout;
+- an image with almost no detail (a wall, a blank screen) has nothing to
+  fingerprint and is refused as such;
+- 10 minutes between submissions, 4 hours and 4 tokens per photo maximum, and
+  8 tokens a day. Past the cap a photo still saves and still logs as study
+  time — it just stops paying.
+
+Every proof also writes a real study session, so time proved this way lands in
+the heatmap, the weekly total and any study goal, exactly like a finished focus
+block. Photos live in IndexedDB beside class attachments — local, never
+uploaded.
+
+The cosmetics were the part with a trap in it: a shop full of colours is a shop
+full of ways to make the app unreadable. So every purchasable accent's text
+colour clears 4.5:1 on all four surfaces in both themes, and every skin is a
+re-tint at *matched luminance* — each surface was mixed toward a hue and scaled
+back to the relative luminance of the colour it replaces, so every contrast
+ratio in the app is arithmetically unchanged. `tests/shop.mjs` re-derives both
+from `css/theme.css`, and `App.shop.sanitize()` takes off any cosmetic a
+restored backup names but this wallet never bought.
+
+**Outside-school activities (F156).** The Activities screen assumed every
+extracurricular belonged to the school: its adult was picked from the staff
+list, its location was a room number, and the timetable drew it only on a day
+the school was open. That is not what most of a family's week outside class
+actually looks like — music lessons, a club team, a language school, tutoring,
+a weekend class. Those are run by somebody else, meet somewhere with an
+address, cost money, and very often fall on a Saturday.
+
+An activity now says which of the two it is, and the outside-school side
+carries the fields the school side has no use for: who runs it, the instructor
+and how to reach them, an address and website, and a fee with its billing
+period, rolled up into what the family pays per month (one-off fees are
+reported separately rather than folded into a monthly figure they are not part
+of). Fees are formatted with `Intl` from a currency setting, so this is not a
+US-only feature.
+
+The scheduling rule changed with it. v2 drew an activity only when
+`isSchoolDay(iso) || mode === "weekly"`; weekly is the default, so most
+installs never saw the gap, but a school on an A/B cycle sets rotating mode
+and there the condition collapses to "only when the school is open" — the
+Saturday squad session and the lesson in the holidays disappeared. Outside-school
+activities are no longer bound to the school calendar; school clubs still are,
+because a club really doesn't meet when the school is shut.
+
+**Parents can add one.** The parent portal is read-only by design, and that is
+why it is safe to hand a parent, so this is not a write into the student's
+data. A guardian fills in the activity from their portal; it lands as a
+suggestion in the student's Sharing screen, where they add it (their own
+device does the insert, and the record is marked with who suggested it) or
+dismiss it. The server whitelists the posted fields rather than trimming them,
+because the object crosses accounts: no `id` that could collide with one of
+the student's own records, no `javascript:` website, no unknown field at all.
+Whether the student added it is reported back to the parent who sent it.
+Outside-school activities also appear in the parent summary, behind their own
+privacy toggle — school clubs never do, since which clubs someone joined is
+theirs to tell.
 
 **Add from a link (F152).** Most of what a student retypes into a school
 tracker is already published on a web page. Paste the link instead: the server

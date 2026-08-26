@@ -356,6 +356,19 @@ App.sync = (function () {
       upcoming: S.dueSoon(7).slice(0, 6).map((a) => ({
         title: a.title, className: S.className(a.classId), due: a.due
       })),
+      // What the family is committed to outside school — the half of the
+      // week a parent can't see from a report card. Behind its own toggle,
+      // and deliberately only the outside-school ones: which school clubs a
+      // student joined is theirs to tell.
+      // The code those fees are in, so the parent portal doesn't relabel
+      // euros as dollars because that is what the parent's own app is set to.
+      currency: st.currency || "USD",
+      activities: st.shareActivities === false ? null
+        : S.externalActivities().map((a) => ({
+          name: a.name, type: a.type, provider: a.provider,
+          days: a.days || [], start: a.start, end: a.end,
+          cost: a.cost, costPer: a.costPer, monthly: U.round(S.activityCostMonthly(a), 2)
+        })),
       // F065 — notify only when something meaningful changed, not on every push.
       gradeAlerts: st.shareGrades ? S.detectChanges() : []
     };
@@ -386,6 +399,17 @@ App.sync = (function () {
   async function respondCheckin(id) { return call("/checkin/respond", { method: "POST", body: { id } }); }
   async function sendGuardianNote(studentId, text) { return call("/guardian-notes", { method: "POST", body: { studentId, text } }); }
   async function listGuardianNotes() { return (await call("/guardian-notes")).notes || []; }
+
+  /* ------------------------------- guardian-suggested outside activities -- */
+  // A parent proposes; the student's own device is what writes the record.
+
+  async function suggestActivity(studentId, activity) {
+    return call("/activity-suggestions", { method: "POST", body: { studentId, activity } });
+  }
+  async function listActivitySuggestions() { return (await call("/activity-suggestions")).suggestions || []; }
+  async function respondActivitySuggestion(id, accept) {
+    return call("/activity-suggestions/respond", { method: "POST", body: { id, action: accept ? "add" : "dismiss" } });
+  }
 
   /* --------------------------------------------------------- F046 ics feed */
   // The device builds the .ics text (same code as the one-time export) and
@@ -582,6 +606,7 @@ App.sync = (function () {
     requestFriend, respondFriend, listFriends, removeFriend,
     requestCheckin, listCheckins, respondCheckin, sendGuardianNote, listGuardianNotes,
     proposeFocusWindow, listFocusWindows, respondFocusWindow, endFocusWindow,
+    suggestActivity, listActivitySuggestions, respondActivitySuggestion,
     pushIcsFeed, icsFeedUrl, serverHealth,
     listApiTokens, mintApiToken, revokeApiToken,
     listWebhooks, addWebhook, removeWebhook, apiBaseUrl,

@@ -966,6 +966,155 @@
   margin-right: 6px;
 }
 
+/* ==========================================================================
+   Study shop — proof gallery and the cosmetics for sale
+
+   Two jobs, one screen: show that the photos are real records (a gallery of
+   what you actually did, at a size where the page is still legible), and
+   show what a cosmetic looks like *before* the tokens are spent, so nothing
+   in here is bought blind.
+   ========================================================================== */
+
+.token-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 11px 4px 8px;
+  border-radius: var(--radius-full);
+  background: var(--brand-50);
+  color: var(--brand-600);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="dark"] .token-pill { color: var(--brand-300); }
+.token-pill .tk { font-size: 1rem; line-height: 1; }
+.token-pill.lg { font-size: 1.15rem; padding: 7px 16px 7px 12px; }
+
+/* The drop target for a photo. It is a <label> wrapping a file input, so a
+   click, a tap, a keyboard Enter and a drag all reach the same control. */
+.proof-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 26px 18px;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .14s var(--ease), background .14s var(--ease);
+}
+.proof-drop:hover, .proof-drop.drag { border-color: var(--brand-500); background: var(--brand-50); }
+.proof-drop:focus-within { box-shadow: var(--ring); border-color: var(--brand-500); }
+.proof-drop .ico { font-size: 1.7rem; line-height: 1; }
+.proof-drop input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+.proof-preview {
+  width: 100%; max-height: 260px; object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+
+.proof-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
+}
+.proof-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.proof-thumb {
+  display: block; width: 100%; aspect-ratio: 4 / 3;
+  background: var(--surface-3);
+  border: none; padding: 0; cursor: zoom-in;
+}
+.proof-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.proof-thumb:focus-visible { box-shadow: var(--ring); }
+/* The blob is gone (cleared site data, or a backup opened on another
+   device). The record is still true, so the card keeps its numbers and says
+   what happened instead of showing a broken image. */
+.proof-thumb-missing {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; aspect-ratio: 4 / 3;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: .72rem;
+  text-align: center;
+  padding: 10px;
+}
+.proof-meta { padding: 9px 11px; display: flex; flex-direction: column; gap: 3px; }
+
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
+  gap: 12px;
+}
+.shop-item {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.shop-item.owned { border-color: var(--brand-200); }
+.shop-item.worn { border-color: var(--brand-500); box-shadow: 0 0 0 1px var(--brand-500); }
+.shop-item .shop-foot { margin-top: auto; display: flex; align-items: center; gap: 8px; }
+
+/* Two stacked bars: the accent as a fill, and the same accent as it reads on
+   a dark surface — the pair a student is actually choosing between. */
+.shop-swatch {
+  display: flex; height: 54px; border-radius: var(--radius-sm); overflow: hidden;
+  border: 1px solid var(--border);
+}
+.shop-swatch span { flex: 1; }
+
+.ring-preview {
+  display: flex; align-items: center; justify-content: center;
+  height: 54px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.plate-preview {
+  display: flex; align-items: center; justify-content: center;
+  height: 54px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+/* The nameplate as it appears in the sidebar, under the student's name. */
+.nameplate {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--brand-50);
+  color: var(--brand-600);
+  font-size: .655rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-theme="dark"] .nameplate { color: var(--brand-300); }
+
+/* Reads exactly like .field-error, but is deliberately NOT that class: the
+   modal's own submit handler removes every .field-error in the form before
+   handing over, and this message has to survive its own submit to explain
+   why a photo was refused. */
+.proof-error {
+  margin-top: 4px;
+  color: var(--danger);
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.proof-error::before { content: "⚠"; flex: none; line-height: 1.35; }
+.proof-error[hidden] { display: none; }
+
+.earn-rules { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.earn-rules li { color: var(--text-2); font-size: .8rem; }
+
 /* ------------------------------------------------- daily quote (dashboard) */
 
 /* Styled through tokens only, so it follows the accent picker and both
@@ -1099,22 +1248,21 @@
    call site rather than a stylesheet rule. */
 
 /* ==========================================================================
-   Token shop (views/shop.js)
+   Tier identity on a shop card (views/shop.js)
 
-   Tier identity is carried by a label AND a colour, never colour alone — the
-   same rule the class palette follows, for the same reason.
+   Carried by a label AND a colour, never colour alone — the same rule the
+   class palette follows, for the same reason. The stripe sits on top of
+   main's .shop-item box rather than replacing it.
    ========================================================================== */
 
-.shop-card { border-top: 3px solid var(--border); }
-.shop-card.tier-common { border-top-color: #64748b; }
-.shop-card.tier-rare   { border-top-color: #2a78d6; }
-.shop-card.tier-ultra  { border-top-color: #7c3aed; }
-.shop-card.tier-elite  { border-top-color: #d4a017; }
+.shop-item { border-top: 3px solid var(--border); }
+.shop-item.tier-common { border-top-color: #64748b; }
+.shop-item.tier-rare   { border-top-color: #2a78d6; }
+.shop-item.tier-ultra  { border-top-color: #7c3aed; }
+.shop-item.tier-elite  { border-top-color: #d4a017; }
 
-.shop-card.tier-elite {
-  background:
-    linear-gradient(180deg, rgba(212, 160, 23, .08), transparent 120px),
-    var(--surface);
+.shop-item.tier-elite {
+  background: linear-gradient(180deg, rgba(212, 160, 23, .08), transparent 120px), var(--surface);
 }
 
 .tier-head { margin: 0; font-size: 1.02rem; }
@@ -1126,23 +1274,10 @@
 [data-theme="dark"] .tier-head.tier-ultra { color: #b49bfa; }
 [data-theme="dark"] .tier-head.tier-elite { color: #e8bf52; }
 
-.shop-icon {
+/* An alarm or a boost has no colour pair to show, so its swatch carries a
+   glyph at the same size instead of two empty halves. */
+.shop-swatch.shop-glyph {
   display: grid;
   place-items: center;
-  width: 38px; height: 38px;
-  flex-shrink: 0;
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  font-size: 1.25rem;
+  font-size: 1.3rem;
 }
-.shop-price { font-variant-numeric: tabular-nums; }
-
-/* A worn sticker rides next to the student's name wherever it's rendered. */
-.shop-sticker { font-size: .95em; line-height: 1; }
-.shop-title {
-  font-size: .68rem;
-  font-weight: 700;
-  letter-spacing: .02em;
-  color: var(--brand-600);
-}
-[data-theme="dark"] .shop-title { color: var(--brand-300); }

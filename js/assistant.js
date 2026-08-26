@@ -245,7 +245,12 @@ App.assistant = (function () {
     const activities = S.db.activities.map((a) => ({
       name: a.name, type: a.type, days: a.days, start: a.start, end: a.end,
       location: a.location || "", season: a.season || "",
-      startDate: a.startDate || null, endDate: a.endDate || null
+      startDate: a.startDate || null, endDate: a.endDate || null,
+      // Whether it is run by the school changes the answer to most questions
+      // worth asking about it — whether it happens over the holidays, who to
+      // contact, and whether it costs anything.
+      outsideSchool: !!a.external,
+      provider: a.provider || "", cost: a.cost == null ? null : a.cost, costPer: a.costPer || null
     }));
 
     const bellSchedule = S.db.periods.map((p) => ({ name: p.name, start: p.start, end: p.end }));
@@ -349,7 +354,10 @@ App.assistant = (function () {
           location: "", start: a.start || "15:30", end: a.end || "17:00",
           season: "", color: S.PALETTE[S.db.activities.length % S.PALETTE.length],
           days: Array.isArray(a.days) && a.days.length ? a.days : ["Mon"],
-          startDate: "", endDate: "", hours: []
+          startDate: "", endDate: "", hours: [],
+          external: false, provider: "", contactName: "", contactEmail: "",
+          contactPhone: "", address: "", website: "", cost: null, costPer: "month",
+          notes: "", addedBy: ""
         });
         return `Added “${rec.name}”`;
       }

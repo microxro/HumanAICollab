@@ -59,7 +59,12 @@ const FUNCTIONS = [
   { label: "Tick an assignment off",       view: "homework",   control: "#page [data-toggle]" },
   { label: "Calendar month",               view: "calendar",   control: "#page [data-mode='month']" },
   { label: "Calendar agenda",              view: "calendar",   control: "#page [data-mode='agenda']" },
-  { label: "Open a grade column",          view: "grades",     control: "#page [data-score], #page [data-col]" },
+  // [data-score] is the "Enter/Edit/Fix score" button on a gradebook row —
+  // what this label means. [data-col] is an unrelated column-visibility
+  // checkbox in the custom-rules panel that happens to share an attribute
+  // name; including it let the probe settle for a 0x0 checkbox instead of
+  // scrolling to the real, reachable button when both matched.
+  { label: "Enter or edit a score",        view: "grades",     control: "#page [data-score]" },
   { label: "Bell schedule",                view: "schedule",   control: "#page [data-class], #page [data-activity]" },
   { label: "Study planner",                view: "planner",    control: "#page [data-add-block], #page [data-h]" },
 
@@ -94,6 +99,7 @@ const FUNCTIONS = [
   { label: "Add a term",            view: "settings", section: "Settings → Schedule & terms", control: "#page [data-add-term]" },
   { label: "Schedule pattern",      view: "settings", section: "Settings → Schedule & terms", control: "#page [data-sched-mode]" },
   { label: "Account",               view: "settings", section: "Settings → Account",          control: "#page [data-auth], #page [data-signout], #page [data-signin]" },
+  { label: "Send feedback",         view: "settings", section: "Settings → Feedback",         control: "#page [data-feedback-send]" },
   // Guidance's other two sections are read-only panels with no controls of
   // their own, so reaching the section *is* the function: the tab button is
   // what gets pressed, and it has to be on screen inside two clicks.
@@ -155,9 +161,17 @@ const PROBE = (s) => {
 async function reachable(sel) {
   if (await page.evaluate(PROBE, sel)) return true;
   await page.evaluate((s) => {
+    // Scroll to the first element actually worth scrolling to — a selector
+    // combining several targets (as several rows below do) can list a
+    // legitimately hidden or degenerate match (a 0x0 checkbox behind an
+    // unrelated collapsed panel) ahead of the one that only needs scrolling,
+    // and scrolling to the wrong one leaves the real target unreached.
     for (const el of document.querySelectorAll(s)) {
       const cs = getComputedStyle(el);
-      if (cs.visibility === "hidden" || cs.display === "none") continue;
+      if (cs.visibility === "hidden" || cs.display === "none" || +cs.opacity === 0) continue;
+      if (el.disabled) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) continue;
       el.scrollIntoView({ block: "center", behavior: "instant" });
       return;
     }
