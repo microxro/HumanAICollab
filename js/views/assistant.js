@@ -39,6 +39,21 @@ App.views.assistant = (function () {
     // Say so before someone types a question, not after.
     const ready = App.assistant.available();
 
+    // [plans] F156 — the AI routes are the Ultra Premium tier. Checked after
+    // the sign-in state, because "sign in first" is the more useful thing to
+    // say to someone who isn't signed in at all.
+    if (ready && !App.plans.has("ai")) {
+      return `<div class="page-inner">
+        <div class="page-head">
+          <div>
+            <h1>${App.i18n.t("assistant", "Assistant")}</h1>
+            <div class="sub">Ask about your schedule, or tell it to add things — private to you.</div>
+          </div>
+        </div>
+        ${App.plans.lockCard("ai", { what: "The AI assistant" })}
+      </div>`;
+    }
+
     if (!ready) {
       return `<div class="page-inner">
         <div class="page-head">
@@ -165,6 +180,7 @@ App.views.assistant = (function () {
   }
 
   function mount(root) {
+    App.plans.bindLocks(root);   // [plans]
     scrollToBottom();
     U.on(root, "click", "[data-suggest]", (_e, el) => send(el.dataset.suggest));
     U.on(root, "click", "[data-clear-chat]", () => {

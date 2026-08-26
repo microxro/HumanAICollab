@@ -56,6 +56,83 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+### F156 — account tiers
+
+**Plans: Basic, Premium, Ultra Premium (F156).** Paid tiers, enforced by the
+server, off unless the deploy sets `SCHOLAR_PLANS=on`.
+
+The design question was not how to build a paywall — it was what this
+application can honestly charge for. Scholar is local-first: twenty-four
+screens, a full database, and every study tool run in the browser with no
+network at all. A tier that withheld any of that would be enforced by client
+JavaScript the customer owns, which is to say not enforced — bypassable from
+the console in seconds, and therefore a tax on the honest. So the line is
+drawn where enforcement is real: **what the server does is what is sold.**
+
+- **Basic** — everything on the device, forever, plus pulling your data back
+  down from the server at any time.
+- **Premium** — syncing this device up, the parent portal and its weekly
+  digest, study groups.
+- **Ultra Premium** — the AI features, personal API tokens, webhooks.
+
+Enforcement is one block in the router of `api.js`, after authentication,
+consulting one table in `_lib/plans.js`; the AI function and the scheduled
+digest each carry one more check for the same reason. The browser's half
+(`js/plans.js`) decides nothing and is documented as deciding nothing: it
+draws a lock so that a student finds out before filling in a form, and it
+fails *open* — an unreachable billing endpoint locks nothing, because the
+server refuses anyway and a locked-out app on a flaky network would be the
+worse bug.
+
+Three things it deliberately does not do. It does not take a payment: there is
+no card form and no processor, plans are granted by the operator
+(`ADMIN_EMAIL`), and the pricing screen says so instead of implying a checkout
+that doesn't exist. It does not make cancelling difficult: one button,
+immediate, no retention flow. And it never holds data hostage — `GET /sync` is
+ungated at every tier, so a cancelled account keeps every route it needs to
+leave with its own records. `tests/plans.mjs` asserts that one specifically,
+because it is the promise most easily broken by a later refactor.
+
+Enforcing with `ADMIN_EMAIL` unset is refused outright rather than obeyed: it
+would be an unrecoverable lockout, since nobody would be able to grant a plan
+back.
+
+**How to remove it.** Asked for at the same time as the feature, so it was
+built to be removable and the removal was then executed and tested rather than
+merely described. Every touchpoint outside the five owned files carries a
+`[plans]` comment tag — `grep -rn "\[plans\]" js netlify` finds all of them.
+
+1. Delete `js/plans.js`, `js/views/plans.js`,
+   `netlify/functions/_lib/plans.js`, `tests/plans.mjs`, `tests/plansui.mjs`.
+2. Remove the two `<script>` tags from `index.html` and the two `./js/...`
+   entries from the `SHELL` list in `sw.js` (and bump `VERSION`).
+3. Remove every block tagged `[plans]` in `netlify/functions/api.js`,
+   `assistant.js`, `weekly-digest.js`, `js/app.js`, `js/sync.js`,
+   `js/views/{assistant,groups,settings,sharing}.js`. Most are contiguous
+   blocks that lift out whole; five are one-line edits that put a line back
+   rather than delete it, and they are the ones worth naming, since a missed
+   one is a `ReferenceError` at boot:
+   - `api.js` — drop the `plan:` line from `publicUser()`.
+   - `js/app.js` — `navVisible` has three call sites (the pinned list, the
+     group list, the command palette) that revert to their unfiltered form.
+   - `js/sync.js` — the status comment loses `| blocked`.
+   - `weekly-digest.js` — `let kids` goes back to `const kids`.
+4. Drop the `.plan-card` / `.plan-price` / `.plan-list` block at the end of
+   `css/views.css`.
+5. Unregister the two suites in `tests/run.mjs` and `package.json`, and take
+   `"plans"` out of the view lists in `tests/controls.mjs` and
+   `tests/a11y.mjs`.
+
+Steps 1–5 were executed against a copy of this tree before the feature was
+committed: no reference to it survives anywhere in `js/`, `netlify/`,
+`index.html`, `sw.js` or `css/`, and `assets`, `api`, `authwall`, `boot` and
+`controls` pass — 262 assertions — with it gone. The checklist above is what
+that run actually needed, not what it was assumed to need.
+
+Short of removing it, `SCHOLAR_PLANS` unset already restores the previous
+behaviour on the next request — that is the switch the suite tests, and it is
+the default.
+
 **Study tokens and the shop (F155).** A student photographs the work they
 did, the photo earns tokens, and the tokens buy how Scholar looks — accent
 colours, surface skins, an avatar ring, a nameplate in the sidebar.

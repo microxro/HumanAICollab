@@ -22,7 +22,7 @@ const VIEWS = [
   "dashboard", "calendar", "schedule", "homework", "classes", "grades",
   "planner", "focus", "flashcards", "notes", "reading", "shop", "activities",
   "goals", "college", "guidance", "contacts", "analytics", "sharing", "groups",
-  "parent", "settings", "assistant"
+  "parent", "plans", "settings", "assistant"
 ];
 
 let pass = 0, fail = 0;

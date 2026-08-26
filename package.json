@@ -21,6 +21,8 @@
     "test:hardening": "node --import ./tests/stub/register.mjs tests/hardening.mjs",
     "test:guidance": "node tests/guidance.mjs",
     "test:shop": "node tests/shop.mjs",
+    "test:plans": "node --import ./tests/stub/register.mjs tests/plans.mjs",
+    "test:plansui": "node tests/plansui.mjs",
     "test:urlguard": "node tests/urlguard.mjs",
     "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs",
     "test:activities": "node --import ./tests/stub/register.mjs tests/activities.mjs",

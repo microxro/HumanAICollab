@@ -20,7 +20,7 @@ App.sync = (function () {
     token: localStorage.getItem(TOKEN_KEY) || null,
     user: null,
     version: Number(localStorage.getItem(VERSION_KEY) || 0),
-    status: "offline",     // offline | idle | syncing | error | conflict
+    status: "offline",     // offline | idle | syncing | error | conflict | blocked
     lastSync: null,
     error: null,
     listeners: new Set(),
@@ -135,11 +135,17 @@ App.sync = (function () {
       db.account.role = res.user.role;
     });
     setStatus("idle");
+    // [plans] A session's tier decides which screens draw a lock, so it is
+    // read as part of establishing the session rather than lazily by whoever
+    // renders first.
+    if (App.plans) App.plans.refresh().then(() => App.router && App.router.refresh());
   }
 
   function signOutLocal() {
     state.token = null;
     state.user = null;
+    if (App.plans) App.plans.refresh();   // [plans] back to "nothing is gated"
+
     state.version = 0;
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(VERSION_KEY);
@@ -162,6 +168,7 @@ App.sync = (function () {
       const res = await call("/me");
       state.user = res.user;
       setStatus("idle");
+      if (App.plans) App.plans.refresh().then(() => App.router && App.router.refresh());
       await pullAndMerge();
       return res.user;
     } catch (e) {
@@ -273,6 +280,16 @@ App.sync = (function () {
       } else if (e.offline) {
         setStatus("error", "Offline — will retry.");
         outcome = { ok: false, reason: "offline", message: "You're offline — changes are saved on this device and will sync later." };
+      } else if (e.status === 402) {
+        // [plans] F156 — the account's tier doesn't cover uploading. Unlike
+        // every other failure here this one will not fix itself, so it gets
+        // its own status: queue() reads it and stops scheduling retries.
+        // Without that, every keystroke schedules a push that the server
+        // refuses, forever, on an account that is working perfectly well
+        // offline.
+        setStatus("blocked", e.message);
+        if (App.plans) App.plans.refresh();
+        outcome = { ok: false, reason: "plan", message: e.message };
       } else {
         setStatus("error", e.message);
         outcome = { ok: false, reason: "error", message: e.message };
@@ -307,6 +324,9 @@ App.sync = (function () {
   /** Debounced push, called from store.commit() on every write. */
   function queue() {
     if (!isSignedIn() || !S.db.account.autoSync) return;
+    // [plans] Nothing to retry: the server has said this account's tier
+    // doesn't include uploading. App.plans clears this when the plan changes.
+    if (state.status === "blocked") return;
     clearTimeout(state.timer);
     state.timer = setTimeout(() => {
       // Clearing the handle is not bookkeeping — refresh() and info() both
@@ -318,6 +338,16 @@ App.sync = (function () {
       state.timer = null;
       push(false);
     }, PUSH_DEBOUNCE_MS);
+  }
+
+  /* --------------------------------------------------- [plans] F156 -- */
+
+  // The server is the authority on what this account may do; these three just
+  // carry its answer. js/plans.js holds the catalogue and the gating helpers.
+  async function billing() { return call("/billing/plan"); }
+  async function cancelPlan() { return call("/billing/cancel", { method: "POST" }); }
+  async function grantPlan(email, plan, until) {
+    return call("/billing/grant", { method: "POST", body: { email, plan, until: until || null } });
   }
 
   /* ------------------------------------------------------------- links -- */
@@ -588,6 +618,18 @@ App.sync = (function () {
    * Throttled so tab-switching in a burst doesn't fire a request each time,
    * and skipped while a write is in flight so it can't race a push.
    */
+  /**
+   * [plans] Drop the "your tier doesn't include this" stop, after the plan
+   * has changed. Called by App.plans when the server reports a better tier —
+   * otherwise an account that just upgraded would keep not syncing until the
+   * next reload, which reads exactly like the upgrade not having worked.
+   */
+  function clearBlocked() {
+    if (state.status !== "blocked") return;
+    setStatus(isSignedIn() ? "idle" : "offline");
+    queue();
+  }
+
   function refresh() {
     if (!isSignedIn()) return;
     if (state.inflight || state.timer) return;         // a push is queued/running
@@ -601,6 +643,7 @@ App.sync = (function () {
     init, info, isSignedIn, authToken, on,
     signUp, signIn, signOut, restore, forgotPassword, resetPassword,
     push, pull, pullAndMerge, queue, refresh,
+    billing, cancelPlan, grantPlan, clearBlocked,
     createLinkCode, redeemLinkCode, children, parents, unlink,
     pushLocation, readLocation,
     requestFriend, respondFriend, listFriends, removeFriend,

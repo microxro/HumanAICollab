@@ -81,6 +81,10 @@ const GUARDED = [
   ["GET", "tokens"], ["POST", "tokens"], ["DELETE", "tokens/abc"],
   ["GET", "webhooks"], ["POST", "webhooks"], ["DELETE", "webhooks/abc"],
   ["GET", "me"], ["POST", "me"],
+  // F156 — a billing route reachable without a session would let anyone read
+  // (or cancel) somebody else's plan, so they go through the same wall as
+  // everything else.
+  ["GET", "billing/plan"], ["POST", "billing/cancel"], ["POST", "billing/grant"],
   ["GET", "sync"], ["PUT", "sync"], ["POST", "sync"],
   ["POST", "link/code"], ["POST", "link/redeem"],
   ["GET", "link/children"], ["GET", "link/parents"], ["DELETE", "link/abc"],

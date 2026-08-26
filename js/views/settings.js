@@ -913,6 +913,12 @@ App.views.settings = (function () {
           "Personal API tokens and webhooks are issued by the server, so they're tied to an account.")}
       </div></div>`;
     }
+    // [plans] F156 — tokens and webhooks are Ultra Premium. The server
+    // refuses to mint either way; this is the version of that answer you get
+    // before typing a label and clicking Create.
+    if (!App.plans.has("api.tokens")) {
+      return App.plans.lockCard("api.tokens", { what: "Personal API tokens and webhooks" });
+    }
 
     const base = App.sync.apiBaseUrl();
 
@@ -1466,6 +1472,7 @@ App.views.settings = (function () {
       App.router.refresh();
     });
     U.on(root, "click", "[data-open-shop]", () => App.router.go("shop"));
+    App.plans.bindLocks(root);   // [plans]
     U.on(root, "click", "[data-accent-opt]", (_e, el) => {
       S.commit((db) => { db.settings.accent = el.dataset.accentOpt; });
       App.applyShellPrefs();

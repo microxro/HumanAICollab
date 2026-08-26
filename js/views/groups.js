@@ -873,8 +873,27 @@ App.views.groups = (function () {
     });
   }
 
+  // [plans] Shown in place of the screen when the account's tier doesn't
+  // cover study groups. The refusal itself is the server's; this is the
+  // signpost that saves someone filling in a form to meet it.
+  function lockedOut() {
+    return `<div class="page-inner">
+      <div class="page-head">
+        <div>
+          <h1>${App.i18n.t("groups", "Study groups")}</h1>
+          <div class="sub">Shared flashcards and a crowdsourced "what's the homework?" feed</div>
+        </div>
+      </div>
+      ${App.plans.lockCard("groups.create", { what: "Study groups" })}
+    </div>`;
+  }
+
   function render() {
     if (!App.sync.isSignedIn()) return signedOut();
+    // [plans] F156 — a group you're already in stays readable at any tier;
+    // it is creating and joining that Premium covers, and those are the only
+    // two things this screen offers when you're not in one yet.
+    if (!App.plans.has("groups.create") && !(groups && groups.length)) return lockedOut();
     if (openGroup) return detailView();
 
     if (groups === null) { refresh(); }
@@ -924,6 +943,7 @@ App.views.groups = (function () {
   }
 
   function mount(root) {
+    App.plans.bindLocks(root);   // [plans]
     U.on(root, "click", "[data-create]", createForm);
     U.on(root, "click", "[data-join]", () => joinForm());
     U.on(root, "click", "[data-open]", (_e, el) => openDetail(el.dataset.open));

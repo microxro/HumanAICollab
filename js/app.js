@@ -46,11 +46,26 @@
     ]},
     { group: "More", items: [
       { id: "analytics", label: "Analytics", icon: "◨" },
+      // [plans] F156 — hidden entirely unless the server says this deploy
+      // runs paid tiers, so a static or free deploy is untouched by it.
+      { id: "plans",     label: "Plans",     icon: "◱", when: () => App.plans.enabled() },
       { id: "settings",  label: "Settings",  icon: "⚙" }
     ]}
   ];
 
   const FLAT = NAV.flatMap((g) => g.items);
+
+  /**
+   * [plans] Whether a nav entry is offered at all right now.
+   *
+   * Only one item uses it — Plans, which has nothing to say on a deploy that
+   * doesn't sell anything. An item with no `when` is always visible, so this
+   * is a no-op for the other twenty-three.
+   */
+  function navVisible(it) {
+    if (!it || typeof it.when !== "function") return true;
+    try { return !!it.when(); } catch (e) { return false; }
+  }
 
   // U05 — the five screens reachable with a thumb on mobile, no drawer needed.
   const MOBILE_TABS = [
@@ -260,13 +275,13 @@
     if (pin.ids.length) {
       html += `<div class="nav-group pinned-group">
         <div class="nav-label">Pinned</div>
-        ${pin.ids.map((id) => FLAT.find((x) => x.id === id)).filter(Boolean).map(navRow).join("")}
+        ${pin.ids.map((id) => FLAT.find((x) => x.id === id)).filter((it) => it && navVisible(it)).map(navRow).join("")}
       </div>`;
     }
 
     const collapsedGroups = new Set(S.settings.collapsedNavGroups || []);
     html += NAV.map((g) => {
-      const items = g.items.filter((it) => !pinnedSet.has(it.id));
+      const items = g.items.filter((it) => !pinnedSet.has(it.id) && navVisible(it));
       if (!items.length) return "";
       const collapsed = collapsedGroups.has(g.group);
       return `<div class="nav-group ${collapsed ? "collapsed" : ""}">
@@ -386,7 +401,7 @@
       if (it) out.push({ group: "Recent", label: App.i18n.t(it.id, it.label), icon: it.icon, run: () => router.go(it.id) });
     });
 
-    FLAT.forEach((it) => out.push({
+    FLAT.filter(navVisible).forEach((it) => out.push({
       group: "Go to", label: App.i18n.t(it.id, it.label), icon: it.icon,
       run: () => router.go(it.id)
     }));
@@ -856,13 +871,17 @@
     const map = {
       idle: ["✓", "Synced"], syncing: ["⟳", "Syncing…"],
       error: ["!", "Offline — changes saved locally"],
-      conflict: ["!", "Sync conflict"], offline: ["○", "Local only — not signed in"]
+      conflict: ["!", "Sync conflict"], offline: ["○", "Local only — not signed in"],
+      // [plans] F156 — not an error and not offline: the account is fine, its
+      // tier just doesn't include uploading. Saying "offline" here would send
+      // someone to check their wifi over a billing state.
+      blocked: ["🔒", "Saved on this device — syncing needs a paid plan"]
     };
     const [icon, tip] = map[s.status] || ["○", "Local only"];
     btn.textContent = icon;
     btn.dataset.tip = tip;
     btn.classList.toggle("spin", s.status === "syncing");
-    btn.style.color = s.status === "error" || s.status === "conflict" ? "var(--warn)"
+    btn.style.color = s.status === "error" || s.status === "conflict" || s.status === "blocked" ? "var(--warn)"
       : s.status === "idle" ? "var(--ok)" : "";
     // U41 — a sighted user sees the icon/color change; announce the same
     // state change to a screen reader via an off-screen live region.
@@ -921,6 +940,9 @@
     });
     document.getElementById("profileChip").addEventListener("click", () => router.go("settings"));
     document.getElementById("syncBtn").addEventListener("click", () => {
+      // [plans] A locked badge should take you to the reason, not fire a
+      // push the server has already said it will refuse.
+      if (App.sync.info().status === "blocked") { router.go("plans"); return; }
       if (App.sync.isSignedIn()) {
         App.sync.push(false).then((r) => {
           if (r && r.ok) UI.toast("Synced", "Your data is up to date.", "ok");

@@ -75,7 +75,12 @@
                      Unset means Resend's sandbox sender, which only reaches
                      the API key owner.
      ADMIN_EMAIL     optional — the account allowed to read this deploy's
-                     configuration from /email-health. Unset means nobody.
+                     configuration from /email-health, and (with plans on) the
+                     only one that can grant a plan. Unset means nobody.
+     SCHOLAR_PLANS   optional — "on" enforces the basic/premium/ultra tiers
+                     (F156, _lib/plans.js). Unset or anything else and every
+                     account gets everything, exactly as before that feature
+                     existed. Ignored unless ADMIN_EMAIL is also set.
    ========================================================================== */
 
 import {
@@ -85,6 +90,9 @@ import {
 } from "./_lib/auth.js";
 import { readJSON, updateJSON, readJSONWithEtag, writeJSONIf, rateLimit, writeJSON, remove } from "./_lib/blobs.js";
 import { urlProblem } from "./_lib/urlguard.js";
+// [plans] F156 — account tiers. Everything this import brings in is inert
+// unless SCHOLAR_PLANS=on; see _lib/plans.js for the switch and the reasoning.
+import { TIERS, plansEnabled, planOf, hasFeature, denial, routeFeature, billingState } from "./_lib/plans.js";
 import { sendEmail, layout, configured as emailConfigured, deliverable as emailDeliverable, fromAddress, SANDBOX_FROM } from "./_lib/email.js";
 
 const MAX_STATE_BYTES = 5 * 1024 * 1024;
@@ -400,7 +408,14 @@ function isOperator(user) {
 }
 
 function publicUser(p) {
-  return { id: p.id, email: p.email, name: p.name, role: p.role, links: p.links || [], groups: p.groups || [] };
+  return {
+    id: p.id, email: p.email, name: p.name, role: p.role,
+    links: p.links || [], groups: p.groups || [],
+    // [plans] The effective tier, so the client doesn't need a second round
+    // trip to know what to show. "ultra" when this deploy doesn't run plans:
+    // nothing is withheld, and the client's own gates fall open.
+    plan: plansEnabled() ? planOf(p) : "ultra"
+  };
 }
 
 /* ---------------------------------------------------- F098 password reset */
@@ -2346,6 +2361,84 @@ async function leaveGroup(user, id) {
 
 /* --------------------------------------------------------------- router -- */
 
+/* ==================================================== [plans] F156 billing
+
+   Three routes, and the shape of them is the product decision.
+
+   GET  /billing/plan    always answers, even with plans switched off, so the
+                         client can learn there is nothing to sell here and
+                         hide the whole feature rather than guess.
+   POST /billing/cancel  the account holder, nobody else, effective now. No
+                         retention offer, no "are you sure", no waiting for a
+                         billing period that does not exist on this deploy.
+   POST /billing/grant   the operator (ADMIN_EMAIL) sets somebody's tier.
+                         This is where a payment processor's webhook would
+                         call instead, once there is one.
+
+   There is deliberately no route that takes a card number. Nothing here
+   charges anyone, and a checkout form that quietly went nowhere would be the
+   single most dishonest thing this repository could ship.                   */
+
+async function getBilling(user) {
+  return ok(billingState(user, isOperator(user)));
+}
+
+async function cancelPlan(user) {
+  if (!plansEnabled()) return fail(404, "This deploy doesn't run paid plans.");
+  const from = planOf(user);
+  const next = await updateJSON("profiles", user.id, (cur) => {
+    if (!cur) return undefined;
+    const b = cur.billing || {};
+    // `until` is cleared as well as the tier: leaving a future expiry behind
+    // would have a cancelled account silently re-entitled by a later grant
+    // that only set the plan.
+    return { ...cur, billing: { ...b, plan: "basic", until: null, canceledAt: Date.now(), canceledFrom: from } };
+  });
+  if (!next) return fail(404, "That account no longer exists.");
+  return ok(Object.assign(billingState(next, isOperator(user)), { canceledFrom: from }));
+}
+
+async function grantPlan(req, user) {
+  if (!plansEnabled()) return fail(404, "This deploy doesn't run paid plans.");
+  // Not a role on the profile: an admin bit stored in data is a privilege
+  // boundary that anybody who can write a profile can cross. Same reasoning
+  // as isOperator() itself.
+  if (!isOperator(user)) return fail(403, "Only the account named in ADMIN_EMAIL can set a plan.");
+
+  const b = await body(req);
+  const plan = String(b.plan || "").trim().toLowerCase();
+  if (!TIERS.includes(plan)) {
+    return fail(400, `Unknown plan "${b.plan}". Choose one of: ${TIERS.join(", ")}.`);
+  }
+  const email = normalizeEmail(b.email);
+  if (!validEmail(email)) return fail(400, "Enter the account's email address.");
+
+  const until = b.until == null || b.until === "" ? null : Number(b.until);
+  if (until !== null && (!isFinite(until) || until <= Date.now())) {
+    return fail(400, "That expiry is in the past — leave it empty for a plan with no end date.");
+  }
+
+  const rec = await readJSON("users", await emailKey(email));
+  // The operator already knows which addresses have accounts, so this one
+  // route can answer honestly where signup and login deliberately do not.
+  if (!rec) return fail(404, "No account with that email address.");
+
+  const updated = await updateJSON("profiles", rec.id, (cur) => {
+    if (!cur) return undefined;
+    return {
+      ...cur,
+      billing: {
+        plan, until,
+        since: Date.now(),
+        grantedBy: user.email,
+        canceledAt: null
+      }
+    };
+  });
+  if (!updated) return fail(404, "No account with that email address.");
+  return ok({ account: { email, plan: planOf(updated), until: until } });
+}
+
 export default async (req) => {
   // Preflight is answered only for this site's own origin, and only for
   // paths that exist — a blanket 204 for every URL is free reconnaissance.
@@ -2428,6 +2521,29 @@ export default async (req) => {
         const mins = Math.max(1, Math.ceil((writes.resetAt - Date.now()) / 60000));
         return fail(429, `That's a lot of changes at once — this account is paused for ${mins} minute${mins === 1 ? "" : "s"}.`);
       }
+    }
+
+    /* ------------------------------------------------------- [plans] F156
+
+       One gate for every plan-limited route, after authentication and before
+       any handler runs. It is here rather than inside sixty handlers for two
+       reasons: a check repeated per call site is a check the next route
+       forgets, and this way switching the feature off — or deleting it — is
+       one block and one import, with nothing left behind to audit.
+
+       402 rather than 403: the request was understood and the caller is who
+       they say they are. Nothing about their credentials is wrong. */
+    if (plansEnabled()) {
+      const feature = routeFeature(parts, method);
+      if (feature && !hasFeature(user, feature, isOperator(user))) {
+        return fail(402, denial(feature, planOf(user)));
+      }
+    }
+
+    if (parts[0] === "billing") {
+      if (parts[1] === "plan" && method === "GET") return await getBilling(user);
+      if (parts[1] === "cancel" && method === "POST") return await cancelPlan(user);
+      if (parts[1] === "grant" && method === "POST") return await grantPlan(req, user);
     }
 
     // Diagnostics for outbound email. Authenticated because ?probe=1 sends.

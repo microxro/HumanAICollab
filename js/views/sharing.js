@@ -554,6 +554,18 @@ App.views.sharing = (function () {
 
       ${statusCard()}
 
+      ${signedIn && !App.plans.has("portal.link") ? `<div class="card mt-16" style="border-left:3px solid var(--warn)">
+        <div class="card-body row-top gap-10">
+          <span style="font-size:1.1rem" aria-hidden="true">🔒</span>
+          <div class="small muted">
+            <div class="bold" style="color:var(--text)">The parent portal is part of ${U.esc(App.plans.label(App.plans.requiredFor("portal.link")))}</div>
+            <p class="mt-4">Every control below still works and nothing here leaves this device, but linking a
+            guardian and pushing live status need a plan that covers the server side.</p>
+            <button class="btn btn-sm mt-8" data-open-plans>See the plans</button>
+          </div>
+        </div>
+      </div>` : ""}
+
       ${!signedIn ? `<div class="card mt-16" style="border-left:3px solid var(--info)">
         <div class="card-body row-top gap-10">
           <span style="font-size:1.1rem">ℹ️</span>
@@ -597,6 +609,7 @@ App.views.sharing = (function () {
   }
 
   function mount(root) {
+    App.plans.bindLocks(root);   // [plans]
     if (App.sync.isSignedIn() && realFriends == null) loadRealFriends();
     if (App.sync.isSignedIn() && checkins == null) loadGuardianInbox();
     if (App.sync.isSignedIn() && focusWindows == null) loadFocusWindows();

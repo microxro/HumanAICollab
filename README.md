@@ -2,7 +2,7 @@
 
 A full student platform built with **plain HTML, CSS, and JavaScript** — no framework, no build step, no bundler — plus a small **Netlify Functions** backend for the things that genuinely need a server.
 
-Twenty-three screens covering classes, homework, grades, scheduling, study tools, extracurriculars in and out of school, college applications, analytics, and a real parent portal with live GPS.
+Twenty-four screens covering classes, homework, grades, scheduling, study tools, extracurriculars in and out of school, college applications, analytics, and a real parent portal with live GPS.
 
 ---
 
@@ -62,6 +62,12 @@ performance, activities and stated interests, and ranks electives and fields
 of study against them. It runs entirely in the browser — no API key, nothing
 sent anywhere — and every recommendation shows the numbers behind it. It needs
 no setup; it gets more useful as there is more in the app to read.
+
+**Optional — paid tiers.** Off by default; see [Plans](#plans-basic-premium-ultra-premium) below.
+
+| Variable | Value |
+|---|---|
+| `SCHOLAR_PLANS` | `on` enforces the Basic / Premium / Ultra Premium tiers. Unset (the default) and every account gets everything, exactly as if the feature didn't exist. Ignored unless `ADMIN_EMAIL` is also set — plans are granted by the operator, so enforcing with no operator named would lock everybody out with nobody able to grant them back. |
 
 **Optional — operator diagnostics.**
 
@@ -182,6 +188,56 @@ back to the relative luminance of the colour it replaces, so every contrast
 ratio in the app is arithmetically what it was before — a skin changes the
 temperature of the screen, not its legibility. `tests/shop.mjs` asserts both
 against `css/theme.css`, so a future hand-picked hex can't quietly undo it.
+
+---
+
+## Plans: Basic, Premium, Ultra Premium
+
+Off unless the deploy turns them on (`SCHOLAR_PLANS=on`). With them off — the
+default, and what a clone of this repo does — every account gets everything and
+none of this applies.
+
+**What is sold is what the server does.** Everything Scholar does on the device
+is Basic and stays there: all twenty-four screens, offline, forever. That isn't
+generosity, it's the only honest line to draw. A static app cannot enforce a
+lock on somebody's own machine, and a paywall that a devtools console removes
+in ten seconds only works on the people who wouldn't have tried.
+
+| | Basic — free | Premium | Ultra Premium |
+|---|---|---|---|
+| Every screen, offline, on this device | ✅ | ✅ | ✅ |
+| Pulling your data down from the server | ✅ | ✅ | ✅ |
+| Syncing this device **up** | | ✅ | ✅ |
+| Parent portal + weekly digest | | ✅ | ✅ |
+| Study groups | | ✅ | ✅ |
+| AI assistant, Add with AI, add from a link | | | ✅ |
+| API tokens and webhooks | | | ✅ |
+
+The gate is one block in `netlify/functions/api.js`, after authentication,
+driven by one table in `netlify/functions/_lib/plans.js`. The browser decides
+nothing: `js/plans.js` draws locks so you find out before filling in a form,
+and the same request made with `curl` gets the same `402`. Edit the client
+state in devtools and the server's answer doesn't change.
+
+**Cancelling.** One button, self-serve, effective immediately — no operator, no
+retention offer, no waiting out a billing period this deploy doesn't have.
+Nothing is deleted, and `GET /sync` is deliberately never gated at any tier, so
+a cancelled account can always pull its own data back down. Holding somebody's
+data hostage to a subscription is not implemented here and won't be.
+
+**Paying.** There is no checkout: no card form, no payment processor, nothing
+in this codebase that charges anyone. Plans are set by the operator
+(`ADMIN_EMAIL`) from the Plans screen or `POST /billing/grant`, optionally with
+an end date. That route is where a payment provider's webhook would call once
+there is one. The pricing screen says all of this on the screen rather than
+leaving it to be discovered.
+
+**Turning it off, or taking it out.** `SCHOLAR_PLANS` unset restores the
+previous behaviour on the next request — `tests/plans.mjs` asserts that every
+gated route answers exactly as it did before the feature existed. Deleting the
+feature outright is five files and a set of blocks tagged `[plans]`; the
+procedure is in [ROADMAP.md](ROADMAP.md#f156--account-tiers), and it was run
+end-to-end with the full suite green before this shipped.
 
 ---
 

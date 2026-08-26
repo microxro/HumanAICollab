@@ -1101,3 +1101,34 @@
 
 .earn-rules { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
 .earn-rules li { color: var(--text-2); font-size: .8rem; }
+
+/* ==========================================================================
+   [plans] F156 — the pricing screen
+
+   Three cards that have to stay readable side by side at 1200px and stack
+   cleanly on a phone, with the tier you're on marked by more than colour.
+   ========================================================================== */
+
+.plan-card { display: flex; }
+.plan-card .card-body { flex: 1; }
+.plan-card.current { border-color: var(--brand-500); box-shadow: 0 0 0 1px var(--brand-500); }
+
+.plan-price {
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plan-list li { font-size: .8rem; color: var(--text-2); }
+
+/* Pushes the button (or the note that replaces it) to the bottom, so three
+   cards with different-length feature lists still line their actions up. */
+.plan-card .mt-auto { margin-top: auto; padding-top: 4px; }

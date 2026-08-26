@@ -26,6 +26,10 @@ import { configured, generateText, generateJSON, DEFAULT_MODEL as DEFAULT_MODEL_
 import { verifyToken } from "./_lib/auth.js";
 import { readJSON, rateLimit } from "./_lib/blobs.js";
 import { fetchPage } from "./_lib/urlguard.js";
+// [plans] F156 — the AI routes are the Ultra Premium tier's headline feature,
+// and the one that costs this deploy real provider quota per call. Inert
+// unless SCHOLAR_PLANS=on.
+import { plansEnabled, hasFeature, denial, planOf, isOperatorEmail } from "./_lib/plans.js";
 
 const MAX_TEXT_LEN = 2000;
 const MAX_IMAGE_B64_LEN = 6 * 1024 * 1024; // ~4.5MB decoded, well under Gemini's per-image limit
@@ -147,6 +151,12 @@ async function requireUser(req) {
   const user = await currentUser(req);
   if (!user) {
     throw { status: 401, message: "Sign in to use the AI features. They run on a shared quota, so they're tied to an account." };
+  }
+  // [plans] Checked here rather than per route: every charged route in this
+  // function goes through requireUser, so there is exactly one place to add
+  // the gate and exactly one place to delete it.
+  if (plansEnabled() && !hasFeature(user, "ai", isOperatorEmail(user.email))) {
+    throw { status: 402, message: denial("ai", planOf(user)) };
   }
   return user;
 }

@@ -14,6 +14,10 @@
 
 import { listKeys, readJSON } from "./_lib/blobs.js";
 import { sendEmail, layout } from "./_lib/email.js";
+// [plans] F156 — the digest is part of Premium, and the tier that decides is
+// the *student's*: their account is the one the parent portal hangs off. With
+// SCHOLAR_PLANS unset none of this runs and the job behaves exactly as before.
+import { plansEnabled, hasFeature, isOperatorEmail } from "./_lib/plans.js";
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -108,8 +112,27 @@ async function runDigest() {
     }
     if (!profile || profile.role !== "parent") continue;
 
-    const kids = (profile.links || []).filter((l) => l.role === "child");
+    let kids = (profile.links || []).filter((l) => l.role === "child");
     if (!kids.length) { skipped++; continue; }
+
+    // [plans] Drop the children whose own account no longer covers the
+    // digest. A parent linked to two students, one of whom cancelled, still
+    // gets an email — about the other one — rather than nothing or a section
+    // built from data the deploy is no longer being paid to collect.
+    if (plansEnabled()) {
+      const entitled = [];
+      for (const k of kids) {
+        let child = null;
+        try {
+          child = await readJSON("profiles", k.id, null);
+        } catch (e) {
+          console.error("[weekly-digest] could not read child profile", k.id, e);
+        }
+        if (child && hasFeature(child, "digest", isOperatorEmail(child.email))) entitled.push(k);
+      }
+      kids = entitled;
+      if (!kids.length) { skipped++; continue; }
+    }
 
     // One malformed summary used to throw out of childSection and, because
     // nothing here caught it, abort the entire scheduled run — every parent
