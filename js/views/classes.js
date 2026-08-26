@@ -35,12 +35,42 @@ App.views.classes = (function () {
           <label>Teacher</label>
           <select class="select" name="teacherId">${UI.teacherOptions(c.teacherId, true)}</select>
         </div>
-        <div class="field">
+        <div class="field full">
+          <label>When it meets
+            ${UI.helpHint("A club, an after-school academy, or a dual-enrollment course still assigns homework and still needs a grade — but it has no period in your school's bell schedule. Pick \"Its own times\" for those and give it a start and end; everything else about the class works exactly the same.")}</label>
+          <div class="segmented" role="group">
+            <button type="button" data-sched-kind="bell" class="${c.offSchedule ? "" : "active"}">In the bell schedule</button>
+            <button type="button" data-sched-kind="off" class="${c.offSchedule ? "active" : ""}">Its own times</button>
+          </div>
+          <input type="hidden" name="offSchedule" value="${c.offSchedule ? "1" : ""}" />
+        </div>
+        <div class="field" data-sched-pane="bell" ${c.offSchedule ? "hidden" : ""}>
           <label>Period</label>
           <select class="select" name="periodId">
-            ${S.db.periods.map((p) => `<option value="${p.id}" ${p.id === c.periodId ? "selected" : ""}>
-              ${U.esc(p.name)} (${U.fmtTime(p.start)})</option>`).join("")}
+            ${S.db.periods.length
+              ? S.db.periods.map((p) => `<option value="${p.id}" ${p.id === c.periodId ? "selected" : ""}>
+                  ${U.esc(p.name)} (${U.fmtTime(p.start)})</option>`).join("")
+              : `<option value="">— no bell schedule set up yet —</option>`}
           </select>
+        </div>
+        <div class="field" data-sched-pane="off" ${c.offSchedule ? "" : "hidden"}>
+          <label>Starts</label>
+          <input class="input" type="time" name="start" value="${U.esc(c.start || "15:30")}" />
+        </div>
+        <div class="field" data-sched-pane="off" ${c.offSchedule ? "" : "hidden"}>
+          <label>Ends</label>
+          <input class="input" type="time" name="end" value="${U.esc(c.end || "17:00")}" />
+        </div>
+        <div class="field" data-sched-pane="off" ${c.offSchedule ? "" : "hidden"}>
+          <label>What to call it <span class="hint">optional</span></label>
+          <input class="input" name="meetingLabel" value="${U.esc(c.meetingLabel || "")}" placeholder="Robotics practice, Saturday academy…" />
+        </div>
+        <div class="field" data-sched-pane="off" ${c.offSchedule ? "" : "hidden"}>
+          <label>Season <span class="hint">optional — leave blank for all year</span></label>
+          <div class="row gap-8">
+            <input class="input" type="date" name="startDate" value="${U.esc(c.startDate || "")}" aria-label="First day" />
+            <input class="input" type="date" name="endDate" value="${U.esc(c.endDate || "")}" aria-label="Last day" />
+          </div>
         </div>
         <div class="field">
           <label>Credits</label>
@@ -92,6 +122,22 @@ App.views.classes = (function () {
         UI.bindSwatches(root);
         UI.bindDays(root);
 
+        // The two scheduling modes are mutually exclusive, so only one set of
+        // fields is ever on screen; the hidden input is what onSubmit reads,
+        // because a segmented control has no form value of its own.
+        const flag = root.querySelector('[name="offSchedule"]');
+        const setKind = (kind) => {
+          flag.value = kind === "off" ? "1" : "";
+          U.$$("[data-sched-kind]", root).forEach((b) => b.classList.toggle("active", b.dataset.schedKind === kind));
+          U.$$("[data-sched-pane]", root).forEach((pane) => { pane.hidden = pane.dataset.schedPane !== kind; });
+        };
+        U.$$("[data-sched-kind]", root).forEach((b) => {
+          b.addEventListener("click", () => setKind(b.dataset.schedKind));
+        });
+        // No bell schedule set up yet and this is a brand-new class? Its own
+        // times is the only option that can actually work, so start there.
+        if (!cl && !S.db.periods.length) setKind("off");
+
         // U14 — cover images live in IndexedDB (same store as attachments),
         // not in the synced JSON blob, so a photo can't blow past the sync
         // payload limit. The class record only carries the key.
@@ -130,9 +176,20 @@ App.views.classes = (function () {
       },
       onSubmit(d) {
         if (!d.name.trim()) return false;
+        const offSchedule = d.offSchedule === "1";
         const patch = {
           name: d.name.trim(), code: d.code.trim(), room: d.room.trim(),
-          teacherId: d.teacherId || null, periodId: d.periodId,
+          teacherId: d.teacherId || null,
+          offSchedule,
+          // Only one of the two is ever meaningful; clearing the other is what
+          // keeps a class from claiming both a period and its own times after
+          // someone switches the mode.
+          periodId: offSchedule ? null : (d.periodId || null),
+          start: offSchedule ? d.start || "15:30" : null,
+          end: offSchedule ? d.end || "17:00" : null,
+          meetingLabel: offSchedule ? (d.meetingLabel || "").trim() : "",
+          startDate: offSchedule ? d.startDate || "" : "",
+          endDate: offSchedule ? d.endDate || "" : "",
           credits: Number(d.credits) || 0, color: d.color,
           days: d.days ? d.days.split(",").filter(Boolean) : [],
           timezone: d.timezone || null,
@@ -482,7 +539,7 @@ App.views.classes = (function () {
     const c = S.cls(id);
     if (!c) return;
     const t = S.teacher(c.teacherId);
-    const p = S.period(c.periodId);
+    const p = S.classPeriod(c);
     const pct = S.classGrade(id);
     const gd = S.gradeDisplay(id);
     const cats = S.categoryBreakdown(id);
@@ -492,7 +549,9 @@ App.views.classes = (function () {
 
     UI.modal({
       title: c.name,
-      sub: [c.code, p ? p.name : "", "Rm " + c.room].filter(Boolean).join(" · "),
+      sub: [c.code,
+            c.offSchedule && p ? `${p.name} · ${U.fmtTime(p.start)}–${U.fmtTime(p.end)}` : (p ? p.name : ""),
+            c.room ? "Rm " + c.room : ""].filter(Boolean).join(" · "),
       size: "wide",
       footer: `<button class="btn left btn-danger" data-del>Delete class</button>
                <button class="icon-btn" data-copy-link title="Copy link to this class" aria-label="Copy link">🔗</button>
@@ -609,7 +668,7 @@ App.views.classes = (function () {
 
       ${classes.length ? `<div class="grid g-3">${classes.map((c) => {
         const t = S.teacher(c.teacherId);
-        const p = S.period(c.periodId);
+        const p = S.classPeriod(c);   // a period, or an off-schedule class's own times
         const pct = S.classGrade(c.id);
         const gd = S.gradeDisplay(c.id);
         const work = S.assignmentsFor(c.id);
@@ -629,7 +688,8 @@ App.views.classes = (function () {
                       title="${U.esc(U.SUBJECT_ICONS.find((s) => s.key === (c.icon || U.guessSubjectIcon(c.name)))?.label || "")}">${iconChar}</span>
                 <div style="min-width:0">
                   <h3 class="truncate">${U.esc(c.name)}</h3>
-                  <div class="tiny dim">${U.esc(c.code || "")}${c.code && p ? " · " : ""}${U.esc(p ? p.name : "")}</div>
+                  <div class="tiny dim">${U.esc(c.code || "")}${c.code && p ? " · " : ""}${U.esc(
+                    c.offSchedule && p ? `${U.fmtTime(p.start)}–${U.fmtTime(p.end)}` : (p ? p.name : ""))}</div>
                 </div>
               </div>
               <div class="row gap-6" style="align-items:center;flex-shrink:0">
@@ -644,6 +704,7 @@ App.views.classes = (function () {
             <div class="row gap-6 wrap">
               <span class="badge">Rm ${U.esc(c.room || "—")}</span>
               <span class="badge">${U.esc(c.days.join(" ") || "Not scheduled")}</span>
+              ${c.offSchedule ? `<span class="badge brand" title="Meets outside the bell schedule">◇ Extracurricular</span>` : ""}
               ${open ? `<span class="badge warn">${open} open</span>` : `<span class="badge ok">Clear</span>`}
             </div>
           </div>

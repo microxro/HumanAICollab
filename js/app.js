@@ -995,6 +995,15 @@
       else router.go("settings");
     });
 
+    // The audio session can only be opened from inside a real user gesture,
+    // and the moment a timer hits zero is not one. Opening it on the first
+    // tap or keypress anywhere in the app is what makes the focus alarm
+    // audible later — see js/sound.js for the whole story.
+    const unlockAudio = () => { if (App.sound) App.sound.unlock(); };
+    document.addEventListener("pointerdown", unlockAudio, { passive: true });
+    document.addEventListener("keydown", unlockAudio);
+    document.addEventListener("touchstart", unlockAudio, { passive: true });
+
     // Subsystems that need the DOM and the store ready.
     registerSW();
     App.sync.init();

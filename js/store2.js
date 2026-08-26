@@ -104,7 +104,8 @@
     // already has session tokens and `apiTokens`, and those are credentials.
     // `seen` is the photo-fingerprint ledger behind the no-paying-twice rule,
     // and it deliberately outlives the proofs themselves — see js/shop.js.
-    need(db, "wallet", { balance: 0, earned: 0, spent: 0, owned: [], daily: {}, seen: [], lastProofAt: 0 });
+    need(db, "wallet", { balance: 0, earned: 0, spent: 0, owned: [], daily: {},
+                         seen: [], lastProofAt: 0, ledger: [], boosts: [], scale: 0 });
     if (db.wallet && typeof db.wallet === "object") {
       need(db.wallet, "balance", 0);
       need(db.wallet, "earned", 0);
@@ -113,6 +114,14 @@
       need(db.wallet, "daily", {});
       need(db.wallet, "seen", []);
       need(db.wallet, "lastProofAt", 0);
+      // `ledger` is the receipt for everything earned and spent — the shop
+      // pays for tracked work as well as photographed work now, and a balance
+      // that moves on its own needs to say why. `boosts` holds timed earning
+      // multipliers. `scale` records which denomination this wallet is in;
+      // see REDENOMINATION in js/shop.js.
+      if (!Array.isArray(db.wallet.ledger)) { db.wallet.ledger = []; dirty = true; }
+      if (!Array.isArray(db.wallet.boosts)) { db.wallet.boosts = []; dirty = true; }
+      need(db.wallet, "scale", 0);
     }
 
     // ---- settings additions
@@ -161,6 +170,18 @@
       exam: { label: "Exam schedule", shiftMin: 0 }
     });
     need(s, "singleKeyShortcuts", true);  // WCAG 2.1.4 — switchable off
+
+    // ---- focus-timer sound (js/sound.js)
+    // The timer used to build a fresh AudioContext at ring time, which every
+    // browser starts suspended outside a gesture — so it rang silently.
+    // These are the knobs for the alarm that replaced it.
+    need(s, "pomodoro", { focus: 25, short: 5, long: 15, rounds: 4, custom: 25 });
+    need(s.pomodoro, "custom", 25);
+    need(s.pomodoro, "sound", true);        // play a sound when a block ends
+    need(s.pomodoro, "alarm", "chime");     // which voice — more in the shop
+    need(s.pomodoro, "volume", 0.7);
+    need(s.pomodoro, "vibrate", true);
+    need(s.pomodoro, "quietSound", true);   // ring quietly in quiet hours rather than not at all
     need(s, "passingTimeMin", 5);   // F043
     need(s, "commute", { toMin: 20, fromMin: 20, lastBus: "" }); // F051
     // Nested defaults, in case an older payload has the parent but not the leaf.
@@ -199,6 +220,15 @@
       if (c.examWeight === undefined) c.examWeight = 0; // 0-100, % of final grade from "Final" type work
       if (c.percentileInput === undefined) c.percentileInput = null;
       if (c.timezone === undefined) c.timezone = null;
+      // Off-schedule classes: an extracurricular that assigns homework but
+      // has no period in the bell schedule. They carry their own meeting
+      // times instead; see S.classPeriod().
+      if (c.offSchedule === undefined) c.offSchedule = false;
+      if (c.start === undefined) c.start = null;
+      if (c.end === undefined) c.end = null;
+      if (c.meetingLabel === undefined) c.meetingLabel = "";
+      if (c.startDate === undefined) c.startDate = "";
+      if (c.endDate === undefined) c.endDate = "";
       if (!c.standardsScale) c.standardsScale = 4; // 1..4 proficiency
       if (c.latePenalty === undefined) c.latePenalty = null;    // { perDay, max } — F021
       if (!c.rules) c.rules = { dropLowest: {}, curve: 0 };
@@ -1006,7 +1036,10 @@
 
   S.commonFreePeriods = function (peerId) {
     // Compares this student's own free periods against a peer's declared classIds.
-    const myBusy = new Set(S.termClasses().map((c) => c.periodId));
+    // Off-schedule classes occupy no period, so they can neither match nor
+    // clash with a peer's timetable — including their null here would make
+    // every pair of students look "both free" in the same phantom slot.
+    const myBusy = new Set(S.termClasses().filter((c) => !c.offSchedule).map((c) => c.periodId));
     const peer = S.byId("peers", peerId);
     if (!peer) return [];
     const peerBusy = new Set(peer.classIds.map((id) => { const c = S.cls(id); return c ? c.periodId : null; }));
@@ -1028,13 +1061,79 @@
   S.openCheckIns = function () { return S.db.checkIns.filter((c) => c.status === "pending"); };
 
   S.addFocusWindow = function (start, end, days) { return S.insert("focusWindows", { start, end, days, agreedAt: Date.now() }); };
+
+  /* ------------------------------------------- a student on their own ---
+   *
+   * Focus windows, check-ins and notes were all built as things a LINKED
+   * GUARDIAN does to a student: only a parent account could propose a quiet
+   * period, only a parent could leave a note. A student with no parent
+   * account — which is most of them, and every student whose family never
+   * signs up — therefore couldn't use any of it at all.
+   *
+   * These are the same features, self-served and entirely local: no account,
+   * no link code, no server. A guardian-proposed window and a self-set one
+   * are the same record with a different `by`, so every reader below handles
+   * both without caring which it is.
+   */
+
+  /** Is anyone actually linked to this account? Solo is the default, not a fault. */
+  S.hasGuardian = function () {
+    if (!App.sync || !App.sync.isSignedIn()) return false;
+    const u = App.sync.info().user || {};
+    return (u.links || []).some((l) => l.role === "parent");
+  };
+  S.isSoloStudent = function () { return !S.hasGuardian(); };
+
+  /**
+   * Start a quiet period on yourself, right now.
+   * @param {number} minutes how long it runs
+   * @param {string} [note]  why — shown while it's active
+   */
+  S.startSelfFocusWindow = function (minutes, note) {
+    const mins = U.clamp(Math.round(Number(minutes) || 30), 5, 8 * 60);
+    const startAt = Date.now();
+    return S.insert("focusWindows", {
+      startAt, endAt: startAt + mins * 60000, note: (note || "").trim(),
+      by: "self", byName: "You", status: "agreed", agreedAt: startAt
+    });
+  };
+
+  S.endSelfFocusWindow = function (id) { S.update("focusWindows", id, { status: "ended", endAt: Date.now() }); };
+
+  /**
+   * The window in force right now, whichever kind it is.
+   *
+   * Two record shapes live in this collection: recurring ones keyed on
+   * weekday + clock time, and one-off ones keyed on timestamps. Reading
+   * `w.days.includes(...)` unguarded threw on the second kind, so this checks
+   * the shape before it reads the fields.
+   */
   S.activeFocusWindow = function () {
-    const now = U.nowMin(), dow = U.dowName(U.today());
-    return S.db.focusWindows.find((w) => w.days.includes(dow) && now >= U.toMin(w.start) && now < U.toMin(w.end)) || null;
+    const now = U.nowMin(), dow = U.dowName(U.today()), ts = Date.now();
+    return S.db.focusWindows.find((w) => {
+      if (!w || w.status === "ended" || w.status === "declined") return false;
+      if (w.startAt && w.endAt) return ts >= w.startAt && ts < w.endAt;
+      if (Array.isArray(w.days)) return w.days.includes(dow) && now >= U.toMin(w.start) && now < U.toMin(w.end);
+      return false;
+    }) || null;
   };
 
   S.addGuardianNote = function (from, text) { return S.insert("guardianNotes", { from, text, at: Date.now() }); };
+  /** A note you leave yourself — the solo equivalent of a note from a guardian. */
+  S.addSelfNote = function (text) {
+    const t = String(text || "").trim();
+    if (!t) return null;
+    return S.insert("guardianNotes", { from: "You", by: "self", text: t, at: Date.now() });
+  };
   S.recentGuardianNotes = function () { return U.sortBy(S.db.guardianNotes, (n) => n.at, true).slice(0, 10); };
+
+  /** Ask yourself to check in later — the solo equivalent of a guardian's nudge. */
+  S.addSelfCheckIn = function (text, atMs) {
+    return S.insert("checkIns", {
+      requestedAt: Date.now(), dueAt: atMs || Date.now(), by: "self",
+      text: String(text || "").trim(), respondedAt: null, status: "pending"
+    });
+  };
 
   S.addEmergencyContact = function (name, phone, relation) { return S.insert("emergencyContacts", { name, phone, relation }); };
 

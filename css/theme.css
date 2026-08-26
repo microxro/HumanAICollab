@@ -488,3 +488,45 @@ button { cursor: pointer; }
   outline: 3px solid var(--brand-600);
   outline-offset: 2px;
 }
+
+/* -------------------------------------------------------- prismatic ring --
+   The Elite ring, in the same idiom as gold/neon/aurora above: a masked band
+   on a pseudo-element, so it paints on top without covering the initials that
+   UI.avatar() sized for 4.5:1. Where aurora spins one gradient, this cycles
+   the band through the app's accent hues. */
+[data-ring="prismatic"] .profile-chip .avatar::after,
+.ring-preview[data-ring-preview="prismatic"] .avatar::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: #e11d48;
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 4px), #000 calc(100% - 3.2px));
+          mask: radial-gradient(closest-side, transparent calc(100% - 4px), #000 calc(100% - 3.2px));
+  animation: prismaticCycle 6s linear infinite;
+  pointer-events: none;
+}
+
+/* Without mask support the band would cover the initials, so it degrades to a
+   solid ring — the same fallback aurora takes. */
+@supports not ((-webkit-mask: radial-gradient(#000, #000)) or (mask: radial-gradient(#000, #000))) {
+  [data-ring="prismatic"] .profile-chip .avatar::after,
+  .ring-preview[data-ring-preview="prismatic"] .avatar::after {
+    background: none;
+    box-shadow: 0 0 0 3px #7c3aed;
+    animation: none;
+  }
+}
+
+@keyframes prismaticCycle {
+  0%   { background: #e11d48; }
+  25%  { background: #d97706; }
+  50%  { background: #059669; }
+  75%  { background: #2563eb; }
+  100% { background: #e11d48; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ring="prismatic"] .profile-chip .avatar::after,
+  .ring-preview[data-ring-preview="prismatic"] .avatar::after { animation: none; }
+}

@@ -1191,6 +1191,18 @@
      it sits inside a text row, so it gets its padding from the row rather
      than a fixed box. */
   .due-inline { min-height: 32px; align-items: center; }
+
+  /* The help dot stays a 16px dot — it sits inline in a heading, and a 40px
+     circle there would read as a button competing with the heading. Padding
+     plus content-box clipping grows the TAP TARGET to 40px while the painted
+     circle stays 16px, and the negative margin keeps the surrounding text
+     laid out exactly as before. */
+  .help-hint {
+    box-sizing: content-box;
+    padding: 12px;
+    margin: -12px;
+    background-clip: content-box;
+  }
 }
 
 /* --------------------------------------------------- page toolbars ----- */
@@ -1234,3 +1246,38 @@
    supposed to cover. Enlarging the target properly means making the
    surrounding label or row the tap target, which is a markup change per
    call site rather than a stylesheet rule. */
+
+/* ==========================================================================
+   Tier identity on a shop card (views/shop.js)
+
+   Carried by a label AND a colour, never colour alone — the same rule the
+   class palette follows, for the same reason. The stripe sits on top of
+   main's .shop-item box rather than replacing it.
+   ========================================================================== */
+
+.shop-item { border-top: 3px solid var(--border); }
+.shop-item.tier-common { border-top-color: #64748b; }
+.shop-item.tier-rare   { border-top-color: #2a78d6; }
+.shop-item.tier-ultra  { border-top-color: #7c3aed; }
+.shop-item.tier-elite  { border-top-color: #d4a017; }
+
+.shop-item.tier-elite {
+  background: linear-gradient(180deg, rgba(212, 160, 23, .08), transparent 120px), var(--surface);
+}
+
+.tier-head { margin: 0; font-size: 1.02rem; }
+.tier-head.tier-common { color: var(--text-2); }
+.tier-head.tier-rare   { color: #2a78d6; }
+.tier-head.tier-ultra  { color: #7c3aed; }
+.tier-head.tier-elite  { color: #a97a06; }
+[data-theme="dark"] .tier-head.tier-rare  { color: #6ea8f0; }
+[data-theme="dark"] .tier-head.tier-ultra { color: #b49bfa; }
+[data-theme="dark"] .tier-head.tier-elite { color: #e8bf52; }
+
+/* An alarm or a boost has no colour pair to show, so its swatch carries a
+   glyph at the same size instead of two empty halves. */
+.shop-swatch.shop-glyph {
+  display: grid;
+  place-items: center;
+  font-size: 1.3rem;
+}

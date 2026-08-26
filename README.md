@@ -104,15 +104,15 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 
 ### Academics
 - **Homework** — **natural-language quick add** (`calc pset due friday high 45m 50pts` parses into a structured assignment, showing you what it understood first), list *and* drag-and-drop kanban, checklists, priorities, filters, search.
-- **Classes** — CRUD with weighted grading categories, **file attachments** (syllabi, rubrics, photos) in IndexedDB, and per-class colors used consistently everywhere.
+- **Classes** — CRUD with weighted grading categories, **file attachments** (syllabi, rubrics, photos) in IndexedDB, and per-class colors used consistently everywhere. A class does **not** have to sit in the bell schedule: an extracurricular that assigns homework — a robotics team, a Saturday academy, a dual-enrollment course — carries its own start and end times instead of a period, keeps a full grade book, and appears on the timetable in its own row and in the day-by-day agenda.
 - **Grades** — weighted grade book with **drop-lowest / curve / extra-credit rules**, weighted & unweighted GPA, **cumulative GPA across terms**, trend charts with **least-squares end-of-term projection**, a per-assignment what-if calculator, a **"what do I need on everything that's left"** target planner, and a **missing-work tracker** that shows how many points each zero costs and drafts the email to your teacher.
 
 ### Study
-- **Focus timer** — Pomodoro with configurable rounds, progress ring, WebAudio chime, auto-logging to a class.
+- **Focus timer** — Pomodoro with configurable rounds, a Custom length, progress ring, and auto-logging to a class. The alarm is a real alarm: a repeated multi-note pattern through one audio session that's opened on a user gesture (browsers start an AudioContext suspended otherwise, which is exactly how a timer ends up ringing silently), with vibration alongside, eight selectable voices, a volume control, and a choice about whether quiet hours mute it or just turn it down.
 - **Flashcards** — Leitner spaced repetition, plus **multiple-choice and type-the-answer quiz modes** with forgiving answer matching.
 - **Notes** — **Markdown** editor with live preview, and **one-click note → flashcard deck** extraction from "term — definition" lines.
 - **Reading** — books and chapter assignments with pages-per-day pacing and behind/ahead detection.
-- **Study shop** — photograph the work you actually did, earn **study tokens**, spend them on how StudyHold looks: accent colours, surface skins, an avatar ring, a nameplate under your name. The photos never leave the device, and the economy is built so the obvious shortcuts don't pay — see below.
+- **Study shop** — earn **study tokens** two ways: from the work StudyHold measured for itself (focus minutes, finished assignments, streak days, flashcard reviews, reading, habits, goals) and from a photo of the work it couldn't see. Spend them across four tiers — **Common, Rare, Ultra and Elite**, the top of which runs to 1000 tokens — on accent colours, surface skins, an avatar ring, a nameplate under your name, the focus timer's alarm voice, streak freezes and timed earning multipliers. The photos never leave the device, the economy is built so the obvious shortcuts don't pay (see below), nothing costs money, and no feature that was free moved behind it.
 
 ### Life
 - **Activities** — practices, clubs, and volunteering with hour logging. Optionally date-bounded (a season that starts and ends on real dates, not just "Fall"). **"Add with AI"** *(needs `GEMINI_API_KEY`)* turns a plain-English description ("swimming 6-6:45pm weekdays, Sept 5 to Oct 25") or a photo of a schedule or bell-times page into editable drafts — nothing saves until you review and confirm each one.
@@ -121,8 +121,11 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 - **Applications** — college and scholarship tracker with deadlines, essay status, recommendation-letter tracking, and a **pre-written recommendation request email**.
 - **Contacts** — teacher directory with office hours and one-tap pre-filled email.
 
-### Connect *(needs an account)*
-- **Sharing** — privacy toggles and a live preview of exactly what a parent sees.
+### Connect *(needs an account — and none of it is required)*
+
+A student account stands on its own. Classes, homework, grades, schedule, extracurriculars, focus timer **and focus windows**, notes to yourself, flashcards, goals, applications and the token shop are all fully create/read/write with no linked parent, no linked teacher, and no account at all. Linking only adds what someone *else* can see.
+
+- **Sharing** — privacy toggles, a live preview of exactly what a parent sees, focus windows you set for yourself (or agree to when a guardian proposes one), and notes you leave yourself.
 - **Study groups** — shared flashcard decks and a **crowdsourced "what was the homework?" feed** with confirmations, one tap to add a post to your own homework list.
 - **Parent portal** — link with a single-use code, then see live status, screen time, attendance, upcoming work, outside-school activities and what they cost, and (if shared) grades. Parents can also **suggest an outside-school activity**, which the student confirms in their own app.
 
@@ -138,9 +141,15 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 
 ## Study tokens, and what stops them being free
 
-The loop is simple: photograph the page you worked, say how long it took, get
-tokens, spend them on accents, skins, avatar rings and nameplates. The
-interesting part is that **nothing here can prove a student studied** — a photo
+Tokens arrive two ways. Most of them come from work StudyHold measured itself
+— a focus block the timer ran, an assignment marked done, a streak day, a deck
+reviewed, pages read, a habit ticked, a goal reached — and those need no photo,
+no cap and no cooldown, because there is no claim to check. The second route is
+for the work the app can't see: photograph the page you worked, say how long it
+took, get tokens. Spend either on accents, skins, avatar rings, nameplates,
+alarm voices, streak freezes and earning multipliers, across four tiers.
+
+The interesting part is that **nothing here can prove a student studied** — a photo
 is evidence a person chose to show, on their own device, to their own copy of
 the app. Pretending otherwise would be the dishonest version of this feature.
 
@@ -153,13 +162,21 @@ number don't work, and the app says why out loud when it refuses one.
 | Deleting the proof and re-submitting it | Still refused. The fingerprint ledger outlives the photo it came from — deleting a proof frees the storage, not the payout. |
 | A photo of a wall, a desk, or a blank screen | Refused. An image with almost no detail carries nothing to fingerprint, and is named as the reason. |
 | A stack of photos submitted in one sitting | Refused after the first. There is a 10-minute cooldown between submissions. |
-| Claiming nine hours for one photo | Clamped. Four hours is the most one submission can claim and 4 tokens the most it can pay. |
-| Grinding all day | Capped at 8 tokens a day. Past the cap a photo still saves and still logs as study time — it just doesn't pay. |
+| Claiming nine hours for one photo | Clamped. Four hours is the most one submission can claim and 100 tokens the most it can pay. |
+| Grinding all day | Capped at 200 tokens a day *from photos*. Past the cap a photo still saves and still logs as study time — it just doesn't pay. |
+| Marking an assignment done, reopening it, marking it done again | Paid once, ever. The record carries the flag. |
+| Starting a focus block and skipping it | Pays for the minutes actually spent, and skips the completion bonus. |
 
-One token per 15 minutes claimed, plus one for the first photo of the day.
+25 tokens per 15 minutes claimed, plus 25 for the first photo of the day.
 Every photo also writes a real study session, so proof-of-work time shows up in
 the study heatmap, the weekly total and any study goal, exactly like a
 completed focus block does.
+
+The four tiers are **Common** (150–200), **Rare** (300–450), **Ultra**
+(500–750) and **Elite** (800–1000). Prices and earn rates were multiplied by 25
+together when the tiers were introduced, which changes no ratio and no
+attainability — and any wallet written before that is redenominated by the same
+factor, once, so nobody's balance lost value overnight.
 
 **And what the guards can't do**, said plainly rather than left to be
 discovered: they can't tell whose work is in the photo, whether it was done
@@ -223,10 +240,12 @@ js/
   idb.js                IndexedDB attachment storage
   notify.js             Reminder scheduler
   geo.js                Geolocation, geofencing, live status
+  sound.js              The focus alarm: one gesture-unlocked audio session
+  shop.js               Token economy, the four-tier catalogue, photo proofs
   sync.js               Account, cloud sync, groups, parent link client
   planner.js            Auto-scheduler, estimate calibration, overload detection
   app.js                Router, nav, command palette, shortcuts, boot
-  views/                One module per screen (20)
+  views/                One module per screen (23)
 
 netlify/functions/
   api.js                Whole backend, one function, path-routed
@@ -256,7 +275,10 @@ The categorical palette is **validated for colorblind separation and contrast in
 
 ## Testing
 
-Verified end-to-end in Chromium via Playwright: all 20 views render with zero console errors, and the feature suite covers natural-language parsing, plan generation and application, the week grid, quiz mode, markdown and card extraction, the grade target planner and rules editor, reading progress, college app details, **live GPS with a simulated position and geofence**, rotating-schedule switching, undo/restore, and `.ics` export.
+Verified end-to-end in Chromium via Playwright: all 23 views render with zero console errors, and the feature suite covers natural-language parsing, plan generation and application, the week grid, quiz mode, markdown and card extraction, the grade target planner and rules editor, reading progress, college app details, **live GPS with a simulated position and geofence**, rotating-schedule switching, undo/restore, and `.ics` export. `tests/shop.mjs` covers the four newest
+pieces specifically: a student working with no linked parent or teacher, classes that meet outside the
+bell schedule, the timer's Custom segment and its alarm (including that the audio session is actually
+running when it fires), and the token shop's tiers, prices and purchase effects.
 
 ## Browser support
 

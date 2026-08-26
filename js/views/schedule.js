@@ -48,12 +48,18 @@ App.views.schedule = (function () {
     // produced a header row over nothing — a grid of day names and no grid.
     // Say what's missing and link to the thing that fixes it.
     if (!periods.length) {
+      const off = S.termClasses().filter((c) => c.offSchedule && c.start && c.end);
       return `<div class="center" style="padding:28px 16px">
         ${UI.emptyState("todaySchedule", "No bell schedule yet",
           "Add your school's periods and their times, and your classes will lay themselves out here for the week.")}
         <div class="row center gap-8" style="margin-top:12px">
           <button type="button" class="btn btn-primary" data-periods>Set up bell schedule</button>
+          <button type="button" class="btn" data-add>+ Add a class with its own times</button>
         </div>
+        ${off.length ? `<p class="small muted" style="margin-top:14px">You do have
+          ${U.plural(off.length, "class")} that meets outside the bell schedule —
+          ${U.esc(off.map((c) => c.name).join(", "))}. ${off.length === 1 ? "It shows" : "They show"}
+          in the day-by-day list below.</p>` : ""}
       </div>`;
     }
 
@@ -73,8 +79,8 @@ App.views.schedule = (function () {
       html += `<div class="tt-time"><span>${U.fmtTime(p.start)}</span><span class="dim">${U.fmtTime(p.end)}</span></div>`;
       D.forEach((d) => {
         const c = rotating
-          ? S.termClasses().find((x) => x.periodId === p.id && (x.patternDays || []).includes(d))
-          : S.termClasses().find((x) => x.periodId === p.id && x.days.includes(d));
+          ? S.termClasses().find((x) => !x.offSchedule && x.periodId === p.id && (x.patternDays || []).includes(d))
+          : S.termClasses().find((x) => !x.offSchedule && x.periodId === p.id && x.days.includes(d));
         if (!c) {
           html += `<div class="tt-cell empty"></div>`;
           return;
@@ -89,6 +95,31 @@ App.views.schedule = (function () {
           </div>`;
       });
     });
+
+    /* Off-schedule classes sit in no period, so they can't go in the grid
+       above — but they assign homework and carry a grade, so leaving them off
+       the timetable entirely is how a student misses one. They get their own
+       row, keyed on the weekday in both modes (a Tuesday club is on Tuesday
+       whatever cycle day the school calls it). */
+    const offClasses = S.termClasses().filter((c) => c.offSchedule && c.start && c.end);
+    // Only in weekly mode does this row line up with the columns. Rotating
+    // columns are cycle days, and an own-times class meets on a weekday — one
+    // row can't honestly span both axes, so cycle-day students get the list
+    // below the grid instead.
+    if (offClasses.length && !rotating) {
+      html += `<div class="tt-time"><span>Own</span><span class="dim">times</span></div>`;
+      D.forEach((d) => {
+        const here = offClasses.filter((c) => c.days.includes(d))
+          .sort((a, b) => U.toMin(a.start) - U.toMin(b.start));
+        if (!here.length) { html += `<div class="tt-cell empty"></div>`; return; }
+        const c = here[0];
+        const fg = U.contrastText(c.color);
+        html += `<div class="tt-cell" data-class="${c.id}" style="background:${U.esc(c.color)};color:${fg}">
+            <span aria-hidden="true">◇</span> ${U.esc(here.map((x) => x.name).join(", "))}
+            <small>${U.esc(U.fmtTime(c.start))}${here.length === 1 ? "–" + U.esc(U.fmtTime(c.end)) : ""}</small>
+          </div>`;
+      });
+    }
 
     // Everything that isn't a timetabled class — an after-school club, and
     // (since these can fall on a Saturday) an outside-school lesson too.
@@ -115,6 +146,21 @@ App.views.schedule = (function () {
     }
 
     html += `</div></div>`;
+
+    if (offClasses.length && rotating) {
+      html += `<div class="card mt-16"><div class="card-head">
+          <h3>Outside the bell schedule</h3>
+          <span class="sub">By weekday — these don't follow the A/B cycle</span>
+        </div><div class="list">
+        ${offClasses.map((c) => `<div class="list-item" data-class="${c.id}">
+          <i class="dot-badge" style="background:${U.esc(c.color)}"></i>
+          <span class="grow"><div class="title">${U.esc(c.name)}</div>
+            <div class="meta">${U.esc(c.days.join(" ") || "No days set")} · ${U.esc(U.fmtTime(c.start))}–${U.esc(U.fmtTime(c.end))}</div></span>
+          <span class="badge brand">◇ Extracurricular</span>
+        </div>`).join("")}
+      </div></div>`;
+    }
+
     return html;
   }
 
@@ -174,7 +220,7 @@ App.views.schedule = (function () {
     const start = U.startOfWeek(new Date(), true);
     const week = Array.from({ length: weekendVisible() ? 7 : 5 }, (_, i) => U.dateKey(U.addDays(start, i)));
     const totalClassMin = U.sum(S.db.classes, (c) => {
-      const p = S.period(c.periodId);
+      const p = S.classPeriod(c);
       return p ? (U.toMin(p.end) - U.toMin(p.start)) * c.days.length : 0;
     });
     const totalActMin = U.sum(S.db.activities, (a) => (U.toMin(a.end) - U.toMin(a.start)) * a.days.length);

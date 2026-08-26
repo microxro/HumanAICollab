@@ -76,7 +76,7 @@ App.ics = (function () {
 
     if (o.classes) {
       S.termClasses().forEach((c) => {
-        const p = S.period(c.periodId);
+        const p = S.classPeriod(c);
         if (!p || !c.days.length) return;
         // Anchor on the first matching weekday from the term start.
         const start = term ? U.parseDate(term.start) : new Date();

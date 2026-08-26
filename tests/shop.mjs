@@ -1,16 +1,21 @@
 /* ==========================================================================
-   tests/shop.mjs — study tokens: what they cost, what they buy, and what
-   cannot be used to farm them
+   tests/shop.mjs — study tokens: what they cost, what they buy, what cannot
+   be used to farm them — and the three things that landed alongside them.
 
    Half of this is an economy, and an economy nobody can cheat is the only
    kind worth showing a number for. The interesting cases are all refusals:
    the same photo twice, a photo of nothing, a second photo thirty seconds
-   later, a claim of nine hours, a skin equipped that was never bought.
+   later, a claim of nine hours, a skin equipped that was never bought, an
+   assignment closed and reopened for a second payout.
 
    The other half is a promise made in css/theme.css: a bought skin re-tints
    the surfaces at matched luminance, so every contrast ratio in the app is
    what it was before. That is asserted here against the stylesheet itself,
    because a future hand-picked hex is exactly how a promise like that dies.
+
+   Part 4 covers what arrived with the tiers: a student working with no linked
+   parent or teacher, a class that meets outside the bell schedule, and the
+   focus timer's Custom segment and its alarm.
    ========================================================================== */
 
 import { readFileSync } from "node:fs";
@@ -256,8 +261,8 @@ console.log("\nshop: a photo of real work earns tokens and logs the study time")
   await submitPhoto(noisePhoto(1), 45);
   const after = await wallet();
   ok("modal closed on success", !(await modalOpen()));
-  // 45 minutes = 3 tokens, plus 1 for the first photo of the day.
-  ok("awarded 3 + 1 first-of-day", after.balance === 4, `balance ${after.balance}`);
+  // 45 minutes = 75 tokens, plus 25 for the first photo of the day.
+  ok("awarded 75 + 25 first-of-day", after.balance === 100, `balance ${after.balance}`);
   ok("proof recorded", after.proofs === before.proofs + 1);
   ok("study session logged alongside it", after.sessions === before.sessions + 1);
   const kind = await page.evaluate(() => App.store.db.studySessions.slice(-1)[0].kind);
@@ -309,10 +314,10 @@ console.log("\nshop: a claim is bounded, however long it says");
     tiny: App.shop.quote(2),
     normal: App.shop.quote(60)
   }));
-  ok("nine hours pays the per-photo maximum", q.huge.base === 4, JSON.stringify(q.huge));
+  ok("nine hours pays the per-photo maximum", q.huge.base === 100, JSON.stringify(q.huge));
   ok("minutes are clamped to the daily maximum", q.huge.minutes === 240, String(q.huge.minutes));
   ok("two minutes pays nothing", q.tiny.base === 0, JSON.stringify(q.tiny));
-  ok("an hour pays four", q.normal.base === 4, JSON.stringify(q.normal));
+  ok("an hour also reaches it", q.normal.base === 100, JSON.stringify(q.normal));
 }
 
 console.log("\nshop: the daily cap holds, and says so instead of failing");
@@ -356,7 +361,7 @@ console.log("\nshop: deleting a proof keeps the tokens and keeps the photo spent
 
 console.log("\nshop: buying, wearing and taking off");
 {
-  await page.evaluate(() => App.store.commit((db) => { db.wallet.balance = 100; }));
+  await page.evaluate(() => App.store.commit((db) => { db.wallet.balance = 2000; }));
   await page.evaluate(() => { App.views.shop && App.router.refresh(); });
   await page.locator('[data-tab="shop"]').click();
   await page.waitForTimeout(250);
@@ -368,7 +373,7 @@ console.log("\nshop: buying, wearing and taking off");
   await page.waitForTimeout(300);
 
   const after = await wallet();
-  ok("tokens were deducted", after.balance === before.balance - 32, `${before.balance} → ${after.balance}`);
+  ok("tokens were deducted", after.balance === before.balance - 800, `${before.balance} → ${after.balance}`);
   ok("the item is owned", after.owned.includes("skin:glacier"));
   ok("and it went on immediately",
      await page.evaluate(() => document.documentElement.getAttribute("data-skin")) === "glacier");
@@ -461,7 +466,229 @@ console.log("\nshop: two submissions of the same photo at once pay once");
   ok("exactly one submission succeeded", res.states.filter((x) => x === "fulfilled").length === 1,
      JSON.stringify(res.states));
   ok("only one proof was recorded", res.proofs === 1, String(res.proofs));
-  ok("and it paid once", res.gained === 4, String(res.gained));
+  ok("and it paid once", res.gained === 100, String(res.gained));
+}
+
+console.log("\nshop: four tiers, and prices that mean something");
+{
+  const cat = await page.evaluate(() => ({
+    tiers: App.shop.tiers().map((t) => t.label),
+    counts: App.shop.tiers().map((t) => App.shop.byTier(t.key).length),
+    total: App.shop.CATALOG.length,
+    max: Math.max(...App.shop.CATALOG.map((i) => i.price)),
+    min: Math.min(...App.shop.CATALOG.map((i) => i.price)),
+    // Every item's tier has to match the band its price falls in, or the
+    // label on the section header is decoration rather than information.
+    mismatched: App.shop.CATALOG.filter((i) => {
+      const t = App.shop.TIERS[i.tier];
+      const below = App.shop.tiers().filter((x) => x.order < t.order).pop();
+      return !t || i.price > t.max || (below && i.price <= below.max);
+    }).map((i) => `${i.id} @ ${i.price} in ${i.tier}`),
+    tierless: App.shop.CATALOG.filter((i) => !i.tier).map((i) => i.id)
+  }));
+  ok("the four tiers are Common, Rare, Ultra and Elite",
+     cat.tiers.join("|") === "Common Tier|Rare Tier|Ultra Tier|Elite Tier", cat.tiers.join(", "));
+  ok("every item is in one", cat.tierless.length === 0, cat.tierless.join(", "));
+  ok("and its price sits in that tier's band", cat.mismatched.length === 0, cat.mismatched.join(" | "));
+  ok("every tier has something in it", cat.counts.every((n) => n >= 5), cat.counts.join("/"));
+  ok("the catalogue is worth browsing", cat.total >= 25, String(cat.total));
+  ok("Elite reaches 1000 tokens", cat.max === 1000, String(cat.max));
+  ok("and the cheapest is one good evening", cat.min <= 200, String(cat.min));
+
+  ok("the shop screen renders a section per tier",
+     await page.evaluate(async () => {
+       App.router.go("shop");
+       await new Promise((r) => setTimeout(r, 200));
+       document.querySelector('[data-tab="shop"]').click();
+       await new Promise((r) => setTimeout(r, 200));
+       return document.querySelectorAll(".tier-head").length;
+     }) === 4);
+}
+
+console.log("\nshop: work the app measured pays without a photo");
+{
+  const measured = await page.evaluate(() => {
+    const U = App.utils, S = App.store;
+    S.commit((db) => { db.wallet.balance = 0; db.wallet.boosts = []; });
+    const start = App.shop.balance();
+    const photoDayBefore = App.shop.earnedToday();
+
+    // An assignment pays once, ever — done, reopened, done again is not a
+    // two-click faucet.
+    const a = S.insert("assignments", { title: "Once only", classId: null, due: U.today(), status: "todo", points: 10 });
+    S.update("assignments", a.id, { status: "done" });
+    const afterFirst = App.shop.balance();
+    S.update("assignments", a.id, { status: "todo" });
+    S.update("assignments", a.id, { status: "done" });
+    const afterSecond = App.shop.balance();
+
+    // A boost multiplies what the app pays, and only while it is live.
+    S.commit((db) => { db.wallet.balance = 5000; });
+    App.shop.buy("boost:double");
+    const mult = App.shop.multiplier();
+    const before = App.shop.balance();
+    const paid = App.store.awardTokens(100, "test payout", { silent: true });
+
+    return {
+      start, afterFirst, afterSecond, paid, mult,
+      gained: App.shop.balance() - before,
+      ledger: App.shop.ledger(5).map((e) => e.reason),
+      // The photo cap counts photo earnings only; none of the above was one,
+      // so this must be exactly what it was before they were paid.
+      photoDayBefore, photoDayAfter: App.shop.earnedToday()
+    };
+  });
+  ok("finishing an assignment pays", measured.afterFirst > measured.start, String(measured.afterFirst));
+  ok("but only once, however often it's reopened",
+     measured.afterSecond === measured.afterFirst, String(measured.afterSecond));
+  ok("a boost is live once bought", measured.mult === 2, String(measured.mult));
+  ok("and doubles what the app pays", measured.gained === 200, String(measured.gained));
+  ok("every payment says why in the ledger",
+     measured.ledger.some((r) => /Finished/.test(r)) && measured.ledger.some((r) => /test payout/.test(r)),
+     measured.ledger.join(" | "));
+  ok("measured work doesn't eat the photo cap",
+     measured.photoDayAfter === measured.photoDayBefore,
+     `${measured.photoDayBefore} → ${measured.photoDayAfter}`);
+}
+
+console.log("\nshop: an alarm voice is bought, worn, and reaches the timer");
+{
+  const alarm = await page.evaluate(() => {
+    App.store.commit((db) => { db.wallet.balance = 5000; db.settings.pomodoro.alarm = "chime"; });
+    const before = App.store.settings.pomodoro.alarm;
+    const res = App.shop.buy("alarm:fanfare");
+    return {
+      ok: res.ok, before,
+      after: App.store.settings.pomodoro.alarm,
+      ownedByTheTimer: App.store.ownsShopItem("alarm:fanfare"),
+      rings: App.sound.alarm({ force: true })
+    };
+  });
+  ok("it can be bought", alarm.ok === true);
+  ok("and becomes the voice the timer uses", alarm.after === "fanfare", alarm.after);
+  ok("the timer's own settings agree it is owned", alarm.ownedByTheTimer === true);
+  ok("and the alarm still rings", alarm.rings === true);
+
+  const unowned = await page.evaluate(() => {
+    App.store.commit((db) => { db.settings.pomodoro.alarm = "zen"; });   // never bought
+    App.applyShellPrefs();
+    return App.store.settings.pomodoro.alarm;
+  });
+  ok("a voice that was never bought is taken off like any other item",
+     unowned === "chime", unowned);
+}
+
+/* ================================ part 4: what landed alongside the tiers == */
+
+console.log("\nsolo: a student with no parent or teacher linked is not locked out");
+{
+  ok("signed out counts as solo", await page.evaluate(() => App.store.isSoloStudent()) === true);
+
+  await page.evaluate(() => App.router.go("sharing"));
+  await page.waitForTimeout(400);
+  ok("the focus-window card is on screen anyway",
+     await page.locator("[data-self-focus]").count() >= 3);
+  ok("so is somewhere to write a note", await page.locator("[data-self-note]").count() === 1);
+
+  await page.locator('[data-self-focus="30"]').click();
+  await page.waitForTimeout(300);
+  const w = await page.evaluate(() => {
+    const x = App.store.activeFocusWindow();
+    return x && { by: x.by, mins: Math.round((x.endAt - x.startAt) / 60000) };
+  });
+  ok("a self-set focus window starts, with no account", !!w && w.by === "self", JSON.stringify(w));
+  ok("and runs for the length asked for", w && w.mins === 30, String(w && w.mins));
+
+  await page.locator("[data-focus-end]").click();
+  await page.waitForTimeout(250);
+  ok("and ends early locally, without a server round trip",
+     await page.evaluate(() => !!App.store.activeFocusWindow()) === false);
+
+  await page.evaluate(() => { App.store.addSelfNote("Ask about the retake"); App.router.refresh(); });
+  await page.waitForTimeout(250);
+  ok("a note to yourself saves and renders", await page.locator("[data-del-note]").count() === 1);
+
+  // Two record shapes share this collection — recurring windows keyed on
+  // weekday, one-off ones keyed on timestamps. Reading days.includes() on the
+  // second used to throw.
+  const mixed = await page.evaluate(() => {
+    App.store.addFocusWindow("20:00", "21:00", ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+    try { return { ok: true, active: !!App.store.activeFocusWindow() }; }
+    catch (e) { return { ok: false, err: e.message }; }
+  });
+  ok("both focus-window shapes coexist without throwing", mixed.ok === true, mixed.err);
+
+  await page.evaluate(() => App.router.go("parent"));
+  await page.waitForTimeout(300);
+  const heading = await page.locator("h3").first().textContent();
+  ok("the parent portal tells a student they don't need one",
+     /don't need a parent account/i.test(heading || ""), heading);
+}
+
+console.log("\nextracurricular: a class can assign homework without a period");
+{
+  const r = await page.evaluate(() => {
+    const U = App.utils, S = App.store;
+    S.insert("periods", { name: "Period 1", start: "08:00", end: "08:52" });
+    const p = S.db.periods[0];
+    S.insert("classes", { name: "Bio", color: "#2a78d6", days: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+      periodId: p.id, categories: [], offSchedule: false });
+    const dow = U.DOW_SHORT[new Date().getDay()];
+    const club = S.insert("classes", { name: "Robotics Team", color: "#eb6834", days: [dow],
+      periodId: null, offSchedule: true, start: "15:30", end: "17:30",
+      meetingLabel: "Robotics practice", categories: [] });
+    S.insert("assignments", { title: "Build log", classId: club.id, due: U.today(), status: "todo", points: 20 });
+    return {
+      period: S.classPeriod(club),
+      onDate: S.classesOnDate(U.today()).map((x) => x.cls.name),
+      agenda: S.scheduleFor(U.today()).map((i) => [i.kind, i.title]),
+      work: S.assignmentsFor(club.id).length
+    };
+  });
+  ok("it reports its own meeting time", r.period && r.period.start === "15:30", JSON.stringify(r.period));
+  ok("it shows up on today's timetable", r.onDate.includes("Robotics Team"), r.onDate.join(", "));
+  ok("the agenda marks it as its own kind",
+     r.agenda.some(([k, t]) => k === "extra" && t === "Robotics Team"), JSON.stringify(r.agenda));
+  ok("and it carries homework like any other class", r.work === 1, String(r.work));
+
+  await page.evaluate(() => App.router.go("schedule"));
+  await page.waitForTimeout(350);
+  ok("the week grid gives it its own row",
+     await page.locator(".tt-time", { hasText: "Own" }).count() === 1);
+  ok("with the class in it", await page.locator(".tt-cell", { hasText: "Robotics" }).count() === 1);
+}
+
+console.log("\ntimer: the fourth segment is Custom, and the alarm rings");
+{
+  await page.evaluate(() => App.router.go("focus"));
+  await page.waitForTimeout(300);
+  const label = (await page.locator('[data-phase="custom"]').textContent() || "").trim();
+  ok("the segment reads exactly \"Custom\"", label === "Custom", label);
+  ok("the length is still discoverable, in its tooltip",
+     /\d+ minutes/.test(await page.locator('[data-phase="custom"]').getAttribute("title") || ""));
+
+  // A real click is a real gesture: this is what opens the audio session that
+  // the old ring-time AudioContext never had.
+  await page.locator("#timerToggle").click();
+  await page.waitForTimeout(250);
+  ok("pressing Start unlocks audio", await page.evaluate(() => App.sound.ready()) === true);
+  await page.locator("#timerToggle").click();
+
+  const quiet = await page.evaluate(() => {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    App.store.commit((db) => {
+      db.settings.notifications.quietStart = `${pad((now.getHours() + 23) % 24)}:00`;
+      db.settings.notifications.quietEnd = `${pad((now.getHours() + 1) % 24)}:00`;
+      db.settings.pomodoro.quietSound = true;
+    });
+    const rangQuietly = App.sound.alarm();
+    App.store.commit((db) => { db.settings.pomodoro.quietSound = false; });
+    return { inQuiet: App.notify.inQuietHours(), rangQuietly, rangSilent: App.sound.alarm() };
+  });
+  ok("quiet hours are actually in force for this check", quiet.inQuiet === true);
+  ok("it still rings quietly inside quiet hours", quiet.rangQuietly === true);
+  ok("unless you switch that off", quiet.rangSilent === false);
 }
 
 console.log("\nshop: nothing threw along the way");

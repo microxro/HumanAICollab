@@ -202,7 +202,7 @@ App.ui = (function () {
       // the day chips, the colour swatches — backed by a hidden input that
       // holds the value. `for` is the wrong mechanism there: the label names
       // the group, so mark the group and name it.
-      const group = field.querySelector(".swatches, .row, .chips, .daypicker");
+      const group = field.querySelector(".swatches, .row, .chips, .daypicker, .segmented");
       if (!group) return;
       if (!label.id) label.id = U.uid("lbl");
       if (!group.hasAttribute("role")) group.setAttribute("role", "group");
@@ -687,7 +687,8 @@ App.ui = (function () {
     feed: { emoji: "📝", svg: "feed" },
     studentsLinked: { emoji: "🔗", svg: "link" },
     reading: { emoji: "📖", svg: "reading" },
-    assistant: { emoji: "🤖", svg: "assistant" }
+    assistant: { emoji: "🤖", svg: "assistant" },
+    shopOwned: { emoji: "🪙", svg: "goals" }
   };
 
   /**
@@ -854,13 +855,19 @@ App.ui = (function () {
   // help page nobody goes looking for.
 
   function helpHint(text) {
-    return `<button type="button" class="help-hint" data-help="${U.esc(text)}" aria-label="What's this?">?</button>`;
+    // aria-expanded is not decoration: the popover it opens is appended to
+    // <body>, so without it nothing on the button itself says the help is
+    // showing — neither to a screen reader nor to anything inspecting the
+    // page. It flips in showHelp/closeHelpNode below.
+    return `<button type="button" class="help-hint" data-help="${U.esc(text)}"
+      aria-label="What's this?" aria-expanded="false">?</button>`;
   }
 
   let openHelp = null, openHelpBtn = null;
   function closeHelpNode() {
     if (!openHelp) return;
     openHelp.remove();
+    if (openHelpBtn) openHelpBtn.setAttribute("aria-expanded", "false");
     openHelp = null; openHelpBtn = null;
     document.removeEventListener("click", onHelpOutside, true);
     document.removeEventListener("keydown", onHelpKey);
@@ -888,6 +895,7 @@ App.ui = (function () {
     el.style.top = (r.bottom + 6) + "px";
 
     openHelp = el; openHelpBtn = btn;
+    btn.setAttribute("aria-expanded", "true");
     setTimeout(() => {
       document.addEventListener("click", onHelpOutside, true);
       document.addEventListener("keydown", onHelpKey);

@@ -20,11 +20,11 @@
     "test:concurrency": "node --import ./tests/stub/register.mjs tests/concurrency.mjs",
     "test:hardening": "node --import ./tests/stub/register.mjs tests/hardening.mjs",
     "test:guidance": "node tests/guidance.mjs",
-    "test:shop": "node tests/shop.mjs",
     "test:quotes": "node tests/quotes.mjs",
     "test:mobile": "node tests/mobile.mjs",
     "test:urlguard": "node tests/urlguard.mjs",
     "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs",
+    "test:shop": "node tests/shop.mjs",
     "test:activities": "node --import ./tests/stub/register.mjs tests/activities.mjs",
     "test:portal": "node tests/portal.mjs"
   },

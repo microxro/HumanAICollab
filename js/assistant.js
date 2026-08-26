@@ -228,7 +228,8 @@ App.assistant = (function () {
     const classes = S.termClasses().map((c) => ({
       name: c.name, code: c.code || "", room: c.room, credits: c.credits,
       teacher: S.teacher(c.teacherId) ? S.teacher(c.teacherId).name : "",
-      period: S.period(c.periodId) ? S.period(c.periodId).name : "",
+      period: S.classPeriod(c) ? S.classPeriod(c).name : "",
+      offSchedule: !!c.offSchedule,
       days: c.days,
       grade: hideGPA ? null : S.classGrade(c.id)
     }));
