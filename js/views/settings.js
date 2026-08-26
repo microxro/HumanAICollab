@@ -125,12 +125,15 @@ App.views.settings = (function () {
         ${isSignup ? `<div class="field full"><label>I am a…</label>
           <select class="select" name="role">
             <option value="student">Student</option>
-            <option value="parent">Parent / guardian</option>   // F067
+            <!-- F067 multiple guardians: a student can hand out as many link
+                 codes as they like, so several guardian accounts can link to
+                 the same student; nothing here caps it at one. -->
+            <option value="parent">Parent / guardian</option>
             <option value="teacher">Teacher</option>
           </select>
-          <span class="hint">A parent account sees a linked student's status. A teacher account posts assignments
-          to class groups as official — students see them marked, with no need to confirm each other's guesses.
-          Neither tracks homework of its own.</span>
+          <span class="hint">A student account is the one that holds the homework, timetable and grades.
+          A parent or teacher account links to a student's and can open and edit it. You can change this
+          later from Settings.</span>
         </div>` : ""}
       </div>
       ${!isSignup ? `<p class="mt-8" data-forgot-slot><button type="button" class="btn-link small" data-forgot hidden>Forgot your password?</button></p>` : ""}
@@ -278,12 +281,14 @@ App.views.settings = (function () {
             S.db.account.autoSync, `data-autosync`)}
           <div class="row gap-8 mt-16">
             <button class="btn" data-sync-now>↻ Sync now</button>
+            <button class="btn" data-change-role>Change account type</button>
             <button class="btn" data-signout>Sign out</button>
           </div>
         </div>
       </div>
 
-      ${s.user.role === "student" ? linkCard() : parentLinkCard()}
+      ${s.user.role === "student" ? linkCard()
+        : s.user.role === "teacher" ? teacherLinkCard() : parentLinkCard()}
       ${profileCard(p)}`;
   }
 
@@ -302,6 +307,18 @@ App.views.settings = (function () {
         <div class="divider"></div>
         <h4 class="mb-8">Who can see me</h4>
         <div id="parentList">${U.skeletonRows(1)}</div>
+      </div>
+    </div>`;
+  }
+
+  function teacherLinkCard() {
+    return `<div class="card mb-16">
+      <div class="card-head"><h3>Your students</h3></div>
+      <div class="card-body">
+        <p class="small muted mb-12">A student generates a link code from their Sharing screen and gives
+          it to you. Once you've added them you can open their account and work in it — assignments, bell
+          schedule, scores — and every change is labelled with your name.</p>
+        <button class="btn btn-primary" data-go="classroom">Open classroom →</button>
       </div>
     </div>`;
   }
@@ -1581,6 +1598,50 @@ App.views.settings = (function () {
         onConfirm() { App.sync.signOut(); UI.toast("Signed out"); App.router.refresh(); }
       });
     });
+    /**
+     * F059 — the account type was fixed at signup with no way out, so anyone
+     * who picked wrong was stuck in the wrong app.
+     *
+     * The server refuses while any link exists, because the role is what
+     * decides what a link *means*: the same link makes a parent a guardian
+     * (location, check-ins, notes) and a teacher a teacher (academic records
+     * only). Flipping it underneath would silently re-grade every link the
+     * account already holds. The error says so; this doesn't try to guess in
+     * advance, because the links live on the server and this device's copy can
+     * be stale.
+     */
+    U.on(root, "click", "[data-change-role]", () => {
+      const me = App.sync.info().user;
+      const current = (me && me.role) || "student";
+      UI.modal({
+        title: "Change account type",
+        sub: `Currently a ${current} account`,
+        okLabel: "Change it",
+        body: `<div class="field full">
+            <label>This account is a…</label>
+            <select class="select" name="role">
+              <option value="student" ${current === "student" ? "selected" : ""}>Student</option>
+              <option value="parent" ${current === "parent" ? "selected" : ""}>Parent / guardian</option>
+              <option value="teacher" ${current === "teacher" ? "selected" : ""}>Teacher</option>
+            </select>
+          </div>
+          <p class="hint mt-8">A student account holds the homework, timetable and grades. A parent or
+            teacher account links to a student's and can open and edit it — a parent also sees live status
+            and can send check-ins and notes, which a teacher can't.</p>
+          <p class="hint mt-8">You'll need to remove your existing links first: the same link means
+            different things depending on which of these you are.</p>`,
+        onSubmit(d) {
+          if (d.role === current) return;
+          App.sync.setRole(d.role)
+            .then((u) => {
+              UI.toast("Account type changed", `You're now a ${u.role} account.`, "ok");
+              App.router.refresh();
+            })
+            .catch((e) => UI.toast("Couldn't change it", e.message, "danger"));
+        }
+      });
+    });
+
     U.on(root, "click", "[data-sync-now]", () => {
       App.sync.push(false).then((r) => {
         if (r && r.ok) UI.toast("Synced", "Your data is up to date.", "ok");

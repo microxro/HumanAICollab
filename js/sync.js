@@ -171,6 +171,21 @@ App.sync = (function () {
     });
   }
 
+  /**
+   * F059 — change what kind of account this is.
+   *
+   * The role was fixed at signup with no way out, so anyone who picked wrong
+   * was stuck in the wrong app. The server refuses while any link exists,
+   * because a link means a different authority for a parent, a teacher and a
+   * student — so the local copy is only updated once the server has agreed.
+   */
+  async function setRole(role) {
+    const res = await call("/me", { method: "POST", body: { role } });
+    state.user = res.user;
+    S.commit((db) => { db.account.role = res.user.role; });
+    return res.user;
+  }
+
   async function restore() {
     if (!state.token) { setStatus("offline"); return null; }
     try {
@@ -433,6 +448,46 @@ App.sync = (function () {
     }
   }
 
+  /**
+   * F059 — put the same record in several students' accounts.
+   *
+   * The fan-out is here, on the client, and that is deliberate. A Netlify
+   * Function is request-scoped, so a server-side loop over thirty students
+   * would be thirty read-modify-writes of thirty whole databases inside one
+   * invocation's budget — the same shape of mistake the webhook delivery path
+   * already taught this codebase (no queue, no worker, so no retries either).
+   * A browser has no such budget, and the route it calls is the one that
+   * already checks the teacher's link per student.
+   *
+   * Partial success is reported rather than rolled back, matching
+   * groups/broadcast: with thirty independent accounts there is no transaction
+   * to roll back to, and a teacher is better served by "28 of 30, these two
+   * haven't synced yet" than by an all-or-nothing failure that leaves them
+   * guessing which.
+   *
+   * `record` is sent without an id, so each student gets their own new record
+   * rather than a shared one. Sending an id would either collide with one of
+   * their existing records or be rejected — see the op route's handling.
+   */
+  async function assignToMany(studentIds, collection, record) {
+    const ids = (studentIds || []).filter(Boolean);
+    if (!ids.length) return { ok: false, message: "Nobody selected." };
+
+    const done = [], failed = [];
+    for (const id of ids) {
+      try {
+        await call("/subject-ops", {
+          method: "POST",
+          body: { subjectId: id, ops: [{ op: "upsert", collection, record }] }
+        });
+        done.push(id);
+      } catch (e) {
+        failed.push({ id, message: e.message });
+      }
+    }
+    return { ok: !!done.length, done, failed };
+  }
+
   /** Load a student's records and point the app at them. */
   async function actAsStudent(child) {
     if (!child || !child.id) return { ok: false, message: "No student chosen." };
@@ -496,6 +551,10 @@ App.sync = (function () {
   async function createLinkCode() { return (await call("/link/code", { method: "POST" })).code; }
   async function redeemLinkCode(code) { return call("/link/redeem", { method: "POST", body: { code } }); }
   async function children() { return (await call("/link/children")).children || []; }
+  // F059 — a teacher's roster. Deliberately a different route from children():
+  // that one reads live location and arrival/departure events, which is a
+  // guardian's business and not a teacher's.
+  async function pupils() { return (await call("/link/pupils")).pupils || []; }
   async function parents() { return (await call("/link/parents")).parents || []; }
   async function unlink(id) { return call("/link/" + encodeURIComponent(id), { method: "DELETE" }); }
 
@@ -777,8 +836,8 @@ App.sync = (function () {
     init, info, isSignedIn, authToken, on,
     signUp, signIn, signOut, restore, forgotPassword, resetPassword,
     push, pull, pullAndMerge, queue, refresh,
-    actAsStudent, stopActing, flushSubjectOps,
-    createLinkCode, redeemLinkCode, children, parents, unlink,
+    actAsStudent, stopActing, flushSubjectOps, assignToMany,
+    createLinkCode, redeemLinkCode, children, pupils, parents, unlink, setRole,
     pushLocation, readLocation,
     requestFriend, respondFriend, listFriends, removeFriend,
     requestCheckin, listCheckins, respondCheckin, sendGuardianNote, listGuardianNotes,

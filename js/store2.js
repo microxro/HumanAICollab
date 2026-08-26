@@ -148,7 +148,10 @@
     // Sharing an outside-school commitment with a parent is the default: they
     // are usually the ones paying for it and driving to it. School clubs are
     // never included — see the summary built in sync.js.
-    need(s, "shareActivities", true);
+    // shareActivities was removed with the other parent-facing toggles (F157).
+    // Not deleted from stored datasets: an old value is inert now that nothing
+    // reads it, and a migration that removes fields is a migration that can
+    // lose data if it is ever wrong about which field.
     need(s, "wellbeing", { hideGPA: false, breakEveryMin: 50, breakLenMin: 8 });   // F080
     // Custom GPA weighting — defaults reproduce the old hardcoded +1.0/cap-5.
     need(s, "gpaScale", { ap: 1, honors: 1, max: 5 });

@@ -42,7 +42,14 @@
     { group: "Connect", items: [
       { id: "sharing",   label: "Sharing",   icon: "⇄" },
       { id: "groups",    label: "Study groups", icon: "◐" },
-      { id: "parent",    label: "Parent portal", icon: "◧" }
+      { id: "parent",    label: "Parent portal", icon: "◧" },
+      // F059 — a teacher's roster. Shown to every account rather than hidden
+      // behind the role: the nav is built once at boot, before /me has
+      // answered, so a role-conditional item would be missing on first paint
+      // and appear a second later. The view itself says plainly what kind of
+      // account this is and how to change it, which is more useful than a nav
+      // item that isn't there.
+      { id: "classroom", label: "Classroom", icon: "◪" }
     ]},
     { group: "More", items: [
       { id: "analytics", label: "Analytics", icon: "◨" },

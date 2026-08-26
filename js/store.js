@@ -367,7 +367,11 @@ App.store = (function () {
       },
       settings: {
         theme: "light", weekStartsMonday: true, gpaWeighted: false,
-        locationSharing: true, peerSharing: true, shareGrades: false,
+        // F157 removed locationSharing / shareGrades / shareActivities: a
+        // linked parent now edits these records directly, so a switch hiding
+        // the summary of them was telling the student something untrue.
+        // peerSharing stays — it governs what other students see.
+        peerSharing: true,
         dueSoonDays: 3,
         pomodoro: { focus: 25, short: 5, long: 15, rounds: 4, custom: 25 },
         schedule: {

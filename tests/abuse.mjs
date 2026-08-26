@@ -31,7 +31,7 @@ if (await skip.count()) { await skip.click(); await page.waitForTimeout(250); }
 
 const VIEWS = ["dashboard", "calendar", "schedule", "homework", "classes", "grades",
   "planner", "focus", "flashcards", "notes", "reading", "activities", "goals",
-  "college", "guidance", "contacts", "analytics", "sharing", "groups", "parent", "settings", "assistant"];
+  "college", "guidance", "contacts", "analytics", "sharing", "groups", "parent", "classroom", "settings", "assistant"];
 
 async function visitAll(labelPrefix) {
   const broken = [];

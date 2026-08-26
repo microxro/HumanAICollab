@@ -909,16 +909,22 @@ function replayOps(db, ops) {
 /**
  * Who may write whose records.
  *
- * Resolved from the credential-derived profile only — never from the body —
- * and reusing the guardian link that already gates every other cross-account
- * route. A teacher link is a separate role and lands with the teacher work;
- * until then a teacher has no more write authority than anyone else, which is
- * the honest state rather than a half-open door.
+ * Resolved from the credential-derived profile only — never from the body.
+ * Two link roles qualify, and they are deliberately not the same authority:
+ *
+ *   child — a guardian. Also gates live location, check-in requests, notes,
+ *           focus windows and activity suggestions, at their own call sites.
+ *   pupil — a teacher. Academic records only. A teacher does *not* inherit
+ *           any of those five; each still checks `role === "child"` on its
+ *           own. Grading a student is a teacher's job; knowing where they are
+ *           standing is not, and rolling the two together because both are
+ *           "an adult with a link" is how a gradebook turns into a tracker.
  */
 function maySubjectWrite(user, subjectId) {
   if (!subjectId) return false;
   if (subjectId === user.id) return true;                 // your own records
-  return (user.links || []).some((l) => l.id === subjectId && l.role === "child");
+  return (user.links || []).some((l) =>
+    l.id === subjectId && (l.role === "child" || l.role === "pupil"));
 }
 
 /**
@@ -1074,28 +1080,75 @@ async function redeemLinkCode(req, user) {
   // *guardian* — able to read live location, request check-ins, send notes
   // and propose focus windows, all of which authorize purely on the link.
   if (user.role === "student") {
-    return fail(403, "Link codes connect a parent or guardian to a student account. " +
+    return fail(403, "Link codes connect a parent or teacher to a student account. " +
       "This is a student account — ask them to share with your guardian's account instead.");
   }
 
   const student = await readJSON("profiles", rec.studentId);
   if (!student) return fail(404, "That student account no longer exists.");
 
+  // F059/F157 — which link this becomes is derived from the redeemer's own
+  // account, never from the code and never from the request. One code, and
+  // whoever redeems it gets exactly the authority their role carries.
+  //
+  // That is also what closes the escalation above properly rather than by
+  // adding a second check: there is no code that grants guardian powers, only
+  // an account that has them. A teacher redeeming a student's code becomes a
+  // teacher; nothing they can send changes that.
+  const teaching = user.role === "teacher";
+  const mine = teaching ? "pupil" : "child";     // how the adult files the student
+  const theirs = teaching ? "teacher" : "parent";  // how the student files the adult
+
   // Conditional, like the student's side below: redeeming two codes at once
   // otherwise drops one of the two children off the guardian's list.
   await updateJSON("profiles", user.id, (cur) => {
     if (!cur) return undefined;
     if ((cur.links || []).some((l) => l.id === student.id)) return undefined;
-    return { ...cur, links: (cur.links || []).concat([{ id: student.id, role: "child", name: student.name, since: Date.now() }]) };
+    return { ...cur, links: (cur.links || []).concat([{ id: student.id, role: mine, name: student.name, since: Date.now() }]) };
   });
   await updateJSON("profiles", student.id, (cur) => {
     if (!cur) return undefined;
     if ((cur.links || []).some((l) => l.id === user.id)) return undefined;
-    return { ...cur, links: (cur.links || []).concat([{ id: user.id, role: "parent", name: user.name, since: Date.now() }]) };
+    return { ...cur, links: (cur.links || []).concat([{ id: user.id, role: theirs, name: user.name, since: Date.now() }]) };
   });
 
   await remove("links", code);   // single use
-  return ok({ linked: { id: student.id, name: student.name } });
+  return ok({ linked: { id: student.id, name: student.name }, as: theirs });
+}
+
+/**
+ * F059 — the students a teacher is linked to.
+ *
+ * Deliberately not listChildren(): that reads the `locations` blob for live
+ * status and location events, which is guardian territory. A teacher gets the
+ * academic picture and nothing else — enough to open a student's records and
+ * to see, on the roster, who is behind before opening anything.
+ */
+async function listPupils(user) {
+  if (user.role !== "teacher") return fail(403, "This is for teacher accounts.");
+  const pupils = (user.links || []).filter((l) => l.role === "pupil");
+  const out = [];
+  for (const p of pupils) {
+    const rec = await readJSON("state", p.id, null);
+    const db = (rec && rec.data) || null;
+    const assignments = (db && Array.isArray(db.assignments)) ? db.assignments : [];
+    const today = new Date().toISOString().slice(0, 10);
+    const graded = assignments.filter((a) => a && a.graded && a.earned != null && a.points > 0);
+    const earned = graded.reduce((n, a) => n + Number(a.earned || 0), 0);
+    const possible = graded.reduce((n, a) => n + Number(a.points || 0), 0);
+    out.push({
+      id: p.id,
+      name: p.name,
+      since: p.since,
+      syncedAt: rec ? rec.updatedAt || 0 : 0,
+      classes: (db && Array.isArray(db.classes)) ? db.classes.length : 0,
+      open: assignments.filter((a) => a && a.status !== "done").length,
+      overdue: assignments.filter((a) => a && a.status !== "done" && a.due && a.due < today).length,
+      graded: graded.length,
+      percent: possible ? Math.round((earned / possible) * 1000) / 10 : null
+    });
+  }
+  return ok({ pupils: out });
 }
 
 async function listChildren(user) {
@@ -2829,10 +2882,33 @@ export default async (req) => {
       if (method === "GET") return ok({ user: publicUser(user) });
       if (method === "POST") {
         const b = await body(req);
+        const patch = {};
         const name = String(b.name || "").trim().slice(0, 80);
-        if (name) {
-          user.name = name;
-          await updateJSON("profiles", user.id, (cur) => (cur ? { ...cur, name } : undefined));
+        if (name) patch.name = name;
+
+        // F059 — the role was fixed at signup with no way to change it, so
+        // anyone who picked wrong (or signed up before teacher accounts meant
+        // anything) was stuck in the wrong app forever. Changing it is
+        // allowed; changing it *while linked* is not, because the role is
+        // what decides which authority a link carries, and flipping it
+        // underneath an existing link would silently re-grade every link the
+        // account already holds. Unlink first, then switch, then re-link —
+        // which puts the student back in the loop, where they belong.
+        if (b.role !== undefined) {
+          const role = String(b.role || "");
+          if (!ROLES.includes(role)) {
+            return fail(400, `Pick one of: ${ROLES.join(", ")}.`);
+          }
+          if (role !== user.role && (user.links || []).length) {
+            return fail(409, "Remove your links before changing account type — " +
+              "a link means something different for a parent, a teacher and a student.");
+          }
+          patch.role = role;
+        }
+
+        if (Object.keys(patch).length) {
+          Object.assign(user, patch);
+          await updateJSON("profiles", user.id, (cur) => (cur ? { ...cur, ...patch } : undefined));
         }
         return ok({ user: publicUser(user) });
       }
@@ -2859,6 +2935,7 @@ export default async (req) => {
       if (parts[1] === "code" && method === "POST") return await mintLinkCode(user);
       if (parts[1] === "redeem" && method === "POST") return await redeemLinkCode(req, user);
       if (parts[1] === "children" && method === "GET") return await listChildren(user);
+      if (parts[1] === "pupils" && method === "GET") return await listPupils(user);
       if (parts[1] === "parents" && method === "GET") return await listParents(user);
       if (parts[1] && method === "DELETE") return await unlink(user, parts[1]);
     }

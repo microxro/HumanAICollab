@@ -84,7 +84,7 @@ const GUARDED = [
   ["GET", "sync"], ["PUT", "sync"], ["POST", "sync"],
   ["POST", "subject-ops"], ["GET", "subject-state/abc"],
   ["POST", "link/code"], ["POST", "link/redeem"],
-  ["GET", "link/children"], ["GET", "link/parents"], ["DELETE", "link/abc"],
+  ["GET", "link/children"], ["GET", "link/pupils"], ["GET", "link/parents"], ["DELETE", "link/abc"],
   ["POST", "location"], ["GET", "location/abc"],
   ["POST", "peers/request"], ["POST", "peers/respond"], ["GET", "peers"], ["DELETE", "peers/abc"],
   ["POST", "checkin/request"], ["POST", "checkin/respond"], ["GET", "checkin"],
@@ -258,12 +258,31 @@ console.log("\nauthwall: a signed-in account is a stranger to every other accoun
     ["read A's records to edit them", () => callApi(`subject-state/${a.user.id}`, { token: b.token }), (r) => r.status === 403],
     ["read a group A is in", () => callApi("groups/anything", { token: b.token }), (r) => r.status === 404 || r.status === 403],
     ["broadcast as a teacher", () => callApi("groups/broadcast", { method: "POST", token: b.token, body: { title: "x" } }), (r) => r.status === 403],
-    ["mint a link code as a parent", () => callApi("link/code", { method: "POST", token: parent.token }), (r) => r.status !== 200 || !r.data.code]
+    ["mint a link code as a parent", () => callApi("link/code", { method: "POST", token: parent.token }), (r) => r.status !== 200 || !r.data.code],
+    // F059 — the teacher roster reads other people's synced state, so it is
+    // gated on the account's own role and not merely on being signed in.
+    ["read a teacher's roster", () => callApi("link/pupils", { token: b.token }), (r) => r.status === 403],
   ];
   for (const [label, run, expect] of attacks) {
     const r = await run();
     ok(`B cannot: ${label}`, expect(r), `${r.status} ${JSON.stringify(r.data).slice(0, 90)}`);
   }
+
+  /*
+   * F059 — the account type is now changeable, which makes "become a teacher"
+   * an obvious thing to try. It has to buy nothing: authority comes from a
+   * link the *student* created, and calling yourself a teacher creates no
+   * link. Worth pinning, because the tempting shortcut when adding teacher
+   * powers is to authorize on `user.role` rather than on the link.
+   */
+  const became = await callApi("me", { method: "POST", token: b.token, body: { role: "teacher" } });
+  ok("B can rename their own account type", became.status === 200
+     && became.data.user.role === "teacher", `${became.status}`);
+  ok("...and it still buys no reach into A's records",
+     (await callApi("subject-ops", { method: "POST", token: b.token,
+       body: { subjectId: a.user.id, ops: [{ op: "upsert", collection: "assignments", record: { title: "Ha" } }] } })).status === 403);
+  ok("...nor a roster with A on it",
+     ((await callApi("link/pupils", { token: b.token })).data.pupils || []).length === 0);
 
   // A's own data is still reachable by A — a wall that blocks everyone is
   // not a wall, it is an outage.
