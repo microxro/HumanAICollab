@@ -56,6 +56,24 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+**Feedback (F154).** A Feedback tab in Settings: pick what it's about, write
+the message, and send it to humanai736@gmail.com. It composes a `mailto:` and
+hands it to whatever mail app the device already has rather than posting to
+the backend, which is a deliberate choice — server mail only works when
+`RESEND_API_KEY` and `EMAIL_FROM` are both set, so a form wired to it would
+fail silently on a deploy that hasn't configured them, and it would need the
+student signed in, which reporting a bug should never require. The `mailto:`
+route works offline, needs no key, and leaves the sender reading the message
+before it goes.
+
+An optional **app details** block attaches the browser, screen size, settings
+and *counts* of records — never their contents. No class name, note body or
+signed-in address is included, and the full text is shown on screen before
+sending, because a feedback form is the last place that should quietly
+exfiltrate someone's schoolwork. Long messages are put on the clipboard
+instead of into the URL: mail clients disagree on how long a `mailto:` may be
+and the ones that dislike a long one drop the body without saying so.
+
 **Add from a link (F152).** Most of what a student retypes into a school
 tracker is already published on a web page. Paste the link instead: the server
 fetches the page, strips it to text, and extracts bell-schedule periods, a

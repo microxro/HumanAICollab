@@ -94,6 +94,7 @@ const FUNCTIONS = [
   { label: "Add a term",            view: "settings", section: "Settings → Schedule & terms", control: "#page [data-add-term]" },
   { label: "Schedule pattern",      view: "settings", section: "Settings → Schedule & terms", control: "#page [data-sched-mode]" },
   { label: "Account",               view: "settings", section: "Settings → Account",          control: "#page [data-auth], #page [data-signout], #page [data-signin]" },
+  { label: "Send feedback",         view: "settings", section: "Settings → Feedback",         control: "#page [data-feedback-send]" },
   // Guidance's other two sections are read-only panels with no controls of
   // their own, so reaching the section *is* the function: the tab button is
   // what gets pressed, and it has to be on screen inside two clicks.

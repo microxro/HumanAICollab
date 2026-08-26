@@ -9,6 +9,32 @@ App.views.settings = (function () {
   let idbBytes = null;
   let installEvent = null;   // captured beforeinstallprompt
 
+  /**
+   * F154 — where feedback goes.
+   *
+   * A `mailto:` rather than a form posting to the backend, deliberately. The
+   * server can only send mail when RESEND_API_KEY and EMAIL_FROM are both
+   * configured (see netlify/functions/_lib/email.js, which reports
+   * `not-configured` otherwise), so a send button wired to it would fail
+   * silently on any deploy that hasn't set them up — and it would need the
+   * student to be signed in, which feedback should never require. Handing the
+   * composed message to whatever mail app the device already has works
+   * offline, needs no key, and leaves the sender in control of what goes.
+   */
+  const FEEDBACK_EMAIL = "humanai736@gmail.com";
+
+  const FEEDBACK_KINDS = [
+    ["bug", "Something is broken"],
+    ["idea", "An idea or a request"],
+    ["question", "A question"],
+    ["other", "Something else"]
+  ];
+
+  // Mail clients and OSes disagree on how long a mailto: may be, and the ones
+  // that dislike a long one tend to drop the body without saying so. Compose
+  // below this and offer the clipboard for anything longer.
+  const MAILTO_LIMIT = 1800;
+
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     installEvent = e;
@@ -779,6 +805,150 @@ App.views.settings = (function () {
     trend: "Grade trend", grades: "Class averages", study: "Study activity"
   };
 
+  /* ------------------------------------------------------------- feedback */
+
+  /**
+   * F154 — the optional "app details" block.
+   *
+   * Counts and settings only. Nothing here names a class, quotes a note, or
+   * carries the signed-in address: the things that make a bug report useful
+   * are the shape of the data and the browser, not its contents, and a
+   * feedback form is the last place that should quietly exfiltrate someone's
+   * schoolwork. What it collects is shown in full in the UI before sending,
+   * which is why this returns lines rather than writing them straight into
+   * the mail body.
+   */
+  function diagnostics() {
+    const s = S.settings || {};
+    const signedIn = !!(S.db.account && S.db.account.email);
+    const lines = [
+      ["App", `StudyHold, schema v${S.SCHEMA}`],
+      ["Display", `${screen.width}x${screen.height} @${window.devicePixelRatio || 1}x, window ${innerWidth}x${innerHeight}`],
+      ["Browser", navigator.userAgent],
+      ["Language", navigator.language || "unknown"],
+      ["Connection", navigator.onLine ? "online" : "offline"],
+      ["Installed", window.matchMedia("(display-mode: standalone)").matches ? "yes (PWA)" : "no (browser tab)"],
+      ["Appearance", `${s.theme || "light"} theme, ${s.density || "comfortable"}, ${s.accent || "indigo"} accent, ${s.fontSize || "normal"} text`],
+      ["Signed in", signedIn ? "yes" : "no"],
+      ["Stored", `${dataSize()} — ${counts().map(([k, n]) => `${n} ${k.toLowerCase()}`).join(", ")}`]
+    ];
+    return lines.map(([k, v]) => `${k}: ${v}`).join("\n");
+  }
+
+  /**
+   * Copy to the clipboard, with a fallback that still gets the text to the
+   * person. `navigator.clipboard` is undefined on an insecure origin and its
+   * promise rejects when the document isn't focused, and both cases end with
+   * feedback the sender wrote and cannot retrieve — so show it in a dialog,
+   * selected, rather than a toast telling them it failed.
+   */
+  function copyText(text, title, sub) {
+    const manually = () => UI.modal({
+      title: "Copy this",
+      sub: "Your browser wouldn't let the app write to the clipboard.",
+      footer: `<button type="button" class="btn btn-primary" data-close>Done</button>`,
+      body: `<textarea class="input" rows="10" readonly data-select-all>${U.esc(text)}</textarea>`,
+      onMount(el) {
+        const f = el.querySelector("textarea");
+        if (f) { f.focus(); f.select(); }
+      }
+    });
+    if (!navigator.clipboard || !navigator.clipboard.writeText) return manually();
+    navigator.clipboard.writeText(text)
+      .then(() => UI.toast(title, sub, "ok"))
+      .catch(manually);
+  }
+
+  /**
+   * A `mailto:` for `location.href`, not for an href attribute.
+   *
+   * `U.mailtoHref` runs its result through `esc()` so it can be interpolated
+   * into HTML, which turns the `&` joining subject and body into `&amp;`.
+   * Navigating to that hands the mail client a subject of
+   * "…&amp;body=everything-they-wrote" and no body at all — the silent
+   * truncation this screen is otherwise careful to avoid. The address here is
+   * a constant, not untrusted input, so the escaping that matters for a
+   * contact's saved email buys nothing on this path.
+   */
+  function feedbackMailto(subject, body) {
+    return "mailto:" + FEEDBACK_EMAIL +
+      "?subject=" + encodeURIComponent(subject) +
+      "&body=" + encodeURIComponent(body);
+  }
+
+  /** The exact text that gets sent, so the preview and the mail agree. */
+  function composeFeedback(root) {
+    const kind = root.querySelector("[data-feedback-kind]");
+    const msg = root.querySelector("[data-feedback-message]");
+    const withDetails = root.querySelector("[data-feedback-details]");
+    const kindId = kind ? kind.value : "other";
+    const kindLabel = (FEEDBACK_KINDS.find((k) => k[0] === kindId) || FEEDBACK_KINDS[3])[1];
+    const body = (msg ? msg.value : "").trim();
+    const details = withDetails && withDetails.checked ? `\n\n---\nApp details\n${diagnostics()}` : "";
+    return {
+      empty: !body,
+      subject: `StudyHold feedback — ${kindLabel}`,
+      body: body + details,
+      focus: msg
+    };
+  }
+
+  function feedbackTab() {
+    const address = U.esc(FEEDBACK_EMAIL);
+    return `
+      <div class="card mb-16">
+        <div class="card-head">
+          <h3>Send us feedback</h3>
+          <div class="tiny dim">Bugs, ideas, questions — all of it helps</div>
+        </div>
+        <div class="card-body">
+          <div class="field mb-12">
+            <label for="feedbackKind">What is this about?</label>
+            <select class="select" id="feedbackKind" data-feedback-kind>
+              ${FEEDBACK_KINDS.map(([id, label]) =>
+                `<option value="${id}">${U.esc(label)}</option>`).join("")}
+            </select>
+          </div>
+
+          <div class="field mb-12">
+            <label for="feedbackMessage">Your message</label>
+            <textarea class="input" id="feedbackMessage" rows="7" data-feedback-message
+              placeholder="What happened, what you expected, and what you were doing at the time. The more specific, the faster we can fix it."></textarea>
+          </div>
+
+          ${toggleRow("Include app details",
+            "Your browser, screen size, settings, and how many records you have — never their contents",
+            true, "data-feedback-details")}
+
+          <details class="mt-12">
+            <summary class="small muted" style="cursor:pointer">See exactly what that attaches</summary>
+            <pre class="tiny" style="white-space:pre-wrap;overflow-x:auto;background:var(--surface-2);padding:10px;border-radius:8px;margin-top:8px">${U.esc(diagnostics())}</pre>
+          </details>
+
+          <div class="row gap-8 mt-16" style="flex-wrap:wrap">
+            <button type="button" class="btn btn-primary" data-feedback-send>✉ Open your email app</button>
+            <button type="button" class="btn" data-feedback-copy>Copy the message</button>
+          </div>
+
+          <p class="tiny dim mt-12">Nothing is sent automatically. This opens your own email app with
+          the message ready, addressed to <strong>${address}</strong>, so you can read it over and
+          change anything before it goes.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Or write to us directly</h3></div>
+        <div class="card-body">
+          <p class="small muted mb-12">No email app set up on this device? Copy the address and send
+          it from wherever you normally read your mail.</p>
+          <div class="row gap-8" style="flex-wrap:wrap;align-items:center">
+            <a class="btn" href="${U.mailtoHref(FEEDBACK_EMAIL)}">${address}</a>
+            <button type="button" class="btn btn-sm" data-feedback-copy-address>Copy address</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
   /* ------------------------------------------------------------ shortcuts */
 
   function aboutTab() {
@@ -829,6 +999,7 @@ App.views.settings = (function () {
     { id: "prefs", label: "Preferences" },
     { id: "schedule", label: "Schedule & terms" },
     { id: "data", label: "Data" },
+    { id: "feedback", label: "Feedback" },
     { id: "developer", label: "Developer" },
     { id: "about", label: "About" }
   ];
@@ -847,6 +1018,7 @@ App.views.settings = (function () {
         : tab === "prefs" ? prefsTab()
         : tab === "schedule" ? scheduleTab()
         : tab === "data" ? dataTab()
+        : tab === "feedback" ? feedbackTab()
         : tab === "developer" ? developerTab()
         : aboutTab()}
     </div>`;
@@ -1313,6 +1485,42 @@ App.views.settings = (function () {
   function mount(root) {
     U.on(root, "click", "[data-tab]", (_e, el) => { tab = el.dataset.tab; App.router.refresh(); });
     U.on(root, "click", "[data-run-onboarding]", () => App.runOnboarding());
+
+    /* --- F154 feedback */
+    U.on(root, "click", "[data-feedback-send]", () => {
+      const f = composeFeedback(root);
+      if (f.empty) {
+        UI.toast("Add a message first", "Tell us what happened and we'll take it from there.", "danger");
+        if (f.focus) f.focus.focus();
+        return;
+      }
+      const href = feedbackMailto(f.subject, f.body);
+      // Over the limit the body is the part a mail client drops, and it drops
+      // it without a word — so put the whole thing on the clipboard first and
+      // say so, rather than opening a window that looks fine and is missing
+      // everything the person just wrote.
+      if (href.length > MAILTO_LIMIT) {
+        copyText(`${f.subject}\n\n${f.body}`,
+          "That's a long one", `Full text copied — paste it into an email to ${FEEDBACK_EMAIL}.`);
+        return;
+      }
+      location.href = href;
+    });
+
+    U.on(root, "click", "[data-feedback-copy]", () => {
+      const f = composeFeedback(root);
+      if (f.empty) {
+        UI.toast("Nothing to copy yet", "Write a message first.", "danger");
+        if (f.focus) f.focus.focus();
+        return;
+      }
+      copyText(`To: ${FEEDBACK_EMAIL}\nSubject: ${f.subject}\n\n${f.body}`,
+        "Copied", "Paste it into an email and send.");
+    });
+
+    U.on(root, "click", "[data-feedback-copy-address]", () => {
+      copyText(FEEDBACK_EMAIL, "Address copied", FEEDBACK_EMAIL);
+    });
 
     /* --- account */
     U.on(root, "click", "[data-signup]", () => authForm("signup"));
