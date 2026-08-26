@@ -250,6 +250,7 @@
     paintSyncBadge();
     paintTodayStrip();
     paintMobileTabbar();
+    paintActingBar();
     document.title = `${view.title} · StudyHold`;
 
     // A re-render triggered by a data change shouldn't jump the user to the top.
@@ -767,6 +768,26 @@
     });
   }
 
+  /* ---------------------------------------- F157 acting-for-a-student -- */
+  /*
+   * While a parent is working in their child's account, every screen shows
+   * that child's records. Nothing else in the UI says so, and a parent who
+   * forgets which account they are in will edit the wrong one — so this is a
+   * persistent bar rather than a toast, and the way out is always on it.
+   */
+  function paintActingBar() {
+    const host = document.getElementById("actingBar");
+    if (!host) return;
+    const subject = S.actingAs && S.actingAs();
+    if (!subject) { host.hidden = true; host.innerHTML = ""; return; }
+    host.hidden = false;
+    host.innerHTML = `<span class="acting-who">
+        <span aria-hidden="true">✎</span>
+        Editing <strong>${U.esc(subject.name || "your student")}'s</strong> account — changes save to their records
+      </span>
+      <button type="button" class="btn btn-sm" data-stop-acting>Leave</button>`;
+  }
+
   /* ------------------------------------------------- U05 mobile tabbar -- */
   // A CSS-hidden no-op on desktop; on narrow screens it's the primary way
   // to move between the five most-used screens without opening the drawer.
@@ -971,6 +992,14 @@
     document.getElementById("scrim").addEventListener("click", closeSidebar);
     U.on(document.getElementById("mobileTabbar"), "click", "[data-view]", (_e, el) => router.go(el.dataset.view)); // U05
     U.on(document.getElementById("mobileTabbar"), "click", "[data-tabbar-more]", openSidebar);
+    // F157 — leaving flushes any pending edits first, so a change made a
+    // second before clicking this still reaches the student.
+    U.on(document.getElementById("actingBar"), "click", "[data-stop-acting]", () => {
+      App.sync.stopActing().then(() => {
+        UI.toast("Back in your own account", "", "ok");
+        router.go("parent");
+      });
+    });
     initPullToRefresh(); // U27
 
     // U25 — Ctrl+Z / Cmd+Z anywhere, not just the toast's own Undo button.

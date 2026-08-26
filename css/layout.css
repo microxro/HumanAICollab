@@ -166,6 +166,29 @@
   position: relative;
 }
 
+/* F157 — the "you are editing someone else's account" bar.
+   Deliberately loud and deliberately not dismissable: everything below it is
+   somebody else's records, and a parent who loses track of that edits the
+   wrong account. The warning colour carries a text label too, so the meaning
+   doesn't rest on colour alone. */
+.acting-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 9px 16px;
+  /* --warn-bg is already defined per theme (and the dark value is deepened
+     so --warn clears 4.5:1 on it), so this needs no second definition. */
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--warn);
+  color: var(--text);
+  font-size: .85rem;
+}
+.acting-bar[hidden] { display: none; }
+.acting-bar .acting-who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.acting-bar strong { font-weight: 700; }
+
 /* U27 — pull to refresh: the expected gesture for re-syncing on a phone. */
 .ptr-indicator {
   display: none;

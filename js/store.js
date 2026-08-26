@@ -1298,6 +1298,13 @@ App.store = (function () {
     save();                                   // flush the outgoing dataset
     subject = next && next.id ? { id: String(next.id), name: String(next.name || "") } : null;
     db = load();
+    // migrate() only knows v1/v2 fields, so a dataset that arrives here — a
+    // fresh subject shell, or one cached before a field existed — is missing
+    // everything v3 added. Rendering it then throws in the first selector
+    // that reads one (effectivePinnedNav was the case that caught this), and
+    // the whole shell fails to paint. Same backfill replaceAll() runs, for
+    // the same reason.
+    if (App.store && App.store.ensureV3) App.store.ensureV3();
     revision++;
     emit();
     return subject;

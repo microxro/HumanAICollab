@@ -68,6 +68,11 @@
 
     <div class="ptr-indicator" id="ptrIndicator" aria-hidden="true"><span class="ptr-spin">↻</span></div>
 
+    <!-- F157 — shown only while you are editing somebody else's account.
+         Every screen below it is then their records, not yours, so this stays
+         up for the whole time rather than being a toast that scrolls away. -->
+    <div class="acting-bar" id="actingBar" role="status" hidden></div>
+
     <main class="page" id="page">
       <span class="sr-only">Loading StudyHold…</span>
       <div class="page-inner" aria-hidden="true">

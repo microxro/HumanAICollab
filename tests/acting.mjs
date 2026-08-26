@@ -158,6 +158,40 @@ ok("a remove through the record API lands", diffed.deletedGone);
 ok("and a raw commit(fn) edit lands too — the case a mutation hook would miss",
    diffed.periodAdded);
 
+/* ------------------------------------------------ rendering the shell --- */
+/*
+ * A subject's dataset is built fresh, so it starts without anything v3 added.
+ * migrate() only knows v1/v2 fields, so the backfill has to run on the way in
+ * — this caught a real crash in effectivePinnedNav that took the whole shell
+ * down the first time the nav painted for a child's account.
+ */
+console.log("\nacting: the app actually renders in a student's account");
+
+const rendered = await page.evaluate(async () => {
+  const S = App.store;
+  S.actAs({ id: "kid-3", name: "Maya" });
+  App.router.refresh();
+  await new Promise((r) => setTimeout(r, 120));
+  const bar = document.getElementById("actingBar");
+  const out = {
+    navPainted: (document.getElementById("navScroll") || {}).children.length > 0,
+    viewPainted: !!document.querySelector("#page .view-root"),
+    barShown: bar && !bar.hidden,
+    barNames: bar ? bar.textContent.indexOf("Maya") !== -1 : false
+  };
+  S.actAs(null);
+  App.router.refresh();
+  await new Promise((r) => setTimeout(r, 120));
+  out.barHiddenAfter = bar ? bar.hidden : false;
+  return out;
+});
+
+ok("the nav still paints for a student's account", rendered.navPainted);
+ok("and so does the view", rendered.viewPainted);
+ok("the acting-as bar is shown", rendered.barShown);
+ok("and it names whose account you're in", rendered.barNames);
+ok("it goes away when you leave", rendered.barHiddenAfter);
+
 ok("no uncaught page errors", errors.length === 0, errors.slice(0, 2).join(" | "));
 
 await browser.close();

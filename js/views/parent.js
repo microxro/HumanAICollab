@@ -250,6 +250,8 @@ App.views.parent = (function () {
           </div>
         </div>
         <div class="row gap-6">
+          <button class="btn btn-sm btn-primary" data-open-account="${k.id}"
+                  title="Work in their account — add classes, a bell schedule, assignments">✎ Open their account</button>
           <button class="btn btn-sm" data-checkin="${k.id}" title="Ask them to confirm they're okay">🔔 Check in</button>
           <button class="btn btn-sm" data-note="${k.id}" title="Leave a note they'll see in-app">✎ Note</button>
           <button class="btn btn-sm" data-propose-focus="${k.id}" title="Propose a shared quiet period">🤫 Focus window</button>
@@ -397,6 +399,25 @@ App.views.parent = (function () {
   function mount(root) {
     U.on(root, "click", "[data-link]", linkForm);
     U.on(root, "click", "[data-refresh]", () => refresh());
+    // F157 — step into the student's account. Every screen in the app then
+    // shows their records and edits them for real, so this is deliberately a
+    // decision rather than a link: it says whose data you are about to change,
+    // and the banner stays up for as long as you are in there.
+    U.on(root, "click", "[data-open-account]", (_e, el) => {
+      const kid = (kids || []).find((k) => k.id === el.dataset.openAccount);
+      if (!kid) return;
+      UI.confirm({
+        title: `Open ${kid.name}'s account?`,
+        message: `Everything you change — classes, bell schedule, assignments, grades — is saved to ${kid.name}'s own records, and they'll see who made each change. You can leave at any time.`,
+        okLabel: "Open it",
+        onConfirm() {
+          App.sync.actAsStudent({ id: kid.id, name: kid.name }).then((r) => {
+            if (r.ok) UI.toast(`You're in ${kid.name}'s account`, "Changes save to their records.", "ok");
+            else UI.toast("Couldn't open it", r.message || "", "danger");
+          });
+        }
+      });
+    });
     U.on(root, "click", "[data-checkin]", (_e, el) => {
       App.sync.requestCheckin(el.dataset.checkin)
         .then(() => UI.toast("Check-in requested", "They'll see it next time they open the app.", "ok"))
