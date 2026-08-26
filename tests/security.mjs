@@ -211,6 +211,71 @@ console.log("\nsecurity: a student cannot become a stranger's guardian");
   ok("a parent redeeming still works", good.status === 200, JSON.stringify(good.data));
 }
 
+/* --------------------------------------------------- F157 subject writes -- */
+/*
+ * A linked parent editing the student's real records. tests/authwall.mjs
+ * proves a stranger cannot reach this route; this proves the person who
+ * should be able to, can — and that only what was named arrives.
+ */
+console.log("\nsecurity: a linked parent can edit their student's records, and only theirs");
+{
+  stub.__reset();
+  const kid = await makeUser("kid2@x.com", "student", "Kid");
+  const parent = await makeUser("par2@x.com", "parent", "Parent");
+  const other = await makeUser("kid3@x.com", "student", "Other");
+
+  const code = (await call("link/code", { method: "POST", token: kid.data.token })).data.code;
+  await call("link/redeem", { method: "POST", body: { code }, token: parent.data.token });
+
+  // There has to be a database to edit into. Inventing one here would race
+  // the student's first push and lose it.
+  const early = await call("subject-ops", { method: "POST", token: parent.data.token,
+    body: { subjectId: kid.data.user.id, ops: [{ op: "upsert", collection: "assignments", record: { title: "Too early" } }] } });
+  ok("editing before the student has ever synced is refused", early.status === 409, String(early.status));
+
+  await call("sync", { method: "PUT", token: kid.data.token,
+    body: { state: { assignments: [], periods: [], classes: [] }, baseVersion: 0 } });
+
+  const add = await call("subject-ops", { method: "POST", token: parent.data.token,
+    body: { subjectId: kid.data.user.id, ops: [
+      { op: "upsert", collection: "assignments",
+        record: { title: "Read chapter 4", due: "2026-09-01", points: 20,
+                  // Neither of these is whitelisted; neither may survive.
+                  wallet: { balance: 9999 }, id: "forged-id" } },
+      { op: "upsert", collection: "periods", record: { name: "Period 1", start: "08:00", end: "08:50" } }
+    ] } });
+  ok("a linked parent's edits are accepted", add.status === 200, `${add.status} ${JSON.stringify(add.data)}`);
+  ok("both records were applied", add.data && add.data.applied === 2, JSON.stringify(add.data));
+
+  const pulled = await call("sync", { token: kid.data.token });
+  const st = (pulled.data && pulled.data.state) || {};
+  const asg = (st.assignments || [])[0];
+  const per = (st.periods || [])[0];
+
+  ok("the assignment is in the student's own records", !!asg && asg.title === "Read chapter 4", JSON.stringify(asg));
+  ok("the bell-schedule period landed too", !!per && per.name === "Period 1", JSON.stringify(per));
+  ok("it is attributed to the parent", !!asg && asg.addedBy === "Parent", JSON.stringify(asg && asg.addedBy));
+  ok("a field nobody whitelisted never arrives", !!asg && asg.wallet === undefined, JSON.stringify(asg));
+  ok("a caller-supplied id cannot be forced", !!asg && asg.id !== "forged-id", JSON.stringify(asg && asg.id));
+
+  // The link is to one student, not to students in general.
+  const cross = await call("subject-ops", { method: "POST", token: parent.data.token,
+    body: { subjectId: other.data.user.id, ops: [{ op: "upsert", collection: "assignments", record: { title: "Not yours" } }] } });
+  ok("a parent cannot edit a student they aren't linked to", cross.status === 403, String(cross.status));
+
+  // Only the collections named in the map are reachable.
+  const nope = await call("subject-ops", { method: "POST", token: parent.data.token,
+    body: { subjectId: kid.data.user.id, ops: [{ op: "upsert", collection: "account", record: { name: "x" } }] } });
+  ok("an un-writable collection is refused", nope.status === 400, String(nope.status));
+
+  const del = await call("subject-ops", { method: "POST", token: parent.data.token,
+    body: { subjectId: kid.data.user.id, ops: [{ op: "delete", collection: "assignments", id: asg.id }] } });
+  ok("a delete is applied", del.status === 200 && del.data.applied === 1, JSON.stringify(del.data));
+  const after = await call("sync", { token: kid.data.token });
+  ok("and the record is gone", ((after.data.state || {}).assignments || []).length === 0,
+     JSON.stringify((after.data.state || {}).assignments));
+}
+
 /* ------------------------------------------------------------ sync race -- */
 console.log("\nsecurity: concurrent sync writes cannot silently destroy data");
 {

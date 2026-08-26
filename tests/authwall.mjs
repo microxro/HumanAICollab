@@ -82,6 +82,7 @@ const GUARDED = [
   ["GET", "webhooks"], ["POST", "webhooks"], ["DELETE", "webhooks/abc"],
   ["GET", "me"], ["POST", "me"],
   ["GET", "sync"], ["PUT", "sync"], ["POST", "sync"],
+  ["POST", "subject-ops"],
   ["POST", "link/code"], ["POST", "link/redeem"],
   ["GET", "link/children"], ["GET", "link/parents"], ["DELETE", "link/abc"],
   ["POST", "location"], ["GET", "location/abc"],
@@ -250,6 +251,10 @@ console.log("\nauthwall: a signed-in account is a stranger to every other accoun
     ["demand a check-in from A", () => callApi("checkin/request", { method: "POST", token: b.token, body: { studentId: a.user.id } }), (r) => r.status === 403],
     ["impose a focus window on A", () => callApi("focus-windows/propose", { method: "POST", token: b.token, body: { studentId: a.user.id, startAt: Date.now(), endAt: Date.now() + 1000 } }), (r) => r.status === 403],
     ["put an activity in A's app", () => callApi("activity-suggestions", { method: "POST", token: b.token, body: { studentId: a.user.id, activity: { name: "Judo" } } }), (r) => r.status === 403],
+    // F157 — the record-level write. An unlinked account must not reach it,
+    // and must not learn from the reply whether A exists or has ever synced.
+    ["edit A's records", () => callApi("subject-ops", { method: "POST", token: b.token, body: { subjectId: a.user.id, ops: [{ op: "upsert", collection: "assignments", record: { title: "Ha" } }] } }), (r) => r.status === 403],
+    ["delete one of A's records", () => callApi("subject-ops", { method: "POST", token: b.token, body: { subjectId: a.user.id, ops: [{ op: "delete", collection: "assignments", id: "as1" }] } }), (r) => r.status === 403],
     ["read a group A is in", () => callApi("groups/anything", { token: b.token }), (r) => r.status === 404 || r.status === 403],
     ["broadcast as a teacher", () => callApi("groups/broadcast", { method: "POST", token: b.token, body: { title: "x" } }), (r) => r.status === 403],
     ["mint a link code as a parent", () => callApi("link/code", { method: "POST", token: parent.token }), (r) => r.status !== 200 || !r.data.code]

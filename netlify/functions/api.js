@@ -699,6 +699,249 @@ async function pushState(req, user) {
   return ok({ version: stored.version, updatedAt: stored.updatedAt });
 }
 
+/* ------------------------------------------------ F157 — subject writes --
+   A parent (and, later, a teacher) editing the student's real records.
+
+   Why this is not `pushState` with someone else's id
+   --------------------------------------------------
+   `pushState` replaces the whole database and is guarded by a whole-DB
+   `baseVersion`. Two humans editing at once through that door is not
+   co-editing: the loser's 409 is resolved by `handleConflict()` in
+   js/sync.js, which offers "keep mine" or "keep theirs" and throws the other
+   side's entire database away. That is fine for one person's two devices —
+   it is data loss when a parent and a student are both typing.
+
+   So a subject write is a *record-level operation* instead: upsert or delete
+   one record in one named collection. It carries no `baseVersion`, because
+   it does not replace anything it did not name — two ops on different
+   collections, or on different records in one collection, cannot clobber
+   each other. The conditional write below still serialises them.
+
+   Every applied op is also appended to a journal on the same record, in the
+   same conditional write, so the two can never disagree. `pushState` replays
+   that journal to merge a student's stale push instead of rejecting it.
+   -------------------------------------------------------------------------- */
+
+// Kept short: the journal exists to reconcile a push that raced a handful of
+// edits, not to be an audit log. The student's own attribution stamp on each
+// record is what survives long-term.
+const MAX_OPS_JOURNAL = 60;
+const MAX_OPS_PER_REQUEST = 25;
+
+// Deliberately not the `str`/`num` further down this file: those don't trim,
+// and a record arriving from another account should not be able to carry
+// leading whitespace into a title the student then can't match on.
+const clip = (v, n) => String(v == null ? "" : v).trim().slice(0, n);
+const bounded = (v, lo, hi) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= lo && n <= hi ? n : null;
+};
+const asDate = (v) => (ISO_DATE_RE.test(String(v || "")) ? String(v) : "");
+const asTime = (v, dflt) => (HHMM_RE.test(String(v || "")) ? String(v) : dflt);
+const asOneOf = (v, allowed, dflt) => (allowed.includes(v) ? v : dflt);
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const ASSIGNMENT_STATUS = ["todo", "doing", "done"];
+const ASSIGNMENT_PRIORITY = ["low", "med", "high"];
+
+/*
+ * One sanitizer per writable collection.
+ *
+ * Each *constructs* a fresh object rather than trimming the caller's, for the
+ * reason cleanSuggestedActivity() gives: this object arrives from another
+ * account and is stored in the student's records, so a field nobody named —
+ * an `hours` log, a `wallet`, a megabyte of anything — must not be able to
+ * ride along. The `id` is assigned by the caller of these functions, never
+ * taken from the payload, so a parent cannot overwrite an arbitrary record by
+ * guessing its id... except deliberately, via an explicit `id` on an upsert,
+ * which is checked against the collection first.
+ */
+const SUBJECT_COLLECTIONS = {
+  assignments(raw) {
+    const title = clip(raw.title, 140);
+    if (!title) return null;
+    return {
+      title,
+      classId: clip(raw.classId, 40) || null,
+      categoryId: clip(raw.categoryId, 40) || null,
+      termId: clip(raw.termId, 40) || null,
+      type: clip(raw.type, 40) || "Homework",
+      notes: clip(raw.notes, 2000),
+      due: asDate(raw.due),
+      assigned: asDate(raw.assigned),
+      points: bounded(raw.points, 0, 100000),
+      earned: raw.earned == null || raw.earned === "" ? null : bounded(raw.earned, -100000, 100000),
+      graded: !!raw.graded,
+      missing: !!raw.missing,
+      status: asOneOf(clip(raw.status, 10), ASSIGNMENT_STATUS, "todo"),
+      priority: asOneOf(clip(raw.priority, 10), ASSIGNMENT_PRIORITY, "med"),
+      estMinutes: bounded(raw.estMinutes, 0, 100000),
+      actualMinutes: bounded(raw.actualMinutes, 0, 100000) || 0,
+      subtasks: []
+    };
+  },
+
+  classes(raw) {
+    const name = clip(raw.name, 100);
+    if (!name) return null;
+    // Weights are the input to the grade engine, so they are bounded and the
+    // list is capped — an unbounded categories array is an unbounded blob.
+    const cats = Array.isArray(raw.categories) ? raw.categories.slice(0, 20) : [];
+    return {
+      name,
+      code: clip(raw.code, 40),
+      room: clip(raw.room, 40),
+      color: clip(raw.color, 24),
+      periodId: clip(raw.periodId, 40) || null,
+      teacherId: clip(raw.teacherId, 40) || null,
+      termId: clip(raw.termId, 40) || null,
+      credits: bounded(raw.credits, 0, 100),
+      days: Array.isArray(raw.days) ? WEEKDAYS.filter((d) => raw.days.includes(d)) : [],
+      patternDays: Array.isArray(raw.patternDays)
+        ? raw.patternDays.slice(0, 12).map((d) => clip(d, 8)).filter(Boolean) : [],
+      categories: cats.map((c) => ({
+        id: clip(c && c.id, 40) || randomId(8),
+        name: clip(c && c.name, 60) || "Category",
+        weight: bounded(c && c.weight, 0, 100) || 0
+      }))
+    };
+  },
+
+  periods(raw) {
+    const name = clip(raw.name, 60);
+    if (!name) return null;
+    return { name, start: asTime(raw.start, "08:00"), end: asTime(raw.end, "08:50") };
+  },
+
+  events(raw) {
+    const title = clip(raw.title, 140);
+    if (!title) return null;
+    return {
+      title,
+      type: clip(raw.type, 40) || "School",
+      date: asDate(raw.date),
+      start: asTime(raw.start, ""),
+      end: asTime(raw.end, ""),
+      classId: clip(raw.classId, 40) || null,
+      location: clip(raw.location, 120),
+      notes: clip(raw.notes, 1000)
+    };
+  }
+};
+
+/**
+ * Who may write whose records.
+ *
+ * Resolved from the credential-derived profile only — never from the body —
+ * and reusing the guardian link that already gates every other cross-account
+ * route. A teacher link is a separate role and lands with the teacher work;
+ * until then a teacher has no more write authority than anyone else, which is
+ * the honest state rather than a half-open door.
+ */
+function maySubjectWrite(user, subjectId) {
+  if (!subjectId) return false;
+  if (subjectId === user.id) return true;                 // your own records
+  return (user.links || []).some((l) => l.id === subjectId && l.role === "child");
+}
+
+async function applySubjectOps(req, user) {
+  const b = await body(req);
+  const subjectId = String(b.subjectId || "");
+  if (!maySubjectWrite(user, subjectId)) {
+    return fail(403, "You aren't linked to that student.");
+  }
+
+  const raw = Array.isArray(b.ops) ? b.ops : [];
+  if (!raw.length) return fail(400, "No changes to apply.");
+  if (raw.length > MAX_OPS_PER_REQUEST) {
+    return fail(400, `Too many changes at once — send at most ${MAX_OPS_PER_REQUEST}.`);
+  }
+
+  // Validate every op before applying any, so a bad one in the middle cannot
+  // leave the record half-updated.
+  const planned = [];
+  for (const o of raw) {
+    const collection = String((o && o.collection) || "");
+    const clean = Object.prototype.hasOwnProperty.call(SUBJECT_COLLECTIONS, collection)
+      ? SUBJECT_COLLECTIONS[collection] : null;
+    if (!clean) return fail(400, `Can't edit "${collection}" from here.`);
+
+    const kind = String((o && o.op) || "");
+    if (kind === "delete") {
+      const id = str(o.id, 40);
+      if (!id) return fail(400, "A delete needs the record id.");
+      planned.push({ op: "delete", collection, id });
+      continue;
+    }
+    if (kind !== "upsert") return fail(400, `Unknown operation "${kind}".`);
+
+    const record = clean(o.record || {});
+    if (!record) return fail(400, `That ${collection.replace(/s$/, "")} is missing a name.`);
+    planned.push({ op: "upsert", collection, id: str(o.id, 40) || "", record });
+  }
+
+  const stamp = { byId: user.id, byName: user.name || "", at: Date.now() };
+  const applied = [];
+
+  let missing = false;
+  const stored = await updateJSON("state", subjectId, (cur) => {
+    const rec = cur || { version: 0, data: null, updatedAt: 0, ops: [] };
+    // Nothing to edit into. The student has never synced, so there is no
+    // database to merge with and inventing one here would race their first
+    // push and lose it.
+    if (!rec.data || typeof rec.data !== "object") { missing = true; return undefined; }
+
+    const db = rec.data;
+    const journal = [];
+
+    for (const p of planned) {
+      const list = Array.isArray(db[p.collection]) ? db[p.collection] : (db[p.collection] = []);
+
+      if (p.op === "delete") {
+        const i = list.findIndex((r) => r && r.id === p.id);
+        if (i === -1) continue;                     // already gone; not an error
+        list.splice(i, 1);
+        journal.push({ op: "delete", collection: p.collection, id: p.id, ...stamp });
+        applied.push({ op: "delete", collection: p.collection, id: p.id });
+        continue;
+      }
+
+      const existing = p.id ? list.find((r) => r && r.id === p.id) : null;
+      if (p.id && !existing) continue;              // an id that isn't theirs
+      const id = existing ? existing.id : randomId(8);
+      // `addedBy` is the convention already in the store (js/store2.js) —
+      // "" is the student, a name is somebody acting for them. `editedBy`
+      // records a change to a record the student made themselves.
+      const merged = existing
+        ? { ...existing, ...p.record, id, editedBy: stamp.byName, editedAt: stamp.at }
+        : { ...p.record, id, addedBy: stamp.byName, addedAt: stamp.at };
+      if (existing) list[list.indexOf(existing)] = merged;
+      else list.push(merged);
+
+      journal.push({ op: "upsert", collection: p.collection, id, record: merged, ...stamp });
+      applied.push({ op: "upsert", collection: p.collection, id });
+    }
+
+    if (!journal.length) return undefined;          // nothing changed; don't churn
+
+    const version = (rec.version || 0) + 1;
+    const prior = Array.isArray(rec.ops) ? rec.ops : [];
+    return {
+      version,
+      data: db,
+      updatedAt: Date.now(),
+      ops: prior.concat(journal.map((j) => ({ ...j, version }))).slice(-MAX_OPS_JOURNAL)
+    };
+  }, { fallback: { version: 0, data: null, updatedAt: 0, ops: [] } });
+
+  if (missing) {
+    return fail(409, "That student hasn't synced yet, so there's nothing to edit.");
+  }
+  if (!applied.length) return ok({ applied: 0, version: stored ? stored.version || 0 : 0 });
+
+  return ok({ applied: applied.length, ops: applied, version: stored.version });
+}
+
 /* ---------------------------------------------------------------- links -- */
 
 async function mintLinkCode(user) {
@@ -2477,6 +2720,14 @@ export default async (req) => {
     if (parts[0] === "sync") {
       if (method === "GET") return await pullState(user);
       if (method === "PUT" || method === "POST") return await pushState(req, user);
+    }
+
+    // F157 — record-level edits to a student's data by someone authorized to
+    // make them. Deliberately its own resource rather than a mode of /sync:
+    // /sync replaces a whole database and this cannot, and collapsing the two
+    // would make that difference a parameter rather than a route.
+    if (parts[0] === "subject-ops" && method === "POST") {
+      return await applySubjectOps(req, user);
     }
 
     if (parts[0] === "link") {
