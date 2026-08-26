@@ -1953,6 +1953,32 @@ function cleanSummary(raw) {
         classId: str(g.classId, 40),
         className: str(g.className, 80),
         delta: num(g.delta, -150, 150) ?? 0
+      })),
+
+    // F156 — outside-school activities and the currency their fees are in.
+    //
+    // Both were sent by pushLocation() and forgotten here, which is the exact
+    // failure the docstring above describes, live: the parent portal's whole
+    // "Outside school" section (js/views/parent.js) has never rendered for
+    // anybody, because `activities` was stripped on the way in and arrived as
+    // undefined every time. It failed silently in the one direction that looks
+    // like nothing is wrong — an empty space rather than an error.
+    //
+    // `currency` is the student's own code, not the parent's. Without it the
+    // portal formats a euro fee with a dollar sign, which is not a rounding
+    // error but a wrong number on screen.
+    currency: str(raw.currency, 8),
+    activities: raw.activities == null ? null : rows(raw.activities, 30)
+      .map((a) => ({
+        name: str(a.name, 80),
+        type: str(a.type, 40),
+        provider: str(a.provider, 80),
+        days: (Array.isArray(a.days) ? a.days : []).slice(0, 7).map((d) => str(d, 12)),
+        start: str(a.start, 5),
+        end: str(a.end, 5),
+        cost: a.cost == null ? null : num(a.cost, 0, 1000000),
+        costPer: str(a.costPer, 12),
+        monthly: num(a.monthly, 0, 1000000) ?? 0
       }))
   };
 }

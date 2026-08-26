@@ -502,8 +502,19 @@ App.sync = (function () {
   /* ---------------------------------------------------------- location -- */
 
   /**
-   * Push the student's live status plus a summary that honors the privacy
-   * toggles — the server only ever receives what the toggles permit.
+   * Push the student's live status plus a summary of where they are with
+   * their work.
+   *
+   * This used to be filtered by four per-field privacy toggles, so a parent's
+   * portal showed "Hidden" or an em dash wherever a toggle was off. Those are
+   * gone: a linked parent now edits the student's real records through the op
+   * route, so withholding the *summary* of records they can already open and
+   * change was a promise the rest of the app had stopped keeping. Better to
+   * show one honest picture than two that disagree.
+   *
+   * `peerSharing` is untouched and still a toggle. It governs what other
+   * *students* can see, which is a different relationship and was never part
+   * of this.
    */
   async function pushLocation(status) {
     if (!isSignedIn()) return null;
@@ -520,34 +531,28 @@ App.sync = (function () {
       overdue: S.overdue().length,
       attendance: U.round(att.rate, 1),
       streak: S.db.streak.count,
-      gpa: st.shareGrades ? U.round(S.gpa(), 2) : null,
-      classes: st.shareGrades
-        ? S.termClasses().map((c) => ({ name: c.name, grade: U.round(S.classGrade(c.id) || 0, 1) }))
-        : null,
+      gpa: U.round(S.gpa(), 2),
+      classes: S.termClasses().map((c) => ({ name: c.name, grade: U.round(S.classGrade(c.id) || 0, 1) })),
       upcoming: S.dueSoon(7).slice(0, 6).map((a) => ({
         title: a.title, className: S.className(a.classId), due: a.due
       })),
-      // What the family is committed to outside school — the half of the
-      // week a parent can't see from a report card. Behind its own toggle,
-      // and deliberately only the outside-school ones: which school clubs a
-      // student joined is theirs to tell.
+      // What the family is committed to outside school — the half of the week
+      // a parent can't see from a report card. Deliberately only the
+      // outside-school ones: `externalActivities()` filters on `external`, so
+      // which school clubs a student joined stays theirs to tell.
       // The code those fees are in, so the parent portal doesn't relabel
       // euros as dollars because that is what the parent's own app is set to.
       currency: st.currency || "USD",
-      activities: st.shareActivities === false ? null
-        : S.externalActivities().map((a) => ({
-          name: a.name, type: a.type, provider: a.provider,
-          days: a.days || [], start: a.start, end: a.end,
-          cost: a.cost, costPer: a.costPer, monthly: U.round(S.activityCostMonthly(a), 2)
-        })),
+      activities: S.externalActivities().map((a) => ({
+        name: a.name, type: a.type, provider: a.provider,
+        days: a.days || [], start: a.start, end: a.end,
+        cost: a.cost, costPer: a.costPer, monthly: U.round(S.activityCostMonthly(a), 2)
+      })),
       // F065 — notify only when something meaningful changed, not on every push.
-      gradeAlerts: st.shareGrades ? S.detectChanges() : []
+      gradeAlerts: S.detectChanges()
     };
 
-    return call("/location", {
-      method: "POST",
-      body: { status: st.locationSharing ? status : null, summary }
-    });
+    return call("/location", { method: "POST", body: { status, summary } });
   }
 
   async function readLocation(studentId) {

@@ -195,7 +195,6 @@ App.views.sharing = (function () {
 
   function parentPreview() {
     const st = App.geo.status();
-    const share = S.settings.locationSharing;
     const usage = last7Usage();
     const totalWeek = U.sum(usage, (u) => u.value);
     const due = S.dueSoon(7).slice(0, 5);
@@ -206,17 +205,16 @@ App.views.sharing = (function () {
       <div class="card-head">
         <div><h3>What ${U.esc(S.profile.parentName || "your parent")} sees</h3>
           <div class="sub">${signedIn ? "This is pushed live to linked parents" : "Preview — sign in to actually share it"}</div></div>
-        <span class="badge ${share ? "ok" : ""}">${share ? "Sharing on" : "Sharing off"}</span>
+        <span class="badge ${signedIn ? "ok" : ""}">${signedIn ? "Live" : "Preview"}</span>
       </div>
       <div class="card-body col gap-16">
-        ${share ? `<div class="card" style="background:var(--surface-2);border:none">
-            <div class="card-body">
-              <div class="tiny dim">Currently</div>
-              <div class="bold" style="font-size:1.05rem">${U.esc(st.label)}</div>
-              <div class="small muted">${U.esc(st.detail)}</div>
-            </div>
-          </div>`
-          : `<p class="empty-note small">Location sharing is off, so no live status is shared.</p>`}
+        <div class="card" style="background:var(--surface-2);border:none">
+          <div class="card-body">
+            <div class="tiny dim">Currently</div>
+            <div class="bold" style="font-size:1.05rem">${U.esc(st.label)}</div>
+            <div class="small muted">${U.esc(st.detail)}</div>
+          </div>
+        </div>
 
         <div>
           <h4 class="mb-8">App usage — last 7 days</h4>
@@ -244,7 +242,7 @@ App.views.sharing = (function () {
               <div class="list-item"><span class="grow small">Study this week</span><span class="bold">${U.fmtDur(S.studyThisWeek())}</span></div>
               <div class="list-item"><span class="grow small">Open assignments</span><span class="bold">${S.openAssignments().length}</span></div>
               <div class="list-item"><span class="grow small">GPA</span>
-                <span class="bold">${S.settings.shareGrades ? U.round(S.gpa(), 2) : "Hidden"}</span></div>
+                <span class="bold">${U.round(S.gpa(), 2)}</span></div>
             </div>
           </div>
         </div>
@@ -499,6 +497,47 @@ App.views.sharing = (function () {
     </div>`;
   }
 
+  /**
+   * F157 — changes made to this account by somebody else.
+   *
+   * A linked parent now edits the student's real records, not a copy, so a
+   * class can appear on the timetable or an assignment in the homework list
+   * without the student having touched anything. Per-record badges say who
+   * did it once you are looking at the record; this card is the other half —
+   * the place to find out *that* something changed, without hunting.
+   *
+   * Derived from the records on the device (S.changesByOthers), so it works
+   * offline and can never disagree with what the rest of the app is showing.
+   * It renders nothing at all when nobody else has touched anything, which is
+   * the normal state for an unlinked account.
+   */
+  function changeLogCard() {
+    const changes = S.changesByOthers(12);
+    if (!changes.length) return "";
+
+    // Where to send the student when they tap a row — [data-go] is bound
+    // globally in app.js, so this needs no handler of its own. Periods live
+    // inside the bell-schedule editor rather than on a route of their own, so
+    // they land on the timetable that draws them.
+    const routes = { assignments: "homework", classes: "classes", events: "calendar", periods: "schedule" };
+
+    return `<div class="card" id="changeLog">
+      <div class="card-head">
+        <h3>Changes by your parents</h3>
+        <span class="tiny dim">${U.plural(changes.length, "change")}</span>
+      </div>
+      <div class="card-body col gap-8" style="padding-top:4px">
+        ${changes.map((ch) => `<div class="list-item" data-go="${U.esc(routes[ch.collection] || "dashboard")}" style="cursor:pointer">
+          <span style="font-size:1.05rem" aria-hidden="true">${ch.action === "added" ? "＋" : "✎"}</span>
+          <span class="grow" style="min-width:0">
+            <div class="small truncate">${U.esc(ch.title)}</div>
+            <div class="tiny dim">${U.esc(ch.by)} ${ch.action} this ${U.esc(ch.kind)}${ch.at ? " · " + U.esc(U.relDate(U.dateKey(new Date(ch.at)))) : ""}</div>
+          </span>
+        </div>`).join("")}
+      </div>
+    </div>`;
+  }
+
   function realFriendForm() {
     UI.prompt({
       title: "Send a friend request",
@@ -598,16 +637,33 @@ App.views.sharing = (function () {
       <div class="grid g-side mt-16">
         <div class="col gap-16">
           <div class="card">
-            <div class="card-head"><h3>Privacy controls</h3></div>
+            <div class="card-head"><h3>Who can see what</h3></div>
             <div class="card-body" style="padding-top:4px">
-              ${toggleRow("locationSharing", "Share my status with parents",
-                "Which class I'm in, and whether I'm on campus")}
+              <!--
+                F157 — the three parent-facing toggles that used to live here
+                (status, grades, outside-school activities) are gone. A linked
+                parent now opens this account and edits the records directly,
+                so a switch that hid the *summary* of work they can already
+                read and change was telling the student something that was no
+                longer true. What replaces it is the plain statement below and
+                the change log, which is the part that does still hold.
+
+                Peer sharing stays a toggle. It governs what other students
+                see, which is a separate relationship and unaffected by any of
+                this.
+              -->
+              <p class="small muted" style="margin:4px 0 8px">
+                A parent you're linked to sees everything in this account and can change it.
+                You can end the link at any time from Settings.
+              </p>
+              <!-- A real button rather than a link inside the sentence: this is
+                   the primary way to find the change log on a phone, where the
+                   log sits far below the fold, and an inline link is a 19px
+                   tap target. -->
+              <button type="button" class="btn btn-sm" data-scroll-changes
+                      style="margin-bottom:12px">See what they've changed</button>
               ${toggleRow("peerSharing", "Peer schedule matching",
                 "Let opted-in classmates see my class list")}
-              ${toggleRow("shareGrades", "Share grades",
-                "Include GPA and class averages in the parent view")}
-              ${toggleRow("shareActivities", "Share outside-school activities",
-                "Lessons, club teams and classes that aren't run by school — not your school clubs")}
             </div>
           </div>
           ${geoCard()}
@@ -615,6 +671,7 @@ App.views.sharing = (function () {
 
         <div class="col gap-16">
           ${parentPreview()}
+          ${changeLogCard()}
           ${guardianInboxCard()}
           ${suggestedActivityCard()}
           ${focusWindowCard()}
@@ -630,6 +687,15 @@ App.views.sharing = (function () {
     if (App.sync.isSignedIn() && checkins == null) loadGuardianInbox();
     if (App.sync.isSignedIn() && focusWindows == null) loadFocusWindows();
     if (App.sync.isSignedIn() && suggestions == null) loadSuggestions();
+
+    // The change log sits in the other column, so on a wide screen it may be
+    // off to the side and on a narrow one well below the fold. Scroll rather
+    // than navigate: it is on this page.
+    U.on(root, "click", "[data-scroll-changes]", () => {
+      const card = root.querySelector("#changeLog");
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+      else UI.toast("Nothing yet", "No parent has changed anything in your account.", "");
+    });
 
     U.on(root, "click", "[data-checkin-respond]", (_e, el) => {
       App.sync.respondCheckin(el.dataset.checkinRespond).then(() => { UI.toast("Sent", "Your guardian will see you're okay.", "ok"); loadGuardianInbox(); });
@@ -714,7 +780,6 @@ App.views.sharing = (function () {
     U.on(root, "change", "[data-toggle]", (_e, el) => {
       const key = el.dataset.toggle;
       S.commit((db) => { db.settings[key] = el.checked; });
-      if (key === "locationSharing" && el.checked) App.geo.maybePush(true);
       UI.toast(el.checked ? "Sharing enabled" : "Sharing disabled",
         U.titleCase(key.replace(/([A-Z])/g, " $1")));
     });

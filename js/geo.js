@@ -326,13 +326,17 @@ App.geo = (function () {
   /* --------------------------------------------------------------- push -- */
 
   /**
-   * Send the resolved status to the server for linked parents. Coordinates
-   * are only included when the student has location sharing on; otherwise
-   * just the schedule-derived status goes up.
+   * Send the resolved status to the server for linked parents.
+   *
+   * The `locationSharing` toggle that used to gate this is gone (F157) — a
+   * linked parent now edits the account directly, so hiding the status from
+   * them was a promise nothing else in the app was keeping. What still gates
+   * it is the browser's own location permission: with that denied, status()
+   * falls back to the timetable and no coordinate is ever resolved, let alone
+   * sent.
    */
   function maybePush(force) {
     if (!App.sync || !App.sync.isSignedIn()) return;
-    if (!S.settings.locationSharing) return;
 
     const intervalMs = (S.settings.geo.shareIntervalS || 60) * 1000;
     if (!force && Date.now() - state.lastPush < intervalMs) return;

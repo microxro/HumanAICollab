@@ -314,6 +314,72 @@ console.log("\nsecurity: a parent's edit and a student's push both survive");
      && final.assignments[0].title === "Parent's task", JSON.stringify(final.assignments));
 }
 
+/*
+ * cleanSummary() is an allow-list, so a field it forgets is dropped without a
+ * word — and the parent portal then renders an empty space forever, which
+ * reads as "nothing here" rather than "broken". Its own docstring warns about
+ * this after it happened to four fields; it had since happened again, to
+ * `currency` and `activities`, disabling the portal's whole "Outside school"
+ * section for everybody.
+ *
+ * A round trip of everything js/sync.js pushLocation() sends is the only
+ * check that catches the next one.
+ */
+console.log("\nsecurity: the parent summary keeps every field the client sends");
+{
+  stub.__reset();
+  const kid = await makeUser("kid6@x.com", "student", "Kid");
+  const parent = await makeUser("par6@x.com", "parent", "Parent");
+  const code = (await call("link/code", { method: "POST", token: kid.data.token })).data.code;
+  await call("link/redeem", { method: "POST", body: { code }, token: parent.data.token });
+
+  const sent = {
+    name: "Kid", openAssignments: 4, overdue: 1, streak: 9, gpa: 3.7, attendance: 96,
+    studyWeek: 320, usageToday: 45, usageWeek: 300,
+    upcoming: [{ title: "Essay", className: "English", due: "2026-09-01" }],
+    classes: [{ name: "English", grade: 91.5 }],
+    gradeAlerts: [{ classId: "c1", className: "English", delta: -4 }],
+    currency: "EUR",
+    activities: [{ name: "Violin", type: "music", provider: "Studio 9",
+                   days: ["Mon", "Wed"], start: "17:00", end: "18:00",
+                   cost: 120, costPer: "month", monthly: 120 }]
+  };
+  await call("location", { method: "POST", token: kid.data.token, body: { status: null, summary: sent } });
+
+  const got = (await call("location/" + kid.data.user.id, { token: parent.data.token })).data.location;
+  const sum = (got && got.summary) || {};
+
+  for (const key of Object.keys(sent)) {
+    ok(`the summary keeps "${key}"`, sum[key] !== undefined, JSON.stringify(sum[key]));
+  }
+  ok("the student's own currency comes through, not the parent's",
+     sum.currency === "EUR", String(sum.currency));
+  ok("an activity keeps the fields the portal renders",
+     sum.activities && sum.activities.length === 1
+     && sum.activities[0].name === "Violin"
+     && sum.activities[0].provider === "Studio 9"
+     && sum.activities[0].monthly === 120
+     && Array.isArray(sum.activities[0].days) && sum.activities[0].days.length === 2,
+     JSON.stringify(sum.activities));
+
+  // Still an allow-list: anything not named is still dropped, and the bounds
+  // still apply. Otherwise the fix would just be "stop validating".
+  const junk = await call("location", { method: "POST", token: kid.data.token,
+    body: { status: null, summary: { ...sent, sneaky: "x",
+      activities: [{ name: "A".repeat(500), monthly: 99999999999, evil: "<script>" }] } } });
+  ok("a junk push is still accepted", junk.status === 200, String(junk.status));
+
+  const after = ((await call("location/" + kid.data.user.id, { token: parent.data.token }))
+    .data.location || {}).summary || {};
+  ok("an unknown field is still dropped", after.sneaky === undefined);
+  ok("an unknown field inside an activity is dropped too",
+     after.activities[0].evil === undefined, JSON.stringify(after.activities[0]));
+  ok("a long activity name is still clipped", after.activities[0].name.length <= 80,
+     String(after.activities[0].name.length));
+  ok("an absurd cost is still bounded", after.activities[0].monthly <= 1000000,
+     String(after.activities[0].monthly));
+}
+
 console.log("\nsecurity: a gap the journal can't explain is still a real conflict");
 {
   stub.__reset();
