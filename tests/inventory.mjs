@@ -131,15 +131,15 @@ ok("its engine is loaded", surface.guidance && surface.guidance.length >= 6,
    JSON.stringify(surface.guidance));
 ok("guidance is documented in the roadmap", /\*\*Guidance \(F151\)\.\*\*/.test(roadmap));
 ok("store exposes its selectors", surface.store.length > 60, `${surface.store.length}`);
-ok("F154 outside-school selectors present",
+ok("F156 outside-school selectors present",
    ["externalActivities", "schoolActivities", "activityCostMonthly", "monthlyActivityCost", "money"]
      .every((k) => surface.store.includes(k)),
    surface.store.filter((k) => /external|Activity|money/i.test(k)).join(", "));
-ok("F154 client methods present",
+ok("F156 client methods present",
    ["suggestActivity", "listActivitySuggestions", "respondActivitySuggestion"]
      .every((k) => surface.sync.includes(k)),
    surface.sync.filter((k) => /Suggest/i.test(k)).join(", "));
-ok("F154 is documented in the roadmap", /\*\*Outside-school activities \(F154\)\.\*\*/.test(roadmap));
+ok("F156 is documented in the roadmap", /\*\*Outside-school activities \(F156\)\.\*\*/.test(roadmap));
 ok("F100 client methods present",
    ["mintApiToken", "listApiTokens", "revokeApiToken", "addWebhook", "listWebhooks", "removeWebhook"]
      .every((k) => surface.sync.includes(k)),
@@ -159,7 +159,7 @@ const ROUTES = [
   ['"email-health"', "email diagnostics"],
   ['auth/forgot', "F098 password reset"],
   ['deliverWebhooks', "F100 delivery"],
-  ['"activity-suggestions"', "F154 guardian activity suggestions"]
+  ['"activity-suggestions"', "F156 guardian activity suggestions"]
 ];
 for (const [needle, label] of ROUTES) {
   ok(`${label} is routed`, apiRoutes.includes(needle), needle);

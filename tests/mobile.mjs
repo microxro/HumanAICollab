@@ -18,8 +18,14 @@
 
    Deliberate exceptions, not oversights: checkboxes stay 24px (exactly the
    WCAG 2.2 AA minimum, SC 2.5.8 — a 44px painted box wrecks a dense list),
-   and chips and habit dots stay 36px because a 28-day grid of 44px targets
-   does not fit a phone at all.
+   chips and habit dots stay 36px because a 28-day grid of 44px targets does
+   not fit a phone at all, and the U50 help-hint stays 16px because it is
+   inline decoration on a heading — a 44px circle after three words of card
+   title would dwarf the title. It first fires this check from a card header
+   in Activities that renders unconditionally; the other five call sites
+   (classes, flashcards, parent, schedule, sharing) sit behind a state the
+   default demo data doesn't reach, which is exactly the kind of thing a
+   census like this should not depend on.
 
    Run: node tests/mobile.mjs   (needs a static server, see tests/run.mjs)
    ========================================================================== */
@@ -38,7 +44,7 @@ const VIEWS = [
 ];
 
 // Selectors allowed below the 40px bar — see the header for why each one is.
-const EXEMPT = "(^|\\.)(check|chip|habit-day|due-inline|tab-item|cal-pill|dot|swatch)(\\.|$)";
+const EXEMPT = "(^|\\.)(check|chip|habit-day|due-inline|tab-item|cal-pill|dot|swatch|help-hint)(\\.|$)";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra) => {
