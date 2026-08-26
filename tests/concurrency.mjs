@@ -224,5 +224,54 @@ console.log("\nconcurrency: two people friend the same person at once");
   ok("both are pending-in", zsPeers.every((p) => p.status === "pending-in"), JSON.stringify(zsPeers));
 }
 
+/* ------------- F157: a parent editing while the student is syncing ---------- */
+/*
+ * The case the record-level-op design exists for. These are two different
+ * people writing the *same* blob — the student's state — which the old
+ * whole-DB path could only resolve by discarding one of them.
+ */
+console.log("\nconcurrency: a parent's edit and a student's sync don't erase each other");
+{
+  stub.__reset();
+  const kid2 = (await signup("kit2@school.edu", "student", "Kit")).data;
+  const mum = (await signup("mum2@home.com", "parent", "Mum")).data;
+  const c = await call("link/code", { method: "POST", token: kid2.token });
+  await call("link/redeem", { method: "POST", token: mum.token, body: { code: c.data.code } });
+
+  const first = await call("sync", { method: "PUT", token: kid2.token,
+    body: { state: { assignments: [], notes: [] }, baseVersion: 0 } });
+  const base = first.data.version;
+
+  // Fired together: the parent adds an assignment while the student's device
+  // pushes a note it wrote before either knew about the other.
+  const [pOp, sPush] = await Promise.all([
+    call("subject-ops", { method: "POST", token: mum.token,
+      body: { subjectId: kid2.user.id, ops: [
+        { op: "upsert", collection: "assignments", record: { title: "Dentist form" } }] } }),
+    call("sync", { method: "PUT", token: kid2.token,
+      body: { state: { assignments: [], notes: [{ id: "n1", title: "Chemistry" }] }, baseVersion: base } })
+  ]);
+
+  ok("the parent's edit is accepted", pOp.status === 200, `${pOp.status} ${JSON.stringify(pOp.data)}`);
+  // Whichever order they land in, the student's push either wins outright or
+  // comes back as a conflict it can retry — never silently dropped.
+  ok("the student's push is accepted or retryable", sPush.status === 200 || sPush.status === 409,
+     `${sPush.status} ${JSON.stringify(sPush.data)}`);
+
+  if (sPush.status === 409) {
+    // The client's retry: adopt the reported version and push again. With the
+    // journal in place this must merge rather than conflict forever.
+    const retry = await call("sync", { method: "PUT", token: kid2.token,
+      body: { state: { assignments: [], notes: [{ id: "n1", title: "Chemistry" }] },
+              baseVersion: sPush.data.version } });
+    ok("the retry succeeds", retry.status === 200, `${retry.status} ${JSON.stringify(retry.data)}`);
+  }
+
+  const final = (await call("sync", { token: kid2.token })).data.state || {};
+  ok("the student's note survived", (final.notes || []).length === 1, JSON.stringify(final.notes));
+  ok("the parent's assignment survived", (final.assignments || []).length === 1,
+     JSON.stringify(final.assignments));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -276,6 +276,64 @@ console.log("\nsecurity: a linked parent can edit their student's records, and o
      JSON.stringify((after.data.state || {}).assignments));
 }
 
+/* ------------------------------------------- F157 merge instead of clobber -- */
+/*
+ * The point of the whole design: a parent editing while the student is
+ * editing must cost nobody their work. Before this, any server-side change
+ * forced the student's next push to 409, and the only ways out of a 409
+ * discard one side's entire database.
+ */
+console.log("\nsecurity: a parent's edit and a student's push both survive");
+{
+  stub.__reset();
+  const kid = await makeUser("kid4@x.com", "student", "Kid");
+  const parent = await makeUser("par4@x.com", "parent", "Parent");
+  const code = (await call("link/code", { method: "POST", token: kid.data.token })).data.code;
+  await call("link/redeem", { method: "POST", body: { code }, token: parent.data.token });
+
+  const first = await call("sync", { method: "PUT", token: kid.data.token,
+    body: { state: { assignments: [], notes: [] }, baseVersion: 0 } });
+  const base = first.data.version;
+
+  // The parent adds an assignment. The student's device knows nothing of it.
+  const op = await call("subject-ops", { method: "POST", token: parent.data.token,
+    body: { subjectId: kid.data.user.id, ops: [
+      { op: "upsert", collection: "assignments", record: { title: "Parent's task" } }] } });
+  ok("the parent's edit lands", op.status === 200, JSON.stringify(op.data));
+
+  // The student now pushes work of their own, from before that edit existed.
+  const stale = await call("sync", { method: "PUT", token: kid.data.token,
+    body: { state: { assignments: [], notes: [{ id: "n1", title: "My note" }] }, baseVersion: base } });
+
+  ok("a stale push is merged, not rejected", stale.status === 200, `${stale.status} ${JSON.stringify(stale.data)}`);
+  ok("and it says how much it merged in", stale.data && stale.data.merged === 1, JSON.stringify(stale.data));
+
+  const final = (await call("sync", { token: kid.data.token })).data.state || {};
+  ok("the student's own work survived", (final.notes || []).length === 1, JSON.stringify(final.notes));
+  ok("the parent's edit survived too", (final.assignments || []).length === 1
+     && final.assignments[0].title === "Parent's task", JSON.stringify(final.assignments));
+}
+
+console.log("\nsecurity: a gap the journal can't explain is still a real conflict");
+{
+  stub.__reset();
+  const kid = await makeUser("kid5@x.com", "student", "Kid");
+  const t = kid.data.token;
+
+  const first = await call("sync", { method: "PUT", token: t, body: { state: { a: 1 }, baseVersion: 0 } });
+  const base = first.data.version;
+
+  // A second device pushes a whole database. That is not expressible as
+  // record ops, so replaying it is impossible and the next stale push must
+  // still stop for a human rather than quietly dropping it.
+  await call("sync", { method: "PUT", token: t, body: { state: { a: 2 }, baseVersion: base } });
+
+  const stale = await call("sync", { method: "PUT", token: t, body: { state: { a: 3 }, baseVersion: base } });
+  ok("a whole-DB push in the gap still conflicts", stale.status === 409, `${stale.status}`);
+  ok("and the conflict still carries the winner's state",
+     stale.data && stale.data.state && stale.data.state.a === 2, JSON.stringify(stale.data && stale.data.state));
+}
+
 /* ------------------------------------------------------------ sync race -- */
 console.log("\nsecurity: concurrent sync writes cannot silently destroy data");
 {

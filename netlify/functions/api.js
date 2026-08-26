@@ -661,14 +661,41 @@ async function pushState(req, user) {
   // no longer honoured. A real conflict is resolved by the client merging and
   // pushing at the new version.
   let conflict = null;
+  let merged = 0;
   const stored = await updateJSON("state", user.id, (cur) => {
-    const rec = cur || { version: 0, data: null, updatedAt: 0 };
+    const rec = cur || { version: 0, data: null, updatedAt: 0, ops: [] };
+    let data = b.state;
+    merged = 0;
+
     if (rec.version && base !== rec.version) {
-      conflict = rec;
-      return undefined;                       // abort without writing
+      // F157 — a push that is behind is not automatically a conflict. If
+      // everything that happened in the gap was a record-level op (a parent
+      // adding an assignment while the student was editing something else),
+      // those ops can be replayed onto this push and nobody loses work.
+      // replayableSince() returns null when the gap holds anything it cannot
+      // express that way, and then this is a real conflict as before.
+      const replay = replayableSince(rec, base);
+      if (!replay) {
+        conflict = rec;
+        return undefined;                     // abort without writing
+      }
+      if (replay.length) {
+        // Cloned because this mutator re-runs on a lost etag race, and
+        // replaying onto an already-replayed object would be wrong.
+        data = replayOps(JSON.parse(JSON.stringify(b.state)), replay);
+        merged = replay.length;
+      }
     }
-    return { version: (rec.version || 0) + 1, data: b.state, updatedAt: Date.now() };
-  }, { fallback: { version: 0, data: null, updatedAt: 0 } });
+
+    return {
+      version: (rec.version || 0) + 1,
+      data,
+      updatedAt: Date.now(),
+      // Carried forward, not dropped: this journal is what lets the *next*
+      // stale push merge. Losing it here would silently re-arm the conflict.
+      ops: Array.isArray(rec.ops) ? rec.ops : []
+    };
+  }, { fallback: { version: 0, data: null, updatedAt: 0, ops: [] } });
 
   if (conflict) {
     return json({
@@ -696,7 +723,10 @@ async function pushState(req, user) {
     }
   }
 
-  return ok({ version: stored.version, updatedAt: stored.updatedAt });
+  // `merged` tells the client its push was reconciled with edits it had never
+  // seen, so it knows to pull rather than assume the server matches what it
+  // just sent.
+  return ok({ version: stored.version, updatedAt: stored.updatedAt, merged });
 }
 
 /* ------------------------------------------------ F157 — subject writes --
@@ -829,6 +859,53 @@ const SUBJECT_COLLECTIONS = {
   }
 };
 
+/* Applying an op. Both the write path and the replay below go through these,
+   so a journalled op and a live one can never mean different things. */
+
+function putRecord(db, collection, record) {
+  const list = Array.isArray(db[collection]) ? db[collection] : (db[collection] = []);
+  const i = list.findIndex((r) => r && r.id === record.id);
+  if (i === -1) list.push(record); else list[i] = record;
+}
+
+function dropRecord(db, collection, id) {
+  const list = Array.isArray(db[collection]) ? db[collection] : (db[collection] = []);
+  const i = list.findIndex((r) => r && r.id === id);
+  if (i !== -1) list.splice(i, 1);
+  return i !== -1;
+}
+
+/**
+ * The ops to replay onto a push that is behind, or null if it can't be done.
+ *
+ * A stale push is only safely mergeable when *everything* that happened since
+ * the pusher's baseVersion was a record-level op. If any version in the gap
+ * came from somewhere else — the student's other device doing a whole-DB
+ * push, or a journal that has aged past its cap — then there are changes we
+ * cannot express as records, and silently dropping them would be exactly the
+ * data loss this whole design exists to avoid. That case still gets a 409 and
+ * a human decision.
+ *
+ * The version stamped on each journal entry is what makes this checkable: if
+ * every version from base+1 to current is represented, the gap is all ops.
+ */
+function replayableSince(rec, base) {
+  const current = rec.version || 0;
+  if (current <= base) return [];
+  const ops = Array.isArray(rec.ops) ? rec.ops : [];
+  const have = new Set(ops.map((o) => o.version));
+  for (let v = base + 1; v <= current; v++) if (!have.has(v)) return null;
+  return ops.filter((o) => o.version > base).sort((a, b) => a.version - b.version);
+}
+
+function replayOps(db, ops) {
+  for (const o of ops) {
+    if (o.op === "delete") dropRecord(db, o.collection, o.id);
+    else if (o.op === "upsert" && o.record) putRecord(db, o.collection, o.record);
+  }
+  return db;
+}
+
 /**
  * Who may write whose records.
  *
@@ -898,9 +975,7 @@ async function applySubjectOps(req, user) {
       const list = Array.isArray(db[p.collection]) ? db[p.collection] : (db[p.collection] = []);
 
       if (p.op === "delete") {
-        const i = list.findIndex((r) => r && r.id === p.id);
-        if (i === -1) continue;                     // already gone; not an error
-        list.splice(i, 1);
+        if (!dropRecord(db, p.collection, p.id)) continue;   // already gone; not an error
         journal.push({ op: "delete", collection: p.collection, id: p.id, ...stamp });
         applied.push({ op: "delete", collection: p.collection, id: p.id });
         continue;
@@ -915,9 +990,11 @@ async function applySubjectOps(req, user) {
       const merged = existing
         ? { ...existing, ...p.record, id, editedBy: stamp.byName, editedAt: stamp.at }
         : { ...p.record, id, addedBy: stamp.byName, addedAt: stamp.at };
-      if (existing) list[list.indexOf(existing)] = merged;
-      else list.push(merged);
+      putRecord(db, p.collection, merged);
 
+      // The journal carries the whole merged record, not a patch, which is
+      // what makes replaying it idempotent — applying it twice, or onto a
+      // database that already has it, lands in the same place.
       journal.push({ op: "upsert", collection: p.collection, id, record: merged, ...stamp });
       applied.push({ op: "upsert", collection: p.collection, id });
     }

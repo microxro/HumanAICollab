@@ -257,7 +257,29 @@ App.sync = (function () {
       S.db.account.lastSync = res.updatedAt;
       S.save();
       setStatus("idle");
-      return { ok: true, version: res.version };
+
+      // F157 — the server reconciled this push with edits somebody else made
+      // to this student's records (a parent adding an assignment while this
+      // device was offline). The push succeeded, but what is stored is now
+      // *more* than what was sent, so this device has to go and read it back.
+      // Skipping this would leave the next push carrying a database that
+      // still lacks those records — quietly undoing them.
+      // pull()+adoptRemote() rather than pullAndMerge(): that path also asks
+      // the person to choose between two datasets, and there is nothing to
+      // choose here — the server has already reconciled them and this device
+      // simply needs to catch up. Surfacing *who* changed what is the
+      // attribution work, not a toast from here.
+      if (res.merged) {
+        try {
+          const fresh = await pull();
+          if (fresh && fresh.state) adoptRemote(fresh);
+        } catch (e) {
+          // The push itself succeeded; a failed read-back just means this
+          // device is briefly behind, and the next pull will catch it.
+          setStatus("idle");
+        }
+      }
+      return { ok: true, version: state.version, merged: res.merged || 0 };
     } catch (e) {
       // push() used to swallow every failure and resolve anyway, so callers
       // doing `.then(() => toast("Synced ✓"))` reported success while the
