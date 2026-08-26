@@ -212,7 +212,7 @@ App.views.grades = (function () {
 
         <div class="divider"></div>
         <h4 class="mb-8">Drop lowest scores</h4>
-        <p class="hint mb-12">Many syllabi drop the lowest quiz or homework. Scholar applies this before averaging.</p>
+        <p class="hint mb-12">Many syllabi drop the lowest quiz or homework. StudyHold applies this before averaging.</p>
         ${(c.categories || []).map((cat) => {
           const n = S.assignmentsFor(classId).filter((a) => a.graded && a.categoryId === cat.id).length;
           return `<div class="between wrap" style="padding:8px 0;border-bottom:1px solid var(--border);gap:8px">
@@ -698,7 +698,7 @@ App.views.grades = (function () {
               <button class="btn btn-sm" data-cols-toggle>⚙ Columns</button>
               <div class="col-picker" ${colPickerOpen ? "" : "hidden"}>
                 ${RECENT_COL_DEFS.filter((d) => !d.always).map((d) => `
-                  <label class="row gap-6 small"><input type="checkbox" data-col="${d.key}" ${rtCfg.cols[d.key] ? "checked" : ""}/> ${U.esc(d.label)}</label>
+                  <label class="row gap-6 small"><input type="checkbox" class="check" data-col="${d.key}" ${rtCfg.cols[d.key] ? "checked" : ""}/> ${U.esc(d.label)}</label>
                 `).join("")}
               </div>
             </div>

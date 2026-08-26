@@ -4,7 +4,7 @@
    Stores used:
      users      emailKey → { id, email, name, role, pw:{hash,salt}, createdAt }
      profiles   userId   → { id, email, name, role, links, groups, … }
-     state      userId   → the whole Scholar DB (JSON) + a version counter
+     state      userId   → the whole StudyHold DB (JSON) + a version counter
      links      code     → { studentId, createdAt, usedBy[] }
      locations  userId   → last known status (small, frequently overwritten)
      groups     groupId  → { id, code, name, ownerId, members[], decks[], feed[] }

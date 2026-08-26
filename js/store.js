@@ -354,7 +354,7 @@ App.store = (function () {
         theme: "light", weekStartsMonday: true, gpaWeighted: false,
         locationSharing: true, peerSharing: true, shareGrades: false,
         dueSoonDays: 3,
-        pomodoro: { focus: 25, short: 5, long: 15, rounds: 4 },
+        pomodoro: { focus: 25, short: 5, long: 15, rounds: 4, custom: 25 },
         schedule: {
           mode: "weekly",                 // "weekly" | "rotating"
           cycle: ["A", "B"],
@@ -490,7 +490,7 @@ App.store = (function () {
       if (legacy) {
         const parsed = JSON.parse(legacy);
         if (parsed && typeof parsed === "object") {
-          console.info("[scholar] migrating v1 data → v2");
+          console.info("[studyhold] migrating v1 data → v2");
           return migrate(parsed);
         }
       }
@@ -500,7 +500,7 @@ App.store = (function () {
       // write, a hand-edited import — silently erased every record with
       // nothing but a console warning. Set it aside instead, so it can be
       // recovered from Settings or handed back for repair.
-      console.error("[scholar] saved data is unreadable — quarantining it rather than deleting it.", e);
+      console.error("[studyhold] saved data is unreadable — quarantining it rather than deleting it.", e);
       try {
         const raw = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
         if (raw) {
@@ -508,7 +508,7 @@ App.store = (function () {
           localStorage.removeItem(KEY);
         }
       } catch (e2) {
-        console.error("[scholar] couldn't quarantine the unreadable data", e2);
+        console.error("[studyhold] couldn't quarantine the unreadable data", e2);
       }
     }
     return seed();
@@ -549,7 +549,7 @@ App.store = (function () {
     } catch (e) {
       if (saveFailing) return;          // re-entered from the notice below
       saveFailing = true;
-      console.error("[scholar] save failed (storage full?)", e);
+      console.error("[studyhold] save failed (storage full?)", e);
       try {
         if (App.ui) {
           App.ui.toast("Couldn't save",
@@ -1245,7 +1245,7 @@ App.store = (function () {
   function importJSON(text) {
     const parsed = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.classes)) {
-      throw new Error("That doesn't look like a Scholar backup file.");
+      throw new Error("That doesn't look like a StudyHold backup file.");
     }
     db = migrate(parsed);
     // migrate() only knows about v1/v2 fields. Backfill v3 before anything

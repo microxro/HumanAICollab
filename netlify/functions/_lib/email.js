@@ -94,12 +94,12 @@ function layout(title, bodyHtml) {
   return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#10141f">
     <div style="font-size:1.3rem;font-weight:800;margin-bottom:4px">
       <span style="display:inline-block;width:22px;height:22px;border-radius:6px;background:#4f46e5;color:#fff;text-align:center;line-height:22px;font-size:.85rem;margin-right:6px">S</span>
-      Scholar
+      StudyHold
     </div>
     <h1 style="font-size:1.1rem;margin:20px 0 12px">${title}</h1>
     ${bodyHtml}
     <p style="margin-top:32px;font-size:.75rem;color:#8791a5">
-      You're receiving this because of activity on a Scholar account linked to this address.
+      You're receiving this because of activity on a StudyHold account linked to this address.
     </p>
   </div>`;
 }

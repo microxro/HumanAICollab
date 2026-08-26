@@ -223,7 +223,7 @@ async function fetchPage(rawUrl, { allowHttp = true } = {}) {
           // Identify honestly. Some school sites serve a stripped page to
           // unknown agents, but pretending to be a browser to get around
           // that is exactly the behaviour a site owner is entitled to block.
-          "User-Agent": "Scholar/1 (+student schedule importer)",
+          "User-Agent": "StudyHold/1 (+student schedule importer)",
           "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5"
         }
       });

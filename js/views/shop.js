@@ -1,6 +1,6 @@
 /* ==========================================================================
    views/shop.js — earn study tokens from a photo of your work, spend them on
-   how Scholar looks.
+   how StudyHold looks.
 
    Two tabs on one screen, because they are two halves of the same loop: what
    you did, and what it bought. The economy itself (what a photo is worth, why
@@ -412,7 +412,7 @@ App.views.shop = (function () {
       <div class="page-head">
         <div>
           <h1>${App.i18n.t("shop", "Study shop")}</h1>
-          <div class="sub">Photograph the work you did, earn tokens, spend them on how Scholar looks.</div>
+          <div class="sub">Photograph the work you did, earn tokens, spend them on how StudyHold looks.</div>
         </div>
         <div class="page-actions row gap-8">
           ${tokenPill(bal, true)}

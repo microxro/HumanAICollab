@@ -13,7 +13,7 @@
        phone number rather than a room, it usually costs money, and it very
        often falls on a weekend or through a school holiday.
 
-   The second kind (F154) is what a family actually has to plan around, and
+   The second kind (F156) is what a family actually has to plan around, and
    the parent portal can propose one (see views/parent.js and views/sharing.js).
    ========================================================================== */
 

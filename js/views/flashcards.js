@@ -845,9 +845,10 @@ App.views.flashcards = (function () {
         <div class="page-actions">
           <button class="btn" data-interleave title="Round-robin due cards across every deck">🔀 Interleaved</button>
           <button class="btn" data-practice-test>⏱ Practice test</button>
-          <button class="btn" data-import-quizlet title="Paste an exported Quizlet set (or any term/definition list)">📋 Import from Quizlet</button>
-          <button class="btn" data-import-deck>⇩ Import deck</button>
+          <button class="btn act-secondary" data-import-quizlet title="Paste an exported Quizlet set (or any term/definition list)">📋 Import from Quizlet</button>
+          <button class="btn act-secondary" data-import-deck>⇩ Import deck</button>
           <button class="btn btn-primary" data-new-deck>+ New deck</button>
+          <button class="icon-btn act-overflow" data-cards-more aria-label="More deck actions" title="More">⋯</button>
         </div>
       </div>
 
@@ -970,20 +971,32 @@ App.views.flashcards = (function () {
       U.download(`${d.name.replace(/[^\w\- ]/g, "")}.json`, json, "application/json");
     });
     U.on(root, "click", "[data-import-quizlet]", () => quizletImportDialog());
-    U.on(root, "click", "[data-import-deck]", () => {
-      const input = document.createElement("input");
-      input.type = "file"; input.accept = "application/json,.json";
-      input.addEventListener("change", () => {
-        const file = input.files[0];
-        if (!file) return;
-        file.text().then((text) => {
-          const deck = S.importDeck(text);
-          UI.toast("Deck imported", `${deck.name} · ${deck.cards.length} cards`, "ok");
-          App.router.refresh();
-        }).catch((err) => UI.toast("Import failed", err.message, "danger"));
-      });
-      input.click();
+    U.on(root, "click", "[data-import-deck]", () => importDeckDialog());
+    // Below 640px the two import buttons are hidden (.act-secondary) so the
+    // toolbar stops pushing the deck list off screen; the menu is how they
+    // stay reachable there, calling the same two functions.
+    U.on(root, "click", "[data-cards-more]", (_e, el) => {
+      const r = el.getBoundingClientRect();
+      UI.menu([
+        { icon: "📋", label: "Import from Quizlet", run: () => quizletImportDialog() },
+        { icon: "⇩", label: "Import deck", run: () => importDeckDialog() }
+      ], r.right, r.bottom + 4);
     });
+  }
+
+  function importDeckDialog() {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = "application/json,.json";
+    input.addEventListener("change", () => {
+      const file = input.files[0];
+      if (!file) return;
+      file.text().then((text) => {
+        const deck = S.importDeck(text);
+        UI.toast("Deck imported", `${deck.name} · ${deck.cards.length} cards`, "ok");
+        App.router.refresh();
+      }).catch((err) => UI.toast("Import failed", err.message, "danger"));
+    });
+    input.click();
   }
 
   // Space flips, 1/2 grade — only while a study session is open.

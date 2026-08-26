@@ -64,7 +64,7 @@ console.log("\nboot: stale schemaV3 dataset (the live crash)");
   ok("nav click actually navigates", hash.includes("homework"), `hash=${hash}`);
 
   const title = await page.title();
-  ok("document title updated", /Homework|Scholar/.test(title), title);
+  ok("document title updated", /Homework|StudyHold/.test(title), title);
 
   // The field whose absence caused the throw.
   const retention = await page.evaluate(() => JSON.stringify(App.store.settings.retention));

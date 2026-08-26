@@ -1,4 +1,4 @@
-# Scholar — a complete school tracker
+# StudyHold — a complete school tracker
 
 A full student platform built with **plain HTML, CSS, and JavaScript** — no framework, no build step, no bundler — plus a small **Netlify Functions** backend for the things that genuinely need a server.
 
@@ -96,7 +96,7 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 ## What's in it
 
 ### Overview
-- **Assistant** *(needs `GEMINI_API_KEY`)* — a private chat grounded in your full account: every class, grade, assignment, activity, goal, habit, book, and the bell schedule, all rebuilt fresh for each question. Scoped on purpose: it only answers questions about that data or about how to use Scholar itself — it declines anything else (essays, homework, general chit-chat) in a sentence rather than attempting it — and every answer is capped short, a few sentences at most, never an essay of its own. Free-time gaps are precomputed from your real schedule rather than left for the model to guess at.
+- **Assistant** *(needs `GEMINI_API_KEY`)* — a private chat grounded in your full account: every class, grade, assignment, activity, goal, habit, book, and the bell schedule, all rebuilt fresh for each question. Scoped on purpose: it only answers questions about that data or about how to use StudyHold itself — it declines anything else (essays, homework, general chit-chat) in a sentence rather than attempting it — and every answer is capped short, a few sentences at most, never an essay of its own. Free-time gaps are precomputed from your real schedule rather than left for the model to guess at.
 - **Dashboard** — live "what class am I in right now" with a countdown and progress bar, proactive overload warnings, today's schedule, due-soon queue, GPA / study / attendance tiles, grade trend, study heatmap.
 - **Calendar** — month, **week time-grid**, and agenda views. Classes, activities, events, due dates, and planned study blocks in one place. Drag a study block to another day. Export to `.ics`.
 - **Schedule** — weekly timetable, or a **rotating A/B (or A/B/C/D) cycle** with holiday overrides and per-day exceptions.
@@ -112,7 +112,7 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 - **Flashcards** — Leitner spaced repetition, plus **multiple-choice and type-the-answer quiz modes** with forgiving answer matching.
 - **Notes** — **Markdown** editor with live preview, and **one-click note → flashcard deck** extraction from "term — definition" lines.
 - **Reading** — books and chapter assignments with pages-per-day pacing and behind/ahead detection.
-- **Study shop** — photograph the work you actually did, earn **study tokens**, spend them on how Scholar looks: accent colours, surface skins, an avatar ring, a nameplate under your name. The photos never leave the device, and the economy is built so the obvious shortcuts don't pay — see below.
+- **Study shop** — photograph the work you actually did, earn **study tokens**, spend them on how StudyHold looks: accent colours, surface skins, an avatar ring, a nameplate under your name. The photos never leave the device, and the economy is built so the obvious shortcuts don't pay — see below.
 
 ### Life
 - **Activities** — practices, clubs, and volunteering with hour logging. Optionally date-bounded (a season that starts and ends on real dates, not just "Fall"). **"Add with AI"** *(needs `GEMINI_API_KEY`)* turns a plain-English description ("swimming 6-6:45pm weekdays, Sept 5 to Oct 25") or a photo of a schedule or bell-times page into editable drafts — nothing saves until you review and confirm each one.

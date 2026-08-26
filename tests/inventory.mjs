@@ -90,7 +90,7 @@ const apiRoutes = readFileSync("netlify/functions/api.js", "utf8");
 console.log("\ninventory: roadmap rows parsed");
 ok("100 functionality items found", items.filter((i) => i.id[0] === "F").length === 100,
    String(items.filter((i) => i.id[0] === "F").length));
-ok("50 interface items found", items.filter((i) => i.id[0] === "U").length === 50,
+ok("51 interface items found", items.filter((i) => i.id[0] === "U").length === 51,
    String(items.filter((i) => i.id[0] === "U").length));
 
 console.log("\ninventory: every item is either marked in source or documented as blocked");

@@ -333,6 +333,7 @@
 @media (max-width: 640px) {
   .g-2, .g-3, .g-4 { grid-template-columns: minmax(0, 1fr); }
   .page { padding: 16px; }
+  h1, h2, h3, h4, h5, h6 { text-align: center; }
 }
 
 /* U48 — 44px is the WCAG-recommended minimum touch target; several icon
@@ -427,7 +428,10 @@
   }
   .tab-dot.alert { background: var(--danger); }
 
-  .fab-add {
+  /* Element+class beats the plain [data-tip] attribute selector in
+     components.css that also sets position — that tie previously left
+     this button relatively positioned in normal flow instead of fixed. */
+  button.fab-add {
     display: grid;
     place-items: center;
     position: fixed;

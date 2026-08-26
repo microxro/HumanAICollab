@@ -28,7 +28,7 @@
 import { readFileSync } from "node:fs";
 
 process.env.SCHOLAR_SECRET = "test-secret-value-at-least-16-chars-long";
-process.env.SITE_URL = "https://scholar.example";
+process.env.SITE_URL = "https://studyhold.example";
 process.env.GEMINI_API_KEY = "test-key-for-routing-only";
 
 const api = (await import("../netlify/functions/api.js")).default;
@@ -53,8 +53,8 @@ async function hit(fn, base, path, { method = "GET", body, token, origin } = {})
   try { data = await res.clone().json(); } catch (e) { data = null; }
   return { status: res.status, data, res };
 }
-const API = "https://scholar.example/api/";
-const AI = "https://scholar.example/assistant/";
+const API = "https://studyhold.example/api/";
+const AI = "https://studyhold.example/assistant/";
 const callApi = (p, o) => hit(api, API, p, o);
 const callAi = (p, o) => hit(assistant, AI, p, o);
 
@@ -276,9 +276,9 @@ console.log("\nauthwall: another website can't drive the API from a visitor's br
   ok("preflight refuses a foreign origin", !pre.headers.get("access-control-allow-origin"),
      String(pre.headers.get("access-control-allow-origin")));
 
-  const own = await api(new Request(API + "me", { method: "OPTIONS", headers: { Origin: "https://scholar.example" } }));
+  const own = await api(new Request(API + "me", { method: "OPTIONS", headers: { Origin: "https://studyhold.example" } }));
   ok("but allows this site's own origin",
-     own.headers.get("access-control-allow-origin") === "https://scholar.example",
+     own.headers.get("access-control-allow-origin") === "https://studyhold.example",
      String(own.headers.get("access-control-allow-origin")));
 
   const aiEvil = await assistant(new Request(AI + "ask", { method: "OPTIONS", headers: { Origin: "https://evil.example" } }));
@@ -369,10 +369,10 @@ console.log("\nauthwall: creating groups is capped tighter than general writes")
 console.log("\nauthwall: the weekly digest refuses a direct HTTP call");
 {
   const digest = (await import("../netlify/functions/weekly-digest.js")).default;
-  const direct = await digest(new Request("https://scholar.example/.netlify/functions/weekly-digest", { method: "POST" }));
+  const direct = await digest(new Request("https://studyhold.example/.netlify/functions/weekly-digest", { method: "POST" }));
   ok("an ordinary POST is refused", direct.status === 403, String(direct.status));
 
-  const scheduled = await digest(new Request("https://scholar.example/.netlify/functions/weekly-digest", {
+  const scheduled = await digest(new Request("https://studyhold.example/.netlify/functions/weekly-digest", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ next_run: new Date(Date.now() + 6e8).toISOString() })

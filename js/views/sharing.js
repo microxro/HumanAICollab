@@ -22,6 +22,7 @@ App.views.sharing = (function () {
 
     const permBadge = perm === "granted" ? `<span class="badge ok">Allowed</span>`
       : perm === "denied" ? `<span class="badge danger">Blocked</span>`
+      : perm === "denied-live" ? `<span class="badge danger">Blocked (device setting)</span>`
       : perm === "unsupported" ? `<span class="badge">Unsupported</span>`
       : `<span class="badge">Not asked</span>`;
 
@@ -34,8 +35,36 @@ App.views.sharing = (function () {
 
         ${perm === "denied" ? `<div class="card mb-16" style="background:var(--danger-bg);border:none">
           <div class="card-body small" style="color:var(--danger);padding:10px 12px">
-            Location is blocked for this site. Allow it from the padlock icon in your address bar,
-            then reload. Until then, your status falls back to your timetable.
+            <p style="margin:0 0 8px">Location is blocked for this site — this is a browser setting,
+            not something on/off in this app. Where to fix it depends on what you're using:</p>
+            <ul style="margin:0 0 8px;padding-left:18px">
+              <li><strong>Safari on iPhone/iPad:</strong> tap "aA" at the left edge of the address bar
+                → Website Settings → Location → Allow.</li>
+              <li><strong>Safari on Mac:</strong> Safari menu → Settings for This Website → Location → Allow.</li>
+              <li><strong>Chrome/Edge:</strong> tap the icon left of the address bar (padlock or site info)
+                → Permissions → Location → Allow.</li>
+            </ul>
+            <p style="margin:0 0 8px">Reloading the page or closing the tab doesn't change this setting —
+            it has to be switched in the browser itself, and it can take a moment to notice once you have.</p>
+            <button type="button" class="btn btn-sm" data-geo-recheck>Check again</button>
+          </div></div>` : ""}
+
+        ${perm === "denied-live" ? `<div class="card mb-16" style="background:var(--danger-bg);border:none">
+          <div class="card-body small" style="color:var(--danger);padding:10px 12px">
+            <p style="margin:0 0 8px">Safari says this site is <strong>allowed</strong> to use your
+            location, but the actual request still failed. That's a different, system-level setting —
+            not the per-site permission you already fixed.</p>
+            <ul style="margin:0 0 8px;padding-left:18px">
+              <li>Open the iPhone/iPad <strong>Settings</strong> app (not Safari) →
+                <strong>Privacy &amp; Security → Location Services</strong>.</li>
+              <li>Make sure the toggle at the top of that screen is on.</li>
+              <li>Scroll down to <strong>Safari Websites</strong> in the app list and set it to
+                <strong>"While Using the App"</strong> (or "Ask Next Time").</li>
+            </ul>
+            <p style="margin:0 0 8px">Come back here afterward and tap "Check again" — this actually
+            tries to get a location fix, not just reread the setting, so it will only clear once the
+            request truly succeeds.</p>
+            <button type="button" class="btn btn-sm" data-geo-recheck>Check again</button>
           </div></div>` : ""}
 
         <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
@@ -343,7 +372,7 @@ App.views.sharing = (function () {
             ${UI.avatar(p.name, "#94a3b8")}
             <span class="grow">${U.esc(p.name)}</span><span class="badge">Pending</span>
           </div>`).join("")}</div>` : ""}
-        ${!list.length ? `<p class="dim small">No requests yet — add a friend by their Scholar account email.</p>` : ""}
+        ${!list.length ? `<p class="dim small">No requests yet — add a friend by their StudyHold account email.</p>` : ""}
       </div>
     </div>`;
   }
@@ -473,15 +502,15 @@ App.views.sharing = (function () {
   function realFriendForm() {
     UI.prompt({
       title: "Send a friend request",
-      label: "Their Scholar account email",
+      label: "Their StudyHold account email",
       placeholder: "friend@school.edu",
       okLabel: "Send request",
       onSubmit(email) {
         App.sync.requestFriend(email).then(() => {
           // The server answers the same way whether or not that address has
-          // an account, so it can't be used to check who's on Scholar. The
+          // an account, so it can't be used to check who's on StudyHold. The
           // copy has to match that, rather than claim delivery it can't know.
-          UI.toast("Request sent", `If ${email} has a Scholar account, they'll see it.`, "ok");
+          UI.toast("Request sent", `If ${email} has a StudyHold account, they'll see it.`, "ok");
           loadRealFriends();
         }).catch((e) => UI.toast("Couldn't send request", e.message, "danger"));
       }
@@ -688,6 +717,19 @@ App.views.sharing = (function () {
       if (key === "locationSharing" && el.checked) App.geo.maybePush(true);
       UI.toast(el.checked ? "Sharing enabled" : "Sharing disabled",
         U.titleCase(key.replace(/([A-Z])/g, " $1")));
+    });
+
+    const geoRecheck = root.querySelector("[data-geo-recheck]");
+    if (geoRecheck) geoRecheck.addEventListener("click", () => {
+      geoRecheck.disabled = true;
+      geoRecheck.textContent = "Checking…";
+      // Re-reading the per-site permission alone can't confirm an OS-level
+      // fix (see denied-live above) — only an actual fix attempt can, so this
+      // deliberately tries for a real location rather than just re-polling
+      // the permission the browser reports.
+      App.geo.checkPermission()
+        .then(() => App.geo.locate().catch(() => {}))
+        .then(() => App.router.refresh());
     });
 
     const geoToggle = root.querySelector("#geoToggle");

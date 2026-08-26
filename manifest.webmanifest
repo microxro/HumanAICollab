@@ -1,6 +1,6 @@
 {
-  "name": "Scholar — School Tracker",
-  "short_name": "Scholar",
+  "name": "StudyHold — School Tracker",
+  "short_name": "StudyHold",
   "description": "Track classes, homework, grades, schedule, activities, and study time — all in one place.",
   "start_url": "./index.html",
   "scope": "./",

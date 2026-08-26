@@ -1,4 +1,4 @@
-# Scholar — proposed updates
+# StudyHold — proposed updates
 
 150 proposed changes: **100 functionality** and **50 interface**. None duplicate the twenty
 screens or twenty-five features already built — everything here is additive.
@@ -56,8 +56,26 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+**Feedback (F154).** A Feedback tab in Settings: pick what it's about, write
+the message, and send it to humanai736@gmail.com. It composes a `mailto:` and
+hands it to whatever mail app the device already has rather than posting to
+the backend, which is a deliberate choice — server mail only works when
+`RESEND_API_KEY` and `EMAIL_FROM` are both set, so a form wired to it would
+fail silently on a deploy that hasn't configured them, and it would need the
+student signed in, which reporting a bug should never require. The `mailto:`
+route works offline, needs no key, and leaves the sender reading the message
+before it goes.
+
+An optional **app details** block attaches the browser, screen size, settings
+and *counts* of records — never their contents. No class name, note body or
+signed-in address is included, and the full text is shown on screen before
+sending, because a feedback form is the last place that should quietly
+exfiltrate someone's schoolwork. Long messages are put on the clipboard
+instead of into the URL: mail clients disagree on how long a `mailto:` may be
+and the ones that dislike a long one drop the body without saying so.
+
 **Study tokens and the shop (F155).** A student photographs the work they
-did, the photo earns tokens, and the tokens buy how Scholar looks — accent
+did, the photo earns tokens, and the tokens buy how StudyHold looks — accent
 colours, surface skins, an avatar ring, a nameplate in the sidebar.
 
 The honest part first: **nothing here proves anyone studied.** A photo is
@@ -90,7 +108,7 @@ ratio in the app is arithmetically unchanged. `tests/shop.mjs` re-derives both
 from `css/theme.css`, and `App.shop.sanitize()` takes off any cosmetic a
 restored backup names but this wallet never bought.
 
-**Outside-school activities (F154).** The Activities screen assumed every
+**Outside-school activities (F156).** The Activities screen assumed every
 extracurricular belonged to the school: its adult was picked from the staff
 list, its location was a room number, and the timetable drew it only on a day
 the school was open. That is not what most of a family's week outside class
@@ -151,7 +169,7 @@ to the built-in list and says so.
 **Guidance (F151).** Added after the 150, at the owner's request, and the
 first item here that isn't on the original list. A new view that answers the
 two questions a student actually has to decide — *which electives do I pick*
-and *what field is this pointing at* — from the record Scholar already holds.
+and *what field is this pointing at* — from the record StudyHold already holds.
 
 The engine (`js/guidance.js`) is deterministic and entirely local: no API key,
 no network, no provider. That is a deliberate constraint rather than a
@@ -496,4 +514,5 @@ AI path uses and the manual form now exposes too.
 | `U48` | **Larger mobile targets** | Hold every interactive element to 44px, which several icon buttons currently miss. | S |  |
 | `U49` | **First-run setup** | Walk a new student through classes, bell schedule, and one assignment instead of a wall of demo data. | M |  |
 | `U50` | **Contextual help** | Explain what a weighted category or a Leitner box is, at the moment it first appears. | M |  |
+| `U51` | **Three clicks to anything** | Make a view's sections addressable, so a tabbed screen stops costing four taps on a phone. Measured by `tests/depth.mjs`. | S | ✅ |
 

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   api.js — the whole Scholar backend, as one Netlify Function
+   api.js — the whole StudyHold backend, as one Netlify Function
 
    Routes (all under /api):
      POST   /auth/signup            create an account
@@ -412,7 +412,7 @@ const RESET_TTL_MS = 30 * 60 * 1000;   // 30 minutes
  *
  * This used to fall back to `new URL(req.url).origin`, which in Netlify
  * Functions is derived from the inbound Host header. With SITE_URL unset, a
- * request carrying a spoofed Host produced a genuine Scholar password-reset
+ * request carrying a spoofed Host produced a genuine StudyHold password-reset
  * email whose button pointed at the attacker — one click from full account
  * takeover. There is no safe fallback for that, so a deploy without SITE_URL
  * refuses to send links rather than sending poisoned ones.
@@ -504,8 +504,8 @@ async function emailHealth(req, user) {
       }
       const r = await sendEmail({
         to,
-        subject: "Scholar email test",
-        html: layout("Email is working", "<p>This is a test message from your Scholar deploy. " +
+        subject: "StudyHold email test",
+        html: layout("Email is working", "<p>This is a test message from your StudyHold deploy. " +
           "If you're reading it, password resets and weekly digests can reach you.</p>")
       }).catch((e) => ({ sent: false, reason: "exception", detail: String(e && e.message || e) }));
       if (r.sent) {
@@ -527,7 +527,7 @@ async function forgotPassword(req) {
   const b = await body(req);
   const email = normalizeEmail(b.email);
   // Same response whether or not the account exists, so this endpoint
-  // can't be used to check who has a Scholar account.
+  // can't be used to check who has a StudyHold account.
   const generic = () => ok({ sent: true });
 
   // Deployment-level problems are checked *before* the account lookup and
@@ -567,9 +567,9 @@ async function forgotPassword(req) {
   const resetUrl = `${siteOrigin()}/?resetToken=${encodeURIComponent(token)}`;
   const result = await sendEmail({
     to: email,
-    subject: "Reset your Scholar password",
+    subject: "Reset your StudyHold password",
     html: layout("Reset your password", `
-      <p>Someone (hopefully you) asked to reset the password for this Scholar account${profile ? ", " + escapeHtml(profile.name) : ""}.</p>
+      <p>Someone (hopefully you) asked to reset the password for this StudyHold account${profile ? ", " + escapeHtml(profile.name) : ""}.</p>
       <p style="margin:24px 0"><a href="${resetUrl}" style="background:#4f46e5;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Reset password</a></p>
       <p style="color:#4b5568;font-size:.85rem">This link works once and expires in 30 minutes. If you didn't request this, ignore this email — your password hasn't changed.</p>
     `)
@@ -836,7 +836,7 @@ async function requestFriend(req, user) {
   const target = rec ? await readJSON("profiles", rec.id) : null;
 
   // One reply for "no such account", "already connected" and "already
-  // pending". Distinct answers told the caller which addresses have Scholar
+  // pending". Distinct answers told the caller which addresses have StudyHold
   // accounts, and 409-vs-404 told them which of *those* they had already
   // reached — free contact-graph reconnaissance for anyone with a word list.
   // Nothing here reveals the target's name either; the requester learns it
@@ -989,7 +989,7 @@ async function respondCheckin(req, user) {
 // The device that already builds the one-time .ics export (js/ics.js) also
 // pushes that same text here — the server just stores and serves the last
 // copy under an unguessable token, so there's exactly one place that knows
-// how to turn Scholar data into iCalendar, and it isn't this file.
+// how to turn StudyHold data into iCalendar, and it isn't this file.
 
 /* ============================================================== F100 API == */
 
@@ -1182,9 +1182,9 @@ async function deliverWebhooks(user, event, payload) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "User-Agent": "Scholar-Webhook/1",
-          "X-Scholar-Event": event,
-          "X-Scholar-Signature": "sha256=" + signature
+          "User-Agent": "StudyHold-Webhook/1",
+          "X-StudyHold-Event": event,
+          "X-StudyHold-Signature": "sha256=" + signature
         },
         body: bodyText,
         signal: ctl.signal,

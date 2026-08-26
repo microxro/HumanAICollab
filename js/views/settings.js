@@ -20,6 +20,32 @@ App.views.settings = (function () {
   let idbBytes = null;
   let installEvent = null;   // captured beforeinstallprompt
 
+  /**
+   * F154 — where feedback goes.
+   *
+   * A `mailto:` rather than a form posting to the backend, deliberately. The
+   * server can only send mail when RESEND_API_KEY and EMAIL_FROM are both
+   * configured (see netlify/functions/_lib/email.js, which reports
+   * `not-configured` otherwise), so a send button wired to it would fail
+   * silently on any deploy that hasn't set them up — and it would need the
+   * student to be signed in, which feedback should never require. Handing the
+   * composed message to whatever mail app the device already has works
+   * offline, needs no key, and leaves the sender in control of what goes.
+   */
+  const FEEDBACK_EMAIL = "humanai736@gmail.com";
+
+  const FEEDBACK_KINDS = [
+    ["bug", "Something is broken"],
+    ["idea", "An idea or a request"],
+    ["question", "A question"],
+    ["other", "Something else"]
+  ];
+
+  // Mail clients and OSes disagree on how long a mailto: may be, and the ones
+  // that dislike a long one tend to drop the body without saying so. Compose
+  // below this and offer the clipboard for anything longer.
+  const MAILTO_LIMIT = 1800;
+
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     installEvent = e;
@@ -132,7 +158,7 @@ App.views.settings = (function () {
               forgot.hidden = false;
             } else {
               slot.innerHTML = `<span class="hint">Password reset by email isn't available on this
-                deployment. Your data lives on this device, so you can keep using Scholar signed out —
+                deployment. Your data lives on this device, so you can keep using StudyHold signed out —
                 or sign up again with a different address.</span>`;
             }
           });
@@ -213,7 +239,7 @@ App.views.settings = (function () {
           <div class="card-head"><h3>Cloud sync</h3><span class="badge">Signed out</span></div>
           <div class="card-body">
             <p class="small muted mb-16">
-              Scholar works completely offline — everything you've entered is saved in this browser.
+              StudyHold works completely offline — everything you've entered is saved in this browser.
               An account adds cross-device sync, the parent portal, and study groups.
             </p>
             <div class="row gap-8">
@@ -268,7 +294,7 @@ App.views.settings = (function () {
       </div>
       <div class="card-body">
         <p class="small muted mb-12">
-          Your parent creates their own Scholar account, then enters this code once.
+          Your parent creates their own StudyHold account, then enters this code once.
           They'll see whatever your Sharing toggles allow — nothing more.
         </p>
         <div id="linkCodeBox"></div>
@@ -478,11 +504,11 @@ App.views.settings = (function () {
         </div>
         <div class="card-body">
           <p class="small muted mb-12">
-            Scholar is a progressive web app. Installing gives it its own window and full offline access —
+            StudyHold is a progressive web app. Installing gives it its own window and full offline access —
             all your data is already stored locally, so nothing breaks without a connection.
           </p>
           <div class="row gap-8 wrap">
-            <button class="btn btn-primary" data-install>⬇ Install Scholar</button>
+            <button class="btn btn-primary" data-install>⬇ Install StudyHold</button>
             <button class="btn" data-update-sw>↻ Check for updates</button>
           </div>
           <p class="hint mt-12" id="installHint">
@@ -671,7 +697,7 @@ App.views.settings = (function () {
             <button class="icon-btn btn-sm" data-del-template="${t.id}" aria-label="Delete">✕</button>
           </div>`).join("")}
         </div>` : `<div class="card-body"><p class="dim small">
-          No recurring assignments. Add one for a weekly problem set or reading quiz and Scholar will create
+          No recurring assignments. Add one for a weekly problem set or reading quiz and StudyHold will create
           each occurrence automatically.</p></div>`}
       </div>
 
@@ -822,10 +848,154 @@ App.views.settings = (function () {
   }
 
   const DASHBOARD_WIDGET_LABELS = {
-    hero: "Live status banner", warnings: "Heads-up warnings", stats: "Stat cards",
+    hero: "Live status banner", quote: "Daily quote", warnings: "Heads-up warnings", stats: "Stat cards",
     countdowns: "Key date countdowns", schedule: "Today's schedule", due: "Due soon",
     trend: "Grade trend", grades: "Class averages", study: "Study activity"
   };
+
+  /* ------------------------------------------------------------- feedback */
+
+  /**
+   * F154 — the optional "app details" block.
+   *
+   * Counts and settings only. Nothing here names a class, quotes a note, or
+   * carries the signed-in address: the things that make a bug report useful
+   * are the shape of the data and the browser, not its contents, and a
+   * feedback form is the last place that should quietly exfiltrate someone's
+   * schoolwork. What it collects is shown in full in the UI before sending,
+   * which is why this returns lines rather than writing them straight into
+   * the mail body.
+   */
+  function diagnostics() {
+    const s = S.settings || {};
+    const signedIn = !!(S.db.account && S.db.account.email);
+    const lines = [
+      ["App", `StudyHold, schema v${S.SCHEMA}`],
+      ["Display", `${screen.width}x${screen.height} @${window.devicePixelRatio || 1}x, window ${innerWidth}x${innerHeight}`],
+      ["Browser", navigator.userAgent],
+      ["Language", navigator.language || "unknown"],
+      ["Connection", navigator.onLine ? "online" : "offline"],
+      ["Installed", window.matchMedia("(display-mode: standalone)").matches ? "yes (PWA)" : "no (browser tab)"],
+      ["Appearance", `${s.theme || "light"} theme, ${s.density || "comfortable"}, ${s.accent || "indigo"} accent, ${s.fontSize || "normal"} text`],
+      ["Signed in", signedIn ? "yes" : "no"],
+      ["Stored", `${dataSize()} — ${counts().map(([k, n]) => `${n} ${k.toLowerCase()}`).join(", ")}`]
+    ];
+    return lines.map(([k, v]) => `${k}: ${v}`).join("\n");
+  }
+
+  /**
+   * Copy to the clipboard, with a fallback that still gets the text to the
+   * person. `navigator.clipboard` is undefined on an insecure origin and its
+   * promise rejects when the document isn't focused, and both cases end with
+   * feedback the sender wrote and cannot retrieve — so show it in a dialog,
+   * selected, rather than a toast telling them it failed.
+   */
+  function copyText(text, title, sub) {
+    const manually = () => UI.modal({
+      title: "Copy this",
+      sub: "Your browser wouldn't let the app write to the clipboard.",
+      footer: `<button type="button" class="btn btn-primary" data-close>Done</button>`,
+      body: `<textarea class="input" rows="10" readonly data-select-all>${U.esc(text)}</textarea>`,
+      onMount(el) {
+        const f = el.querySelector("textarea");
+        if (f) { f.focus(); f.select(); }
+      }
+    });
+    if (!navigator.clipboard || !navigator.clipboard.writeText) return manually();
+    navigator.clipboard.writeText(text)
+      .then(() => UI.toast(title, sub, "ok"))
+      .catch(manually);
+  }
+
+  /**
+   * A `mailto:` for `location.href`, not for an href attribute.
+   *
+   * `U.mailtoHref` runs its result through `esc()` so it can be interpolated
+   * into HTML, which turns the `&` joining subject and body into `&amp;`.
+   * Navigating to that hands the mail client a subject of
+   * "…&amp;body=everything-they-wrote" and no body at all — the silent
+   * truncation this screen is otherwise careful to avoid. The address here is
+   * a constant, not untrusted input, so the escaping that matters for a
+   * contact's saved email buys nothing on this path.
+   */
+  function feedbackMailto(subject, body) {
+    return "mailto:" + FEEDBACK_EMAIL +
+      "?subject=" + encodeURIComponent(subject) +
+      "&body=" + encodeURIComponent(body);
+  }
+
+  /** The exact text that gets sent, so the preview and the mail agree. */
+  function composeFeedback(root) {
+    const kind = root.querySelector("[data-feedback-kind]");
+    const msg = root.querySelector("[data-feedback-message]");
+    const withDetails = root.querySelector("[data-feedback-details]");
+    const kindId = kind ? kind.value : "other";
+    const kindLabel = (FEEDBACK_KINDS.find((k) => k[0] === kindId) || FEEDBACK_KINDS[3])[1];
+    const body = (msg ? msg.value : "").trim();
+    const details = withDetails && withDetails.checked ? `\n\n---\nApp details\n${diagnostics()}` : "";
+    return {
+      empty: !body,
+      subject: `StudyHold feedback — ${kindLabel}`,
+      body: body + details,
+      focus: msg
+    };
+  }
+
+  function feedbackTab() {
+    const address = U.esc(FEEDBACK_EMAIL);
+    return `
+      <div class="card mb-16">
+        <div class="card-head">
+          <h3>Send us feedback</h3>
+          <div class="tiny dim">Bugs, ideas, questions — all of it helps</div>
+        </div>
+        <div class="card-body">
+          <div class="field mb-12">
+            <label for="feedbackKind">What is this about?</label>
+            <select class="select" id="feedbackKind" data-feedback-kind>
+              ${FEEDBACK_KINDS.map(([id, label]) =>
+                `<option value="${id}">${U.esc(label)}</option>`).join("")}
+            </select>
+          </div>
+
+          <div class="field mb-12">
+            <label for="feedbackMessage">Your message</label>
+            <textarea class="input" id="feedbackMessage" rows="7" data-feedback-message
+              placeholder="What happened, what you expected, and what you were doing at the time. The more specific, the faster we can fix it."></textarea>
+          </div>
+
+          ${toggleRow("Include app details",
+            "Your browser, screen size, settings, and how many records you have — never their contents",
+            true, "data-feedback-details")}
+
+          <details class="mt-12">
+            <summary class="small muted" style="cursor:pointer">See exactly what that attaches</summary>
+            <pre class="tiny" style="white-space:pre-wrap;overflow-x:auto;background:var(--surface-2);padding:10px;border-radius:8px;margin-top:8px">${U.esc(diagnostics())}</pre>
+          </details>
+
+          <div class="row gap-8 mt-16" style="flex-wrap:wrap">
+            <button type="button" class="btn btn-primary" data-feedback-send>✉ Open your email app</button>
+            <button type="button" class="btn" data-feedback-copy>Copy the message</button>
+          </div>
+
+          <p class="tiny dim mt-12">Nothing is sent automatically. This opens your own email app with
+          the message ready, addressed to <strong>${address}</strong>, so you can read it over and
+          change anything before it goes.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Or write to us directly</h3></div>
+        <div class="card-body">
+          <p class="small muted mb-12">No email app set up on this device? Copy the address and send
+          it from wherever you normally read your mail.</p>
+          <div class="row gap-8" style="flex-wrap:wrap;align-items:center">
+            <a class="btn" href="${U.mailtoHref(FEEDBACK_EMAIL)}">${address}</a>
+            <button type="button" class="btn btn-sm" data-feedback-copy-address>Copy address</button>
+          </div>
+        </div>
+      </div>`;
+  }
 
   /* ------------------------------------------------------------ shortcuts */
 
@@ -860,7 +1030,7 @@ App.views.settings = (function () {
       <div class="card">
         <div class="card-head"><h3>About</h3></div>
         <div class="card-body small muted">
-          <p><strong style="color:var(--text)">Scholar ${S.SCHEMA === 2 ? "2.0" : ""}</strong> —
+          <p><strong style="color:var(--text)">StudyHold ${S.SCHEMA === 2 ? "2.0" : ""}</strong> —
           a school tracker built with plain HTML, CSS, and JavaScript. No framework, no build step.</p>
           <p class="mt-8">Accounts, cross-device sync, the parent portal, and study groups run on
           Netlify Functions with Netlify Blobs. Everything else works entirely offline in your browser.</p>
@@ -877,6 +1047,7 @@ App.views.settings = (function () {
     { id: "prefs", label: "Preferences" },
     { id: "schedule", label: "Schedule & terms" },
     { id: "data", label: "Data" },
+    { id: "feedback", label: "Feedback" },
     { id: "developer", label: "Developer" },
     { id: "about", label: "About" }
   ];
@@ -895,6 +1066,7 @@ App.views.settings = (function () {
         : tab === "prefs" ? prefsTab()
         : tab === "schedule" ? scheduleTab()
         : tab === "data" ? dataTab()
+        : tab === "feedback" ? feedbackTab()
         : tab === "developer" ? developerTab()
         : aboutTab()}
     </div>`;
@@ -920,7 +1092,7 @@ App.views.settings = (function () {
       <div class="card mb-16">
         <div class="card-head"><h3>API tokens</h3></div>
         <div class="card-body">
-          <p class="small dim" style="margin-top:0">A token lets a script you write read your own Scholar
+          <p class="small dim" style="margin-top:0">A token lets a script you write read your own StudyHold
           data. Treat it like a password — anyone holding it can read everything below.</p>
 
           ${devState.freshToken ? `
@@ -951,7 +1123,7 @@ App.views.settings = (function () {
       <div class="card mb-16">
         <div class="card-head"><h3>Webhooks</h3></div>
         <div class="card-body">
-          <p class="small dim" style="margin-top:0">Scholar POSTs to a URL you choose when something changes.
+          <p class="small dim" style="margin-top:0">StudyHold POSTs to a URL you choose when something changes.
           Each delivery is signed, so your endpoint can verify it really came from here.</p>
 
           <div id="devHooks">${devState.hooks ? hookRows(devState.hooks) : `<div class="dim small">Loading…</div>`}</div>
@@ -959,7 +1131,7 @@ App.views.settings = (function () {
           <div class="form-grid mt-12">
             <div class="field full">
               <label>Endpoint URL</label>
-              <input class="input" id="devHookUrl" type="url" placeholder="https://example.com/scholar-hook" />
+              <input class="input" id="devHookUrl" type="url" placeholder="https://example.com/studyhold-hook" />
             </div>
             <div class="field full">
               <label>Events</label>
@@ -996,7 +1168,7 @@ App.views.settings = (function () {
           </div>
           <p class="tiny dim mt-12">Verify a webhook by computing
           <span class="mono">HMAC-SHA256</span> of the raw request body with your hook's secret and comparing it
-          to the <span class="mono">X-Scholar-Signature</span> header.</p>
+          to the <span class="mono">X-StudyHold-Signature</span> header.</p>
         </div>
       </div>`;
   }
@@ -1120,7 +1292,7 @@ App.views.settings = (function () {
 
   function importDialog() {
     UI.modal({
-      title: "Import a Scholar backup",
+      title: "Import a StudyHold backup",
       okLabel: "Import",
       body: `<div class="field">
           <label>Choose a backup file</label>
@@ -1288,7 +1460,7 @@ App.views.settings = (function () {
     if (!classes.length) { UI.toast("Add a class first"); return; }
     UI.modal({
       title: "Recurring assignment",
-      sub: "Scholar creates each occurrence automatically",
+      sub: "StudyHold creates each occurrence automatically",
       size: "wide",
       okLabel: "Create",
       body: `<div class="form-grid">
@@ -1361,6 +1533,42 @@ App.views.settings = (function () {
   function mount(root) {
     U.on(root, "click", "[data-tab]", (_e, el) => { tab = el.dataset.tab; App.router.refresh(); });
     U.on(root, "click", "[data-run-onboarding]", () => App.runOnboarding());
+
+    /* --- F154 feedback */
+    U.on(root, "click", "[data-feedback-send]", () => {
+      const f = composeFeedback(root);
+      if (f.empty) {
+        UI.toast("Add a message first", "Tell us what happened and we'll take it from there.", "danger");
+        if (f.focus) f.focus.focus();
+        return;
+      }
+      const href = feedbackMailto(f.subject, f.body);
+      // Over the limit the body is the part a mail client drops, and it drops
+      // it without a word — so put the whole thing on the clipboard first and
+      // say so, rather than opening a window that looks fine and is missing
+      // everything the person just wrote.
+      if (href.length > MAILTO_LIMIT) {
+        copyText(`${f.subject}\n\n${f.body}`,
+          "That's a long one", `Full text copied — paste it into an email to ${FEEDBACK_EMAIL}.`);
+        return;
+      }
+      location.href = href;
+    });
+
+    U.on(root, "click", "[data-feedback-copy]", () => {
+      const f = composeFeedback(root);
+      if (f.empty) {
+        UI.toast("Nothing to copy yet", "Write a message first.", "danger");
+        if (f.focus) f.focus.focus();
+        return;
+      }
+      copyText(`To: ${FEEDBACK_EMAIL}\nSubject: ${f.subject}\n\n${f.body}`,
+        "Copied", "Paste it into an email and send.");
+    });
+
+    U.on(root, "click", "[data-feedback-copy-address]", () => {
+      copyText(FEEDBACK_EMAIL, "Address copied", FEEDBACK_EMAIL);
+    });
 
     /* --- account */
     U.on(root, "click", "[data-signup]", () => authForm("signup"));
@@ -1596,7 +1804,7 @@ App.views.settings = (function () {
 
     /* --- data */
     U.on(root, "click", "[data-export]", () => {
-      U.download(`scholar-backup-${U.today()}.json`, S.exportJSON());
+      U.download(`studyhold-backup-${U.today()}.json`, S.exportJSON());
       UI.toast("Backup downloaded", "Keep it somewhere safe.", "ok");
     });
     // Every commit repaints the page, and mount() re-runs — so toggling any
@@ -1721,5 +1929,23 @@ App.views.settings = (function () {
     });
   }
 
-  return { render, mount, title: "Settings" };
+  /**
+   * U51 — `#settings/prefs` opens straight onto Preferences.
+   *
+   * Returns false for anything that isn't one of our tabs so the router can
+   * try its other openers rather than silently swallowing the path.
+   */
+  function openSub(id) {
+    if (!TABS.some((t) => t.id === id)) return false;
+    tab = id;
+    App.router.refresh();
+    // `.tabs` scrolls sideways and six labels do not fit a phone, so arriving
+    // by link rather than by tap could leave the selected tab off the right
+    // edge — the content changes and nothing on screen says why.
+    const active = document.querySelector('#page .tab.active');
+    if (active) active.scrollIntoView({ inline: "center", block: "nearest", behavior: "instant" });
+    return true;
+  }
+
+  return { render, mount, openSub, tabs: () => TABS.map((t) => ({ id: t.id, label: t.label })), title: "Settings" };
 })();

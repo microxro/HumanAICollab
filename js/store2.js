@@ -74,6 +74,11 @@
     need(db, "changeAlerts", []);   // dismissed/seen change-detection alerts
     need(db, "streak", { count: 0, last: null });
 
+    // Quote ids already shown, so the daily quote never repeats until the
+    // whole pool has been through. Lives on db.ui because it's presentation
+    // state, not the student's own data.
+    if (db.ui && typeof db.ui === "object") need(db.ui, "quotesSeen", []);
+
     // Guidance: the only inputs the student supplies directly. Everything
     // else the engine reads is already in the database, which is the point —
     // this is four fields, not a questionnaire.
@@ -129,7 +134,15 @@
     need(s, "collapsedNavGroups", []);  // U07
     need(s, "onboarded", true);         // U49 — only for data predating the flag; a fresh seed sets it false explicitly
     need(s, "emptyStateStyle", "drawn"); // U16 — "drawn" or "emoji"
-    need(s, "dashboardLayout", ["hero", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]); // F083
+    need(s, "dashboardLayout", ["hero", "quote", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]); // F083
+    // A layout saved before the quote widget existed has no entry for it, and
+    // an unlisted id sorts to -1 — i.e. above the hero banner. Slot it in
+    // after the hero instead, where it was designed to sit.
+    if (Array.isArray(s.dashboardLayout) && s.dashboardLayout.indexOf("quote") < 0) {
+      const at = s.dashboardLayout.indexOf("hero");
+      s.dashboardLayout.splice(at < 0 ? 0 : at + 1, 0, "quote");
+      dirty = true;
+    }
     need(s, "locale", "en");            // F099
     need(s, "currency", "USD");         // what an outside-school fee is billed in
     // Sharing an outside-school commitment with a parent is the default: they
@@ -663,7 +676,7 @@
   };
   S.importDeck = function (json, classId) {
     const parsed = JSON.parse(json);
-    if (!parsed || !Array.isArray(parsed.cards)) throw new Error("That doesn't look like a Scholar deck file.");
+    if (!parsed || !Array.isArray(parsed.cards)) throw new Error("That doesn't look like a StudyHold deck file.");
     const cards = parsed.cards.map((c) => Object.assign({}, c, { id: U.uid("c") }));
     return S.insert("decks", { name: parsed.name || "Imported deck", classId: classId || null, cards });
   };
@@ -725,7 +738,7 @@
 
   S.busClock = function () { return S.settings.commute; };
 
-  /* -------------------------------------- F154 outside-school activities */
+  /* -------------------------------------- F156 outside-school activities */
 
   /**
    * A fee, formatted in the family's own currency.
