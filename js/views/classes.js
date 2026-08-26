@@ -245,13 +245,20 @@ App.views.classes = (function () {
   }
 
   function periodsEditor(onDone) {
+    // F157 — a period a parent added shows who added it. The badge sits on its
+    // own line rather than in the input row: dropping it into that flex row
+    // squeezed the two time fields on a narrow screen, and only some rows
+    // would carry one, so the columns stopped lining up.
     const rows = () => S.db.periods.map((p) => `
-      <div class="row gap-8" data-period="${p.id}" style="margin-bottom:8px">
-        <input class="input grow" value="${U.esc(p.name)}" data-p-name aria-label="Period name" />
-        <input class="input" type="time" value="${p.start}" data-p-start style="width:120px" aria-label="Start" />
-        <span class="dim">→</span>
-        <input class="input" type="time" value="${p.end}" data-p-end style="width:120px" aria-label="End" />
-        <button type="button" class="icon-btn" data-del-p title="Remove">✕</button>
+      <div data-period="${p.id}" style="margin-bottom:8px">
+        <div class="row gap-8">
+          <input class="input grow" value="${U.esc(p.name)}" data-p-name aria-label="Period name" />
+          <input class="input" type="time" value="${p.start}" data-p-start style="width:120px" aria-label="Start" />
+          <span class="dim">→</span>
+          <input class="input" type="time" value="${p.end}" data-p-end style="width:120px" aria-label="End" />
+          <button type="button" class="icon-btn" data-del-p title="Remove">✕</button>
+        </div>
+        ${UI.byBadge(p) ? `<div class="mt-4">${UI.byBadge(p)}</div>` : ""}
       </div>`).join("");
 
     UI.modal({
@@ -287,7 +294,13 @@ App.views.classes = (function () {
         });
       },
       onSubmit(_d, root) {
+        // Spread the stored period first. This form rebuilt each row from
+        // scratch, so anything not represented by one of its three inputs was
+        // silently dropped on save — which as of F157 includes the addedBy /
+        // editedBy stamps saying a parent set this schedule up. Opening the
+        // editor and pressing Save was enough to erase that.
         const next = U.$$("[data-period]", root).map((row) => ({
+          ...(S.byId("periods", row.dataset.period) || {}),
           id: row.dataset.period,
           name: row.querySelector("[data-p-name]").value.trim() || "Period",
           start: row.querySelector("[data-p-start]").value || "08:00",
@@ -502,6 +515,7 @@ App.views.classes = (function () {
                <button class="btn" data-edit>Edit</button>
                <button class="btn btn-primary" data-close>Done</button>`,
       body: `
+        ${UI.byBadge(c) ? `<div class="row gap-8 wrap mb-12">${UI.byBadge(c)}</div>` : ""}
         <div class="row gap-16 wrap mb-16">
           <div class="row gap-12">
             ${UI.gradePill(pct, true)}
@@ -645,6 +659,7 @@ App.views.classes = (function () {
               <span class="badge">Rm ${U.esc(c.room || "—")}</span>
               <span class="badge">${U.esc(c.days.join(" ") || "Not scheduled")}</span>
               ${open ? `<span class="badge warn">${open} open</span>` : `<span class="badge ok">Clear</span>`}
+              ${UI.byBadge(c)}
             </div>
           </div>
         </div>`;

@@ -255,6 +255,27 @@
       if (a.addedBy === undefined) { a.addedBy = ""; dirty = true; }          // "" = the student; otherwise a guardian's name
     });
 
+    // F157 — provenance on everything an authorized adult can now write.
+    //
+    // The op route (netlify/functions/api.js) stamps `addedBy`/`addedAt` when
+    // somebody other than the student creates a record and `editedBy`/
+    // `editedAt` when they change one the student made. Records that predate
+    // the feature carry neither, and so does everything the student writes on
+    // their own device — which is the overwhelming case and the reason "" is
+    // the right default rather than a name.
+    //
+    // Backfilling matters because changesByOthers() below sorts on these
+    // fields: leaving them undefined is survivable for a badge, but it makes
+    // the log's ordering depend on which build wrote each record.
+    ["assignments", "classes", "periods", "events"].forEach((key) => {
+      if (!Array.isArray(db[key])) return;
+      db[key].forEach((r) => {
+        if (!r || typeof r !== "object") return;
+        if (r.addedBy === undefined) { r.addedBy = ""; dirty = true; }   // "" = the student themselves
+        if (r.editedBy === undefined) { r.editedBy = ""; dirty = true; }
+      });
+    });
+
     // Habits are dereferenced as h.log[dateKey] during the Goals render, and
     // goals as g.current in the progress bar. Backfill both so a record from
     // an older build, or a hand-edited import, can't take the view down.
@@ -1099,6 +1120,45 @@
   // revokeApiToken, addWebhook, listWebhooks, removeWebhook) and are issued
   // and stored by the backend. The local `apiTokens` / `webhooks` collections
   // are kept only as a display cache of what the server reported.
+
+  /* ------------------------------ F157 — what somebody else did to my data */
+
+  /**
+   * Every record in this account that a parent or teacher created or changed,
+   * newest first.
+   *
+   * There is deliberately no server call here. The op journal on the backend
+   * keeps only the last 60 operations and exists to merge a stale push, not to
+   * be read — so a change from two weeks ago has long fallen out of it. The
+   * *records* carry their own provenance, though, and they are already on the
+   * device, so the log is derived rather than fetched. That also means it is
+   * honest offline and can't disagree with what the student is looking at.
+   *
+   * The trade-off is that a deletion leaves no trace: the record it happened
+   * to is gone, and nothing local remembers it. Surfacing deletions would need
+   * a real audit store, which is a bigger change than this is worth today.
+   */
+  S.changesByOthers = function (limit) {
+    const out = [];
+    const labels = { assignments: "assignment", classes: "class", periods: "period", events: "event" };
+    Object.keys(labels).forEach((key) => {
+      (Array.isArray(S.db[key]) ? S.db[key] : []).forEach((r) => {
+        if (!r || typeof r !== "object") return;
+        // editedBy wins when a record was created by one person and later
+        // changed by another: the change is the newer fact, and it is the one
+        // the student hasn't seen yet.
+        if (r.editedBy) {
+          out.push({ id: r.id, kind: labels[key], collection: key, action: "edited",
+                     by: r.editedBy, at: Number(r.editedAt) || 0, title: r.title || r.name || "Untitled" });
+        } else if (r.addedBy) {
+          out.push({ id: r.id, kind: labels[key], collection: key, action: "added",
+                     by: r.addedBy, at: Number(r.addedAt) || 0, title: r.title || r.name || "Untitled" });
+        }
+      });
+    });
+    out.sort((a, b) => b.at - a.at);
+    return limit ? out.slice(0, limit) : out;
+  };
 
   // Exposed so importJSON()/replaceAll() in store.js can re-run it after a
   // wholesale data swap. Those only run the older v1/v2 migrate(), so a backup

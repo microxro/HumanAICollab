@@ -20,14 +20,19 @@ App.views.calendar = (function () {
     S.db.events.filter((e) => e.date === iso).forEach((e) => out.push({
       kind: "event", id: e.id, title: e.title, start: e.start, end: e.end,
       color: e.classId ? S.classColor(e.classId) : "#64748b",
-      sub: e.type, location: e.location
+      sub: e.type, location: e.location,
+      // F157 — carried through the projection so the day list can say who put
+      // this here. Dropping them here is what made a parent-added event
+      // indistinguishable from one the student wrote themselves.
+      addedBy: e.addedBy, editedBy: e.editedBy
     }));
 
     S.db.assignments.filter((a) => a.due === iso).forEach((a) => out.push({
       kind: "due", id: a.id, title: a.title, start: "",
       color: S.classColor(a.classId),
       sub: (a.status === "done" ? "✓ " : "Due · ") + S.className(a.classId),
-      done: a.status === "done"
+      done: a.status === "done",
+      addedBy: a.addedBy, editedBy: a.editedBy
     }));
 
     if (includeSchedule) {
@@ -204,6 +209,7 @@ App.views.calendar = (function () {
               <div class="title truncate" style="${it.done ? "text-decoration:line-through;opacity:.6" : ""}">${U.esc(it.title)}</div>
               <div class="meta truncate">${U.esc([it.sub, it.location].filter(Boolean).join(" · "))}</div>
             </span>
+            ${UI.byBadge(it)}
             <span class="badge">${U.esc(it.kind)}</span>
           </div>`).join("")}</div>`
         : UI.emptyState("eventsToday", "Nothing on this day", "Add an event to fill it in.")}`,

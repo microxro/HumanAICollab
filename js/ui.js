@@ -857,6 +857,36 @@ App.ui = (function () {
     return `<button type="button" class="help-hint" data-help="${U.esc(text)}" aria-label="What's this?">?</button>`;
   }
 
+  /**
+   * F157 — "somebody else put this here".
+   *
+   * A parent can now write into a student's records, and a record that
+   * appeared without the student doing anything is confusing at best. The
+   * server stamps `addedBy` on creation and `editedBy` on a change to
+   * something that already existed; the two are worth telling apart, because
+   * "your mum added this" and "your mum changed the one you made" are
+   * different things to discover.
+   *
+   * Empty means the student did it themselves — the overwhelming case, and
+   * deliberately rendered as nothing at all rather than "Added by you".
+   *
+   * `addedBy` is checked first on purpose. When a parent both created a record
+   * and later changed it, both stamps are set, and "somebody else put this in
+   * my list" is the more useful of the two facts. (S.changesByOthers() orders
+   * the other way round, because there the question is what happened most
+   * recently, not where the record came from.)
+   */
+  function byBadge(rec) {
+    if (!rec) return "";
+    if (rec.addedBy) {
+      return `<span class="badge" title="Added by someone with access to your account">Added by ${U.esc(rec.addedBy)}</span>`;
+    }
+    if (rec.editedBy) {
+      return `<span class="badge" title="Changed by someone with access to your account">Edited by ${U.esc(rec.editedBy)}</span>`;
+    }
+    return "";
+  }
+
   let openHelp = null, openHelpBtn = null;
   function closeHelpNode() {
     if (!openHelp) return;
@@ -906,6 +936,6 @@ App.ui = (function () {
     associateLabels, makeActivatable, bindActivationKeys, busy,
     avatar, emptyState, classOptions, teacherOptions,
     colorPicker, bindSwatches, dayPicker, bindDays,
-    gradePill, priorityBadge, dueBadge, menu, helpHint
+    gradePill, priorityBadge, dueBadge, menu, helpHint, byBadge
   };
 })();

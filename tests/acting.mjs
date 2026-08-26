@@ -17,6 +17,8 @@
        with the parent's
      • edits are diffed into record-level ops — including edits made through
        commit(fn), which no mutation hook would ever see
+     • and every record an adult touched says so, in the views and in one
+       change log, so nothing appears in a student's account anonymously
 
    Run: node tests/acting.mjs   (needs a static server, see tests/run.mjs)
    ========================================================================== */
@@ -191,6 +193,123 @@ ok("and so does the view", rendered.viewPainted);
 ok("the acting-as bar is shown", rendered.barShown);
 ok("and it names whose account you're in", rendered.barNames);
 ok("it goes away when you leave", rendered.barHiddenAfter);
+
+/* --------------------------------------------------- who changed what --- */
+/*
+ * A parent now writes into records the student is looking at. A class that
+ * appears on the timetable without the student adding it is confusing at best
+ * and alarming at worst, so every record an adult touched has to say so — and
+ * there has to be one place that answers "what changed?" without hunting
+ * through five views.
+ *
+ * The stamps come from the server (netlify/functions/api.js stamps addedBy on
+ * create and editedBy on a change). Here they are written directly, because
+ * what is under test is the rendering, not the route.
+ */
+console.log("\nattribution: a record somebody else touched says who");
+
+await page.evaluate(() => localStorage.clear());
+await page.reload({ waitUntil: "networkidle" });
+await page.waitForFunction(() => window.App && App.store && App.store.db, null, { timeout: 15000 });
+await page.waitForTimeout(400);
+const w2 = await page.$(".modal [data-close]");
+if (w2) { await w2.click(); await page.waitForTimeout(250); }
+
+await page.evaluate(() => {
+  const S = App.store;
+  if (S.loadDemo) S.loadDemo();
+  S.db.settings.onboarded = true;
+  S.commit((db) => {
+    db.classes[0].addedBy = "Mum";  db.classes[0].addedAt = Date.now() - 3600e3;
+    db.periods[0].addedBy = "Mum";  db.periods[0].addedAt = Date.now() - 7200e3;
+    // Two assignments, not all of them. Stamping the whole demo set pushed
+    // the class and the period past changesByOthers()' limit and made this
+    // read as a missing feature rather than a full page of results.
+    db.assignments[1].addedBy = "Mum"; db.assignments[1].addedAt = Date.now();
+    db.assignments[0].addedBy = "";
+    db.assignments[0].editedBy = "Dad";
+    db.assignments[0].editedAt = Date.now();
+  });
+});
+await page.waitForTimeout(250);
+
+const log = await page.evaluate(() => App.store.changesByOthers(20).map((c) => `${c.by}|${c.action}|${c.kind}`));
+ok("the change log finds an added class", log.includes("Mum|added|class"), JSON.stringify(log.slice(0, 4)));
+ok("and a period", log.includes("Mum|added|period"));
+ok("and tells an edit apart from an add", log.includes("Dad|edited|assignment"));
+
+const ownOnly = await page.evaluate(() => {
+  App.store.commit((db) => {
+    db.classes.forEach((c) => { c.addedBy = ""; c.editedBy = ""; });
+    db.periods.forEach((p) => { p.addedBy = ""; p.editedBy = ""; });
+    db.assignments.forEach((a) => { a.addedBy = ""; a.editedBy = ""; });
+    db.events.forEach((e) => { e.addedBy = ""; e.editedBy = ""; });
+  });
+  return App.store.changesByOthers(20).length;
+});
+ok("a student who did everything themselves has an empty log", ownOnly === 0, String(ownOnly));
+
+await page.evaluate(() => {
+  App.store.commit((db) => {
+    db.classes[0].addedBy = "Mum";
+    db.periods[0].addedBy = "Mum";
+    db.assignments.forEach((a) => { a.addedBy = "Mum"; a.addedAt = Date.now(); });
+  });
+});
+
+const badged = await page.evaluate(async () => {
+  const seen = {};
+  const by = (sel) => [...document.querySelectorAll(sel)]
+    .map((b) => b.textContent.trim()).filter((t) => /^(Added|Edited) by /.test(t));
+
+  App.router.go("homework");
+  await new Promise((r) => setTimeout(r, 500));
+  seen.homework = by(".hw-sub .badge").length;
+
+  App.router.go("classes");
+  await new Promise((r) => setTimeout(r, 500));
+  seen.classes = by("[data-class] .badge").length;
+
+  App.views.classes.periodsEditor();
+  await new Promise((r) => setTimeout(r, 350));
+  seen.periods = by(".modal [data-period] .badge").length;
+
+  // Saving the bell schedule used to rebuild every period from the three
+  // inputs in its row, dropping the stamps entirely. Opening this editor and
+  // pressing Save was enough to erase who set the schedule up.
+  [...document.querySelectorAll(".modal button")].find((b) => /Save schedule/.test(b.textContent)).click();
+  await new Promise((r) => setTimeout(r, 350));
+  seen.periodStampsSurviveSave = App.store.db.periods.filter((p) => p.addedBy).length;
+
+  return seen;
+});
+
+ok("assignment rows carry the badge", badged.homework > 0, String(badged.homework));
+ok("class cards carry it", badged.classes > 0, String(badged.classes));
+ok("bell-schedule rows carry it", badged.periods > 0, String(badged.periods));
+ok("and saving the bell schedule doesn't erase the stamps",
+   badged.periodStampsSurviveSave > 0, String(badged.periodStampsSurviveSave));
+
+const shared = await page.evaluate(async () => {
+  App.router.go("sharing");
+  await new Promise((r) => setTimeout(r, 600));
+  return {
+    card: [...document.querySelectorAll(".card-head h3")].map((h) => h.textContent.trim())
+      .includes("Changes by your parents"),
+    rows: document.querySelectorAll("[data-go].list-item").length
+  };
+});
+ok("the Sharing view shows the change log", shared.card);
+ok("with a row per change", shared.rows > 0, String(shared.rows));
+
+/* The badge is escaped: a guardian's display name is somebody else's input. */
+const escaped = await page.evaluate(() => {
+  const html = App.ui.byBadge({ addedBy: '<img src=x onerror=alert(1)>' });
+  return { hasRaw: html.indexOf("<img") !== -1, hasEscaped: html.indexOf("&lt;img") !== -1 };
+});
+ok("a guardian's name is escaped in the badge", !escaped.hasRaw && escaped.hasEscaped, JSON.stringify(escaped));
+ok("a record nobody else touched renders no badge",
+   await page.evaluate(() => App.ui.byBadge({ addedBy: "", editedBy: "" }) === ""));
 
 ok("no uncaught page errors", errors.length === 0, errors.slice(0, 2).join(" | "));
 

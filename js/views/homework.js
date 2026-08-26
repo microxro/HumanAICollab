@@ -349,6 +349,7 @@ App.views.homework = (function () {
           ${a.submitted ? `<span class="badge ok">Submitted${a.submissionMethod ? " · " + U.esc(a.submissionMethod) : ""}</span>` : ""}
           ${late ? `<span class="badge danger">Est. ${late.daysLate}d late · -${late.pctOff}%</span>` : ""}
           ${a.snoozeUntil ? `<span class="badge">😴 Snoozed until ${U.esc(U.fmtDate(a.snoozeUntil))}${a.snoozeReason ? " · " + U.esc(a.snoozeReason) : ""}</span>` : ""}
+          ${UI.byBadge(a)}
         </div>
 
         ${blockedBy.length ? `<div class="conflict-banner">🔒 <span>Blocked by ${blockedBy.map((x) => U.esc(x.title)).join(", ")} — finish ${blockedBy.length === 1 ? "it" : "those"} first.</span></div>` : ""}
@@ -840,6 +841,7 @@ App.views.homework = (function () {
             ${a.subtasks && a.subtasks.length
               ? `<span class="tiny dim">· ${a.subtasks.filter((s) => s.done).length}/${a.subtasks.length} steps</span>` : ""}
             ${a.graded ? `<span class="badge ok">${a.earned}/${a.points}</span>` : ""}
+            ${UI.byBadge(a)}
           </div>
           ${prog > 0 && prog < 1 ? `<div class="bar thin" style="margin-top:6px;max-width:220px"><i style="width:${prog * 100}%"></i></div>` : ""}
         </span>
