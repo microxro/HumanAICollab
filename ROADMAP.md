@@ -132,18 +132,21 @@ Saturday squad session and the lesson in the holidays disappeared. Outside-schoo
 activities are no longer bound to the school calendar; school clubs still are,
 because a club really doesn't meet when the school is shut.
 
-**Parents can add one.** The parent portal is read-only by design, and that is
-why it is safe to hand a parent, so this is not a write into the student's
-data. A guardian fills in the activity from their portal; it lands as a
-suggestion in the student's Sharing screen, where they add it (their own
-device does the insert, and the record is marked with who suggested it) or
-dismiss it. The server whitelists the posted fields rather than trimming them,
-because the object crosses accounts: no `id` that could collide with one of
-the student's own records, no `javascript:` website, no unknown field at all.
-Whether the student added it is reported back to the parent who sent it.
-Outside-school activities also appear in the parent summary, behind their own
-privacy toggle — school clubs never do, since which clubs someone joined is
-theirs to tell.
+**Parents can add one.** A guardian fills in the activity from their portal;
+it lands as a suggestion in the student's Sharing screen, where they add it
+(their own device does the insert, and the record is marked with who suggested
+it) or dismiss it. The server whitelists the posted fields rather than trimming
+them, because the object crosses accounts: no `id` that could collide with one
+of the student's own records, no `javascript:` website, no unknown field at
+all. Whether the student added it is reported back to the parent who sent it.
+Outside-school activities also appear in the parent summary; school clubs never
+do, since which clubs someone joined is theirs to tell.
+
+This was originally built as a suggestion queue *because* the parent portal was
+read-only, which F157 has since changed — a parent can now write the student's
+records directly. The queue is kept anyway, and is now the milder of the two
+paths rather than the only one: "here's an idea, your call" is a different act
+from putting something in somebody's calendar, and both are worth having.
 
 **Add from a link (F152).** Most of what a student retypes into a school
 tracker is already published on a web page. Paste the link instead: the server
@@ -205,6 +208,39 @@ leaving a class group transfers ownership to the longest-standing member
 instead of deleting the group, which previously took everyone's notes,
 tasks and feed with it.
 
+That was the whole of it for a long time, and it was thinner than it sounded:
+an `authoritative` flag is a rendering decision on a shared blob. No teacher
+route touched a student's records, so a teacher could tell a class what the
+homework was and still had no way to put it in anybody's homework list.
+
+A teacher now links to a student with the same one-time code a parent redeems,
+and the link that results is a *different* link. Which one it is comes from the
+redeeming account's own role, never from the code — which incidentally closed a
+live escalation: `mintLinkCode` refused to issue a code to a non-student, but
+`redeemLinkCode` only refused students, so a teacher who redeemed a code became
+a full guardian. From the **Classroom** screen a teacher sees their roster
+sorted by who is behind rather than alphabetically, and can open a student's
+account and work in it — assignments, bell schedule, scores, all of it —
+through the same acting-as machinery the parent portal uses.
+
+Grades needed no new record type: a grade is `earned`/`points` on an
+assignment, so entering one is an ordinary upsert on the op route, which
+dissolved the hardest-looking part of the requirement.
+
+What a teacher deliberately does not get is the guardian half. Live location,
+check-in requests, guardian notes, focus windows and activity suggestions each
+authorize on `role === "child"`, and a teacher's link is `role === "pupil"`.
+Grading a student is a teacher's job; knowing where they are standing is not,
+and collapsing the two because both are "an adult with a link" is how a
+gradebook turns into a tracker. `tests/teacher.mjs` asserts all five refuse.
+
+The account type is also changeable now (`POST /me`), which it never was — the
+role was fixed at signup and anyone who picked wrong was stuck in the wrong
+app. It refuses while any link exists, because the role is what decides what a
+link *means*, and flipping it underneath would silently re-grade every link the
+account already holds. Unlink, switch, re-link — which puts the student back in
+the loop, where they belong.
+
 **F100 — public API and webhooks.** Server-minted `sk_`-prefixed tokens
 stored in Blobs and redeemable without a session, generalising the pattern
 the ICS feed already uses; the full value is shown once at mint time because
@@ -222,6 +258,76 @@ during the sync that caused the change, with the outcome recorded on the hook
 for the owner to see. Retries would need infrastructure this deploy doesn't
 have, and claiming them would have been a lie in the docs rather than a
 feature in the code.
+
+**F157 — a parent works inside the account, not beside it.** The parent portal
+showed a summary and let a guardian drop a suggestion in a queue. What was
+wanted was the real thing: a parent adds the bell schedule and the assignments,
+in the student's actual records, and the student sees them.
+
+The obvious implementation is the one that loses a database. Sync sends the
+**whole** DB against a `baseVersion`, and there is no merge logic anywhere in
+this codebase — `handleConflict()` offers a human two buttons, each of which
+discards one side's edits entirely. So any server-side change to a student's
+state bumps the version and forces a 409 on their next push, turning every
+parent edit into a conflict prompt over a whole term of work. `api.js` had
+already named this as the reason the `/v1` API is read-only: "a second design
+problem rather than a longer endpoint list."
+
+So parent and teacher edits are not pushes. `POST /subject-ops` applies typed,
+record-level `upsert`/`delete` operations to one collection at a time
+(`assignments`, `classes`, `periods`, `events`), each whitelist-sanitized into
+a freshly constructed object — the `cleanSuggestedActivity` technique, for its
+reasons: an id from another account can never collide with one of the student's
+own, and every scalar is bounded. Authorization is resolved from the session's
+link, never from the body. A whole request is validated before any of it is
+applied, so a bad op in the middle can't leave a half-written record.
+
+The merge is the part that makes it honest rather than merely possible. Each
+student's state blob carries a short journal of the ops committed against it.
+When a student pushes at a stale `baseVersion`, the server replays the ops from
+the gap onto the database they sent and stores the result — no prompt, no lost
+work. It replays **only** when every version in the gap is journalled: a
+whole-DB push from a second device is not expressible as record ops, so that
+case still returns a real 409 and still stops for a human. Getting that
+backwards would silently drop a device's work, which is worse than the conflict
+it replaced.
+
+On the client, "acting as" re-points the store at another user's dataset under
+a subject-scoped `localStorage` key. Because all 22 views already read `S.db`
+and nothing else, none of them needed changing — a parent gets the whole real
+app pointed at their child's records. Two guards carry the weight, and both are
+checked before anything else can return first: a whole-DB push and a pull are
+refused outright while somebody else's records are loaded, because `PUT /sync`
+writes `state[myOwnId]` and would file the child's database under the parent's
+name. Edits are turned into ops by **diffing** rather than by intercepting
+mutations, because the store exposes `insert`/`update`/`remove` *and* a general
+`commit(fn)` that hands out the raw database, and views use both; hooking the
+first three would silently fail to sync whatever went through the fourth.
+
+Every change an adult makes is attributed — a badge on the record, and a log in
+Sharing listing everything somebody else touched, derived from the records on
+the device so it works offline and can't disagree with what the app is showing.
+Deletions are the gap: the record is gone and nothing local remembers it.
+
+Two things fell out of building it. The calendar dropped the provenance fields
+when projecting events into day items, and saving the bell schedule rebuilt
+every period from the three inputs in its row — so opening that editor and
+pressing Save erased who set the schedule up.
+
+**The privacy toggles are gone, and this is a real reduction.** A student had
+four switches over what a parent could see; three of them were about a parent,
+and a parent can now open the account and change the underlying records. A
+switch that hides the *summary* of work somebody can already read and edit is
+worse than no switch, because the student would believe it. What is left is a
+plain statement of what a linked parent can do, the change log, and the ability
+to remove the link. Peer sharing stays a toggle — it governs what other
+students see, which is a different relationship. Removing the rest also
+surfaced a live bug: `cleanSummary()` is an allow-list whose own docstring
+warns that a forgotten field vanishes in silence, and it had forgotten
+`currency` and `activities`. The parent portal's entire "Outside school"
+section had therefore never rendered for anyone, and a euro fee was labelled in
+dollars. Both are fixed, and `tests/security.mjs` now round-trips every field
+the client sends.
 
 A later pass cleared the seven group-collaboration items that had been
 listed here as blocked: F054–F057 and F061–F063 (shared project calendar,

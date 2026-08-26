@@ -1,11 +1,12 @@
 # Testing
 
-`npm test` runs everything. Twenty-two suites, roughly four minutes.
+`npm test` runs everything. Twenty-seven suites, roughly five minutes.
 
 Individual suites: `npm run test:node`, `test:security`, `test:api`,
 `test:teacher`, `test:browser`, `test:a11y`, `test:abuse`, `test:controls`,
 `test:inventory`, `test:concurrency`, `test:hardening`, `test:guidance`,
-`test:urlguard`, `test:authwall`, `test:activities`, `test:portal`.
+`test:urlguard`, `test:authwall`, `test:activities`, `test:portal`,
+`test:acting`, `test:shop`, `test:depth`, `test:mobile`, `test:quotes`.
 
 Browser suites need a static server on port 8899; the runner starts one if
 nothing is already listening, and stops it afterwards.
@@ -17,17 +18,18 @@ nothing is already listening, and stops it afterwards.
 | `migration` | A stored payload from **any** historical build still boots — v1, v2, an early-v3 dataset missing later fields, and a hostile one full of nulls and wrong types. This is the class of bug that took the deployed app down. |
 | `assets` | `index.html` and `sw.js` agree: every module the page loads is precached, every precached path exists, the cache version has moved off its default, and the shell isn't served stale-first. |
 | `email` | Outbound mail reports what actually happened. Covers the sandbox-sender 403 specifically, since that is what "a valid key that sends nothing" looks like. |
-| `security` | The attacks a tester runs: role coercion, account enumeration, parallel brute force, session revocation, malformed blob keys, cross-account writes, guardian escalation, the sync race, and the `force` bypass. |
+| `security` | The attacks a tester runs: role coercion, account enumeration, parallel brute force, session revocation, malformed blob keys, cross-account writes, guardian escalation, the sync race, and the `force` bypass. Then F157's two halves: that a parent's record-level edit and a student's stale whole-DB push both survive with neither losing work, and that a gap the op journal *can't* explain still returns a real 409 rather than quietly dropping a device's data. Plus a round trip of every field `pushLocation()` sends, because `cleanSummary()` is an allow-list and a field it forgets disappears in silence — which had already happened twice. |
 | `api` | F100 — token minting and redemption, cross-account isolation, every `/v1` route, revocation, and all ten webhook SSRF vectors, with the signature verified the way a receiver would. |
-| `teacher` | F059 — role persistence, authoritative posts, broadcast to several class groups, and ownership transfer when a teacher leaves. |
+| `teacher` | F059 — role persistence, authoritative posts, broadcast to several class groups, and ownership transfer when a teacher leaves. Then the teacher *link*: that redeeming a student's code as a teacher produces `role: "pupil"` and not a guardian link, that all five guardian-only routes (check-in, focus window, note, activity suggestion, live location) still answer **403** specifically rather than merely not-200, that a teacher can add an assignment and a bell schedule to a linked student and enter a score as an ordinary upsert, that the roster's numbers match, and that the account type can be changed but not while a link exists. |
+| `acting` | F157 — working inside somebody else's account without wrecking your own. Two datasets under two `localStorage` keys, neither able to reach the other; a whole-DB push and a pull both refused while a student's records are loaded, because `PUT /sync` writes `state[myOwnId]` and would file the child's database under the parent's name; every edit becoming an op **including one made through `commit(fn)`**, which no mutation hook would see; and that the shell actually paints in a subject's dataset, which caught a real crash. Then attribution: the badge on assignment rows, class cards and bell-schedule rows, that saving the bell schedule doesn't erase the stamps, the change log in Sharing, and that a guardian's name is escaped. |
 | `boot` | The app starts and stays interactive from a stale-schema payload, the welcome wizard is dismissed permanently, and a throwing view shows a recoverable panel rather than a dead page. |
 | `xss` | Hostile input in every field that reaches an href or an attribute, across eight views. A payload that executes sets a flag the test reads. |
 | `resilience` | Storage full, corrupt saved data, Escape on a confirm dialog, runaway recurrence, and the non-mutating what-if calculation. |
 | `correctness` | The app must not display a confident wrong number: NaN, blank-becomes-zero, timezone-shifted dates, midnight sorting, and a focus timer that banked 25 minutes for a skip. |
-| `a11y` | axe (wcag2a/2aa/21a/21aa) across all 23 views in both themes. Zero critical or serious violations. |
+| `a11y` | axe (wcag2a/2aa/21a/21aa) across all 24 views in both themes. Zero critical or serious violations. |
 | `keyboard` | What axe can't see: whether Enter actually opens a thing, whether a success toast is true, whether a delete can be undone. |
 | `abuse` | Oversized/RTL/emoji/injection text, NaN and Infinity scores, dates from 1900 to 9999, 500 assignments, an empty database, a prototype-pollution import, and all eight theme combinations. |
-| `controls` | Clicks all ~214 interactive controls in all 23 views and asserts each observably does something. Catches the "renders but does nothing" defect. |
+| `controls` | Clicks all ~214 interactive controls in all 24 views and asserts each observably does something. Catches the "renders but does nothing" defect. |
 | `inventory` | Every one of the 150 roadmap items is either marked in source or documented as blocked. Prints the built/blocked/unaccounted table. |
 | `concurrency` | Two people writing the same blob in the same instant. Every case fires both requests with `Promise.all` and asserts **both** edits survived — group notes, tasks, comments, joins, challenge totals, guardian notes, check-ins and friend requests. This is the failure mode that returns 200 twice and silently loses one of them. |
 | `authwall` | Every endpoint, attacked. Walks the whole route table of both functions and tries each one with no token, garbage, a token signed with a different secret, an expired token, a token whose subject was swapped to someone else's, and an `sk_` that was never minted — 68 API routes and 7 AI routes against 8 credentials each. Then cross-account authorization, CORS, revocation, malformed path segments, the write ceiling, the scheduled digest's invocation guard, and the deployed security headers. A route added later without auth fails the completeness check rather than going unnoticed. |

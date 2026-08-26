@@ -55,9 +55,36 @@ forged credential.
 - **Netlify Blobs is the trust store.** Anyone with the site's Netlify
   credentials can read everything. Protect that account with 2FA.
 - **A student's own data is not encrypted at rest beyond what Blobs provides.**
-  Location history in particular is sensitive; retention is capped and the
-  parent portal only ever sees the privacy-filtered summary the student's own
-  device pushes.
+  Location history in particular is sensitive, and retention is capped.
+- **A linked adult sees and edits everything in the student's account.** This
+  document used to promise the opposite — that the parent portal only ever saw
+  a privacy-filtered summary — and that is no longer true, so it is corrected
+  here rather than left standing. The per-field sharing toggles are gone
+  (F157). A parent who redeems a link code can open the student's account and
+  work in it: assignments, classes, bell schedule, scores, notes, everything.
+  There is nothing the student can withhold from a linked parent short of
+  removing the link, which they can do at any time.
+
+  Two things bound it, and both are deliberate:
+
+  - **The student starts every link.** Codes are minted only by a student
+    account, are single-use, expire in 24 hours, and redemption is rate-limited
+    to ten attempts an hour. Nobody attaches themselves to an account without
+    the student generating a code and handing it over.
+  - **Every change is attributed.** The server stamps `addedBy`/`editedBy` with
+    the name of whoever made the change, the views show it on the record, and
+    the Sharing screen lists every change made by somebody else. Deletions are
+    the gap: the record they happened to is gone and nothing local remembers
+    it, so they do not appear in that log.
+
+- **A teacher link is not a guardian link.** A teacher redeeming a code gets
+  `role: "pupil"` and academic write access only. Live location, check-in
+  requests, guardian notes, focus windows and activity suggestions each check
+  `role === "child"` at their own call site and refuse a teacher — asserted in
+  `tests/teacher.mjs`. Which authority a link grants is derived from the
+  redeeming account's role, never from the code and never from the request
+  body, so renaming your own account type buys no reach into anyone else's
+  records (`tests/authwall.mjs`).
 
 ## Reporting
 
