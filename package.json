@@ -23,7 +23,8 @@
     "test:quotes": "node tests/quotes.mjs",
     "test:mobile": "node tests/mobile.mjs",
     "test:urlguard": "node tests/urlguard.mjs",
-    "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs"
+    "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs",
+    "test:shop": "node tests/shop.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1"

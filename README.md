@@ -104,14 +104,15 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 
 ### Academics
 - **Homework** — **natural-language quick add** (`calc pset due friday high 45m 50pts` parses into a structured assignment, showing you what it understood first), list *and* drag-and-drop kanban, checklists, priorities, filters, search.
-- **Classes** — CRUD with weighted grading categories, **file attachments** (syllabi, rubrics, photos) in IndexedDB, and per-class colors used consistently everywhere.
+- **Classes** — CRUD with weighted grading categories, **file attachments** (syllabi, rubrics, photos) in IndexedDB, and per-class colors used consistently everywhere. A class does **not** have to sit in the bell schedule: an extracurricular that assigns homework — a robotics team, a Saturday academy, a dual-enrollment course — carries its own start and end times instead of a period, keeps a full grade book, and appears on the timetable in its own row and in the day-by-day agenda.
 - **Grades** — weighted grade book with **drop-lowest / curve / extra-credit rules**, weighted & unweighted GPA, **cumulative GPA across terms**, trend charts with **least-squares end-of-term projection**, a per-assignment what-if calculator, a **"what do I need on everything that's left"** target planner, and a **missing-work tracker** that shows how many points each zero costs and drafts the email to your teacher.
 
 ### Study
-- **Focus timer** — Pomodoro with configurable rounds, progress ring, WebAudio chime, auto-logging to a class.
+- **Focus timer** — Pomodoro with configurable rounds, a Custom length, progress ring, and auto-logging to a class. The alarm is a real alarm: a repeated multi-note pattern through one audio session that's opened on a user gesture (browsers start an AudioContext suspended otherwise, which is exactly how a timer ends up ringing silently), with vibration alongside, eight selectable voices, a volume control, and a choice about whether quiet hours mute it or just turn it down.
 - **Flashcards** — Leitner spaced repetition, plus **multiple-choice and type-the-answer quiz modes** with forgiving answer matching.
 - **Notes** — **Markdown** editor with live preview, and **one-click note → flashcard deck** extraction from "term — definition" lines.
 - **Reading** — books and chapter assignments with pages-per-day pacing and behind/ahead detection.
+- **Token shop** — tokens earned only from work the app already tracks (focus minutes, finished assignments, streak days, flashcard reviews, reading, habits, goals), spent across four tiers — **Common, Rare, Ultra and Elite**, the top of which runs to 1000 tokens. Every item does something real: accent palettes, avatar frames, dashboard banners, worn titles and stickers, alarm voices, streak freezes, and timed earning multipliers. Nothing costs money, nothing is random, and no feature that was free is behind it.
 
 ### Life
 - **Activities** — practices, clubs, and volunteering with hour logging. Optionally date-bounded (a season that starts and ends on real dates, not just "Fall"). **"Add with AI"** *(needs `GEMINI_API_KEY`)* turns a plain-English description ("swimming 6-6:45pm weekdays, Sept 5 to Oct 25") or a photo of a schedule or bell-times page into editable drafts — nothing saves until you review and confirm each one.
@@ -119,8 +120,11 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 - **Applications** — college and scholarship tracker with deadlines, essay status, recommendation-letter tracking, and a **pre-written recommendation request email**.
 - **Contacts** — teacher directory with office hours and one-tap pre-filled email.
 
-### Connect *(needs an account)*
-- **Sharing** — privacy toggles and a live preview of exactly what a parent sees.
+### Connect *(needs an account — and none of it is required)*
+
+A student account stands on its own. Classes, homework, grades, schedule, extracurriculars, focus timer **and focus windows**, notes to yourself, flashcards, goals, applications and the token shop are all fully create/read/write with no linked parent, no linked teacher, and no account at all. Linking only adds what someone *else* can see.
+
+- **Sharing** — privacy toggles, a live preview of exactly what a parent sees, focus windows you set for yourself (or agree to when a guardian proposes one), and notes you leave yourself.
 - **Study groups** — shared flashcard decks and a **crowdsourced "what was the homework?" feed** with confirmations, one tap to add a post to your own homework list.
 - **Parent portal** — link with a single-use code, then see live status, screen time, attendance, upcoming work, and (if shared) grades.
 
@@ -172,10 +176,12 @@ js/
   idb.js                IndexedDB attachment storage
   notify.js             Reminder scheduler
   geo.js                Geolocation, geofencing, live status
+  sound.js              The focus alarm: one gesture-unlocked audio session
+  shop.js               Token economy, the four-tier catalogue, worn cosmetics
   sync.js               Account, cloud sync, groups, parent link client
   planner.js            Auto-scheduler, estimate calibration, overload detection
   app.js                Router, nav, command palette, shortcuts, boot
-  views/                One module per screen (20)
+  views/                One module per screen (23)
 
 netlify/functions/
   api.js                Whole backend, one function, path-routed
@@ -205,7 +211,10 @@ The categorical palette is **validated for colorblind separation and contrast in
 
 ## Testing
 
-Verified end-to-end in Chromium via Playwright: all 20 views render with zero console errors, and the feature suite covers natural-language parsing, plan generation and application, the week grid, quiz mode, markdown and card extraction, the grade target planner and rules editor, reading progress, college app details, **live GPS with a simulated position and geofence**, rotating-schedule switching, undo/restore, and `.ics` export.
+Verified end-to-end in Chromium via Playwright: all 23 views render with zero console errors, and the feature suite covers natural-language parsing, plan generation and application, the week grid, quiz mode, markdown and card extraction, the grade target planner and rules editor, reading progress, college app details, **live GPS with a simulated position and geofence**, rotating-schedule switching, undo/restore, and `.ics` export. `tests/shop.mjs` covers the four newest
+pieces specifically: a student working with no linked parent or teacher, classes that meet outside the
+bell schedule, the timer's Custom segment and its alarm (including that the audio session is actually
+running when it fires), and the token shop's tiers, prices and purchase effects.
 
 ## Browser support
 

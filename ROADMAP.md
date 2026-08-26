@@ -56,6 +56,71 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+**A student on their own.** Focus windows, check-ins and notes were all built
+as things a *linked guardian* does to a student: only a parent account could
+propose a quiet period, only a parent could leave a note, and the cards that
+displayed them rendered nothing at all when nobody was linked. That is the
+wrong default — most students have no parent account, and a feature nobody can
+reach until a second person signs up is not a feature they have.
+
+All three are now self-served as well as guardian-served, entirely locally:
+`startSelfFocusWindow`, `addSelfNote` and `addSelfCheckIn` need no account, no
+link code and no server, and the same cards render both kinds side by side
+(`by: "self"` is the only difference in the record). The Parent portal, opened
+by a student, now says plainly that they do not need a parent account and
+lists what is already theirs, instead of showing them a sign-in prompt for an
+account type they will never have. The signup hint and the Parent-access card
+in Settings say the same thing. One real bug fell out of this: the collection
+holds two record shapes — recurring windows keyed on weekday, one-off windows
+keyed on timestamps — and `activeFocusWindow()` read `w.days.includes(...)`
+unguarded, so a one-off window threw.
+
+**Classes outside the bell schedule.** A class used to be defined by the
+period it occupies, and `classesOnDate()` dropped any class whose `periodId`
+resolved to nothing — so an extracurricular that assigns homework (a robotics
+team, a Saturday academy, a dual-enrollment course) could not be entered at
+all without inventing a fake period for it. Classes now carry either a period
+or their own `start`/`end`, resolved through one selector, `S.classPeriod()`,
+that every reader goes through: the agenda, the ICS feed, contact cards, the
+week's class-minute total. Off-schedule classes match on the weekday in both
+weekly and rotating modes — a Tuesday club is on Tuesday whether the school
+calls it a Day A or a Day B — and they occupy no period, so peer free-period
+matching skips them rather than colliding on a phantom slot.
+
+**The focus alarm actually rings.** The old `ping()` built a fresh
+`AudioContext` at the moment the timer hit zero. Every current browser starts
+one suspended unless it is created or resumed inside a user gesture, and "the
+timer ran out" is not a gesture — so the oscillator played into a suspended
+graph and nothing came out. `js/sound.js` holds one context for the whole app,
+opened on the first real pointer or key event (and again on the timer's own
+Start button), resumed before every play, with an `<audio>` WAV fallback,
+`navigator.vibrate` alongside, and a repeated multi-note pattern rather than a
+single 0.6-second sine nobody hears from across a room. Quiet hours now lower
+the volume instead of removing the sound, because silence at 22:00 is
+indistinguishable from a broken timer; a setting restores the old behaviour.
+The fourth segment reads **Custom** rather than "Custom 25m" — the length
+moved to its tooltip.
+
+**The token shop.** Tokens are earned only from work the app already tracks:
+focus minutes (3 each, plus 20 for finishing the block), a completed
+assignment (45, plus 25 if it wasn't late), a streak day (50, plus 150 every
+seventh), flashcards, reading, habits and goals. Existing XP converted once at
+2× so an established account doesn't arrive at an empty wallet.
+
+Four tiers — **Common** (40–120), **Rare** (150–350), **Ultra** (420–700) and
+**Elite** (800–1000) — across 32 items. Every one of them does something the
+app renders or hands over: accent palettes (the same `[data-accent]`
+mechanism as the free ones in Settings, with values that only become
+selectable once owned), avatar frames, dashboard banners, worn titles and
+stickers, the eight alarm voices, streak freezes, and 2×/3× earning
+multipliers. Nothing is bought with money, nothing is random, and nothing that
+used to be free moved behind it.
+
+Two anti-farm rules, both learned from bugs this codebase already had: an
+assignment pays once ever (`tokensPaid` on the record), so mark-done →
+reopen → mark-done is not a two-click faucet, and a focus block pays per
+minute actually spent, so Start-then-Skip earns what it deserves.
+
 **Add from a link (F152).** Most of what a student retypes into a school
 tracker is already published on a web page. Paste the link instead: the server
 fetches the page, strips it to text, and extracts bell-schedule periods, a

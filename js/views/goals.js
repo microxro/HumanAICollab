@@ -487,9 +487,20 @@ App.views.goals = (function () {
       const iso = el.dataset.date;
       // Toggling would create the property on undefined and throw.
       if (!h.log || typeof h.log !== "object") h.log = {};
-      if (h.log[iso]) delete h.log[iso];
+      const wasOn = !!h.log[iso];
+      if (wasOn) delete h.log[iso];
       else h.log[iso] = true;
       S.commit();
+      // Only today's tick pays, and only the first time: back-filling a week
+      // of boxes is bookkeeping, not work done today, and un-ticking then
+      // re-ticking the same box would otherwise pay twice.
+      if (!wasOn && iso === U.today() && !(h.paidDays || []).includes(iso)) {
+        S.commit((db) => {
+          const rec = db.habits.find((x) => x.id === h.id);
+          if (rec) rec.paidDays = (rec.paidDays || []).concat([iso]).slice(-90);
+        });
+        S.awardTokens(App.shop.RATES.habitCheck, `Habit kept — ${h.name}`, { silent: true });
+      }
     });
   }
 

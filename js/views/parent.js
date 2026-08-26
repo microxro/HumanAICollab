@@ -207,16 +207,81 @@ App.views.parent = (function () {
     </div>`;
   }
 
-  function render() {
-    if (!App.sync.isSignedIn()) {
+  /**
+   * What a STUDENT sees when they open this screen.
+   *
+   * The portal is for a parent's own account, so a student landing here used
+   * to get "Sign in to your parent account" — an instruction that makes no
+   * sense for them and reads as though the app expects a parent to exist
+   * before it's useful. It doesn't: this says so plainly, and offers the one
+   * thing a student might actually want here, which is the code that invites
+   * a parent if they choose to.
+   */
+  function studentPanel(signedIn, role) {
+    if (role === "teacher") {
       return `<div class="page-inner">
         <div class="page-head"><div><h1>${App.i18n.t("parent", "Parent portal")}</h1>
-          <div class="sub">See where your student is and how school is going</div></div></div>
-        ${UI.emptyState("parentSignIn", "Sign in to your parent account",
-          "Create an account with the Parent role, then link to your student with the code they generate.",
-          `<button class="btn btn-primary" data-go="settings">Go to settings</button>`)}
+          <div class="sub">This screen is for a parent's own account</div></div></div>
+        <div class="card">
+          <div class="card-head"><h3>You're signed in as a teacher</h3></div>
+          <div class="card-body col gap-12">
+            <p class="small muted" style="margin:0">The parent portal shows a linked child's status, which
+            is a family relationship rather than a teaching one. Your side of the app is Study groups:
+            post an assignment to every section at once, and students see it marked as official.</p>
+            <div class="row gap-8 wrap">
+              <button class="btn btn-primary" data-go="groups">Open study groups</button>
+              <button class="btn" data-go="settings/account">Account settings</button>
+            </div>
+          </div>
+        </div>
       </div>`;
     }
+
+    return `<div class="page-inner">
+      <div class="page-head"><div><h1>${App.i18n.t("parent", "Parent portal")}</h1>
+        <div class="sub">This screen is for a parent's own account</div></div></div>
+
+      <div class="card mb-16">
+        <div class="card-head"><h3>You don't need a parent account</h3></div>
+        <div class="card-body col gap-12">
+          <p class="small muted" style="margin:0">
+            Every part of StudyHold a student uses — classes, homework, grades, the schedule,
+            extracurriculars, focus timer and windows, notes, flashcards, goals, applications and the
+            token shop — is yours to create, read and edit on your own. Nothing is held back until a
+            parent or a teacher links to you, and nothing here is required.
+          </p>
+          <p class="small muted" style="margin:0">
+            If you <em>do</em> want a parent to see your status, they make their own account with the
+            Parent role and enter a code you generate. You choose what that shows, and you can unlink
+            at any time.
+          </p>
+          <div class="row gap-8 wrap">
+            <button class="btn btn-primary" data-go="sharing">Open Sharing</button>
+            ${signedIn
+              ? `<button class="btn" data-go="settings/account">Generate a link code</button>`
+              : `<button class="btn" data-go="settings/account">Set up an account</button>`}
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="border-left:3px solid var(--info)">
+        <div class="card-body row-top gap-10">
+          <span style="font-size:1.1rem">👪</span>
+          <div class="small muted">
+            <div class="bold" style="color:var(--text)">Are you the parent?</div>
+            <p class="mt-4">Sign out and create an account with the Parent role — a parent account is
+            separate from a student's, which is what keeps the student's data theirs.</p>
+            <button class="btn btn-sm mt-8" data-go="settings/account">Go to account settings</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function render() {
+    if (!App.sync.isSignedIn()) return studentPanel(false);
+    const role = (App.sync.info().user || {}).role;
+    if (role && role !== "parent") return studentPanel(true, role);
 
     if (kids === null) refresh();
 

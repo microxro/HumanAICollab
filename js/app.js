@@ -43,6 +43,8 @@
       { id: "parent",    label: "Parent portal", icon: "◧" }
     ]},
     { group: "More", items: [
+      { id: "shop",      label: "Token shop", icon: "🪙",
+        badge: () => App.shop.affordability().affordable, alert: () => false },
       { id: "analytics", label: "Analytics", icon: "◨" },
       { id: "settings",  label: "Settings",  icon: "⚙" }
     ]}
@@ -341,6 +343,11 @@
     if (html.getAttribute("lang") !== locale) html.setAttribute("lang", locale);
     const ico = document.getElementById("collapseIco");
     if (ico) ico.textContent = S.settings.sidebarCollapsed ? "⇥" : "⇤";
+    // A worn shop accent, frame, or banner is stamped last, because it
+    // overrides the Settings accent set two lines up — and this function runs
+    // on every theme flip and shell-pref change, so anything it doesn't
+    // re-apply is silently taken off.
+    if (App.shop) App.shop.applyCosmetics();
   };
 
   function toggleSidebar() {
@@ -984,6 +991,15 @@
       else router.go("settings");
     });
 
+    // The audio session can only be opened from inside a real user gesture,
+    // and the moment a timer hits zero is not one. Opening it on the first
+    // tap or keypress anywhere in the app is what makes the focus alarm
+    // audible later — see js/sound.js for the whole story.
+    const unlockAudio = () => { if (App.sound) App.sound.unlock(); };
+    document.addEventListener("pointerdown", unlockAudio, { passive: true });
+    document.addEventListener("keydown", unlockAudio);
+    document.addEventListener("touchstart", unlockAudio, { passive: true });
+
     // Subsystems that need the DOM and the store ready.
     registerSW();
     App.sync.init();
@@ -1066,11 +1082,17 @@
     const chip = document.getElementById("profileChip");
     if (!chip) return;
     const p = S.profile;
+    // A bought sticker and title are worn here, which is the one place a
+    // student's name is always on screen — a cosmetic nobody ever sees is a
+    // cosmetic that wasn't worth the tokens.
+    const deco = App.shop ? App.shop.nameDecoration() : { html: "", title: "" };
     chip.innerHTML = `
       ${UI.avatar(p.name, p.color)}
       <span class="grow truncate" style="min-width:0">
-        <div class="small bold truncate">${U.esc(p.name)}</div>
-        <div class="tiny dim truncate">${U.esc(p.grade || "")}</div>
+        <div class="small bold truncate">${U.esc(p.name)} ${deco.html}</div>
+        <div class="tiny truncate">${deco.title
+          ? `<span class="shop-title">${U.esc(deco.title)}</span>`
+          : `<span class="dim">${U.esc(p.grade || "")}</span>`}</div>
       </span>
       <span class="dim">⚙</span>`;
   }

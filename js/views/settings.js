@@ -73,7 +73,8 @@ App.views.settings = (function () {
           </select>
           <span class="hint">A parent account sees a linked student's status. A teacher account posts assignments
           to class groups as official — students see them marked, with no need to confirm each other's guesses.
-          Neither tracks homework of its own.</span>
+          Neither tracks homework of its own. A student account needs neither: every student feature works
+          on its own, and linking a parent or joining a teacher's group is always optional.</span>
         </div>` : ""}
       </div>
       ${!isSignup ? `<p class="mt-8" data-forgot-slot><button type="button" class="btn-link small" data-forgot hidden>Forgot your password?</button></p>` : ""}
@@ -233,12 +234,17 @@ App.views.settings = (function () {
   function linkCard() {
     return `<div class="card mb-16">
       <div class="card-head">
-        <div><h3>Parent access</h3><div class="sub">Generate a code for a parent to link to you</div></div>
+        <div><h3>Parent access</h3><div class="sub">Optional — generate a code for a parent to link to you</div></div>
+        <span class="badge">Optional</span>
       </div>
       <div class="card-body">
         <p class="small muted mb-12">
           Your parent creates their own StudyHold account, then enters this code once.
           They'll see whatever your Sharing toggles allow — nothing more.
+        </p>
+        <p class="small muted mb-12">
+          You never have to do this. Every student feature works fully without a linked parent or
+          teacher, and none of your own data depends on one existing.
         </p>
         <div id="linkCodeBox"></div>
         <button class="btn btn-primary" data-mint-code>Generate a link code</button>
