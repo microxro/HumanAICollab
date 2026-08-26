@@ -425,4 +425,5 @@ AI path uses and the manual form now exposes too.
 | `U48` | **Larger mobile targets** | Hold every interactive element to 44px, which several icon buttons currently miss. | S |  |
 | `U49` | **First-run setup** | Walk a new student through classes, bell schedule, and one assignment instead of a wall of demo data. | M |  |
 | `U50` | **Contextual help** | Explain what a weighted category or a Leitner box is, at the moment it first appears. | M |  |
+| `U51` | **Three clicks to anything** | Make a view's sections addressable, so a tabbed screen stops costing four taps on a phone. Measured by `tests/depth.mjs`. | S | ✅ |
 

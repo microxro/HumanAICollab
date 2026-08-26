@@ -1339,5 +1339,18 @@ App.views.homework = (function () {
     initKeyboardNav();      // U24 j/k list navigation
   }
 
-  return { render, mount, form, detail, title: "Homework" };
+  /**
+   * U51 — `#homework/board` opens straight in that mode.
+   *
+   * Guarded to the four known modes so `#homework/<assignment-id>` still
+   * falls through to the record opener.
+   */
+  function openSub(id) {
+    if (!["list", "board", "timeline", "projects"].includes(id)) return false;
+    mode = id;
+    App.router.refresh();
+    return true;
+  }
+
+  return { render, mount, form, detail, openSub, title: "Homework" };
 })();

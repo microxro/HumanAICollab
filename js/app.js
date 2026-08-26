@@ -60,6 +60,11 @@
     { id: "more",      label: "More", icon: "☰", more: true }
   ];
 
+  // The screens a thumb reaches in one tap. Everything else costs two — the
+  // drawer, then the screen — which is what the palette's Sections group and
+  // the depth suite both budget against.
+  const MOBILE_TAB_IDS = new Set(MOBILE_TABS.filter((t) => !t.more).map((t) => t.id));
+
   /* ------------------------------------------------------------ router -- */
 
   let current = null;
@@ -73,6 +78,24 @@
     notes: (id) => App.views.notes.reader(id),
     contacts: (id) => App.views.contacts.detail(id)
   };
+
+  /**
+   * U51 — resolves `#view/sub` against the view's own sections before falling
+   * back to a record id.
+   *
+   * A view that renders tabs owns its tab state in a module-scoped variable,
+   * which made every tab unaddressable from outside: the only way into
+   * Settings → Data was to open Settings and click the tab. On a phone that
+   * is four taps (More → Settings → tab → control), because the drawer costs
+   * one before the screen does. Views that expose `openSub(id)` can now be
+   * linked straight to a section, and return false for anything they don't
+   * recognise so record ids still reach RECORD_OPENERS below.
+   */
+  function openSubPath(id, sub) {
+    const view = App.views[id];
+    if (view && typeof view.openSub === "function" && view.openSub(sub)) return;
+    if (RECORD_OPENERS[id]) RECORD_OPENERS[id](sub);
+  }
 
   const router = {
     go(idOrPath, subId) {
@@ -91,7 +114,7 @@
       paint();
       document.getElementById("page").scrollTop = 0;   // a real navigation does reset scroll
       closeSidebar();
-      if (sub && RECORD_OPENERS[id]) setTimeout(() => RECORD_OPENERS[id](sub), 60);
+      if (sub) setTimeout(() => openSubPath(id, sub), 60);
     },
     refresh() { paint(); },
     get current() { return current; },
@@ -366,6 +389,15 @@
 
   let palette = null;
 
+  // Groups that list your records rather than things the app can do. They are
+  // unbounded — every open assignment, class and note lands in one — so they
+  // rank below the commands when nothing has been typed. See score().
+  const RECORD_GROUPS = new Set(["Assignments", "Classes", "Notes", "Contacts", "Events", "Flashcards"]);
+
+  // Enough rows that every command stays in the list with an empty query;
+  // the records that follow are found by typing.
+  const CAP = 60;
+
   function commands() {
     const out = [];
 
@@ -380,6 +412,28 @@
       group: "Go to", label: App.i18n.t(it.id, it.label), icon: it.icon,
       run: () => router.go(it.id)
     }));
+
+    // U51 — sections, not just screens.
+    //
+    // A tabbed view keeps its tab in module state, so a section used to be
+    // unaddressable: the only way to Settings → Data was Settings, then the
+    // tab. On a phone the drawer costs a tap before the screen does, which
+    // put all 34 controls behind those tabs at four taps. Listing each
+    // section as its own destination lands you on it in two, leaving the
+    // third for the control itself.
+    //
+    // Only for screens that aren't already in the mobile tab bar — Homework
+    // and Calendar modes are reachable inside the budget without help, and
+    // listing them here would pad the palette for nothing.
+    FLAT.forEach((it) => {
+      const v = App.views[it.id];
+      if (!v || typeof v.tabs !== "function" || MOBILE_TAB_IDS.has(it.id)) return;
+      const parent = App.i18n.t(it.id, it.label);
+      v.tabs().forEach((t) => out.push({
+        group: "Sections", label: `${parent} → ${t.label}`, icon: it.icon,
+        run: () => router.go(`${it.id}/${t.id}`)
+      }));
+    });
 
     out.push(
       { group: "Create", label: "New assignment", icon: "✎", sub: "N", run: () => App.views.homework.form(null) },
@@ -454,7 +508,13 @@
 
     function score(cmd, q) {
       const l = cmd.label.toLowerCase();
-      if (!q) return 1;
+      // U51 — with no query typed the palette is a menu, not a search result.
+      // Everything scored 1 and the cap then cut it at whatever happened to
+      // be listed first, so the record groups (up to 40 assignments alone)
+      // pushed the commands off the end and a section could only be reached
+      // by typing. Reaching a thing must not depend on knowing its name, so
+      // rank what you can *do* above the records you can open.
+      if (!q) return RECORD_GROUPS.has(cmd.group) ? 1 : 2;
       if (l.startsWith(q)) return 3;
       if (l.includes(q)) return 2;
       if ((cmd.sub || "").toLowerCase().includes(q)) return 1;
@@ -465,10 +525,13 @@
     function draw() {
       const q = input.value.trim().toLowerCase();
       matches = all
-        .map((c) => ({ c, s: score(c, q) }))
+        .map((c, i) => ({ c, i, s: score(c, q) }))
         .filter((x) => x.s > 0)
-        .sort((a, b) => b.s - a.s)
-        .slice(0, 40)
+        // Ties keep their registration order, which is what keeps each group
+        // contiguous. Sort is already stable, so the index is belt and braces
+        // — but it states the dependency instead of leaving it implicit.
+        .sort((a, b) => b.s - a.s || a.i - b.i)
+        .slice(0, CAP)
         .map((x) => x.c);
 
       sel = 0;
