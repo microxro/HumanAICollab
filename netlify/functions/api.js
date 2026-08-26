@@ -921,6 +921,24 @@ function maySubjectWrite(user, subjectId) {
   return (user.links || []).some((l) => l.id === subjectId && l.role === "child");
 }
 
+/**
+ * Read a student's records as somebody authorized to edit them.
+ *
+ * The parent portal's summary (the `locations` blob) is a handful of counts
+ * built for glancing at. Editing needs the real thing, so this returns the
+ * same shape `GET /sync` does — behind the same authorization as the write.
+ * Kept a separate resource from /sync because /sync is "my own data" and its
+ * version is this device's sync cursor; conflating the two would make a
+ * parent's read advance the wrong cursor.
+ */
+async function readSubjectState(user, subjectId) {
+  if (!maySubjectWrite(user, subjectId)) {
+    return fail(403, "You aren't linked to that student.");
+  }
+  const rec = await readJSON("state", subjectId, { version: 0, data: null, updatedAt: 0 });
+  return ok({ version: rec.version || 0, updatedAt: rec.updatedAt || 0, state: rec.data || null });
+}
+
 async function applySubjectOps(req, user) {
   const b = await body(req);
   const subjectId = String(b.subjectId || "");
@@ -2805,6 +2823,10 @@ export default async (req) => {
     // would make that difference a parameter rather than a route.
     if (parts[0] === "subject-ops" && method === "POST") {
       return await applySubjectOps(req, user);
+    }
+
+    if (parts[0] === "subject-state" && method === "GET") {
+      return await readSubjectState(user, String(parts[1] || ""));
     }
 
     if (parts[0] === "link") {

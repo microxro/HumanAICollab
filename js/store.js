@@ -17,6 +17,21 @@ App.store = (function () {
   const CORRUPT_KEY = "scholar.db.corrupt";
   const SCHEMA = 2;
 
+  /**
+   * F157 — whose records are loaded.
+   *
+   * null is "my own", which is every case this app had until now. A subject
+   * ({ id, name }) is a student somebody is authorized to edit on behalf of —
+   * a parent working in their child's account.
+   *
+   * The active dataset being a variable is what lets all 22 views work for a
+   * parent without any of them knowing this exists: they read S.db, and S.db
+   * is whichever dataset is loaded. The storage key moves with it so a child's
+   * records can never overwrite the parent's own on this device.
+   */
+  let subject = null;
+  function storageKey() { return subject ? KEY + ".for." + subject.id : KEY; }
+
   /* Categorical palette — validated for colorblind separation and contrast in
      BOTH themes (see css/theme.css for surfaces). Slot order is the CVD-safety
      mechanism, not cosmetic: keep it. PALETTE holds the light-mode steps that
@@ -480,11 +495,17 @@ App.store = (function () {
 
   function load() {
     try {
-      const raw = localStorage.getItem(KEY);
+      const raw = localStorage.getItem(storageKey());
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") return migrate(parsed);
       }
+      // A subject's dataset is a cache of somebody else's records, not this
+      // device's own history: there is no v1 payload to upgrade from and no
+      // seed to fall back on. Return an empty shell and let the pull fill it,
+      // rather than handing a parent a seeded database that looks like their
+      // child's and isn't.
+      if (subject) return migrate({});
       // Upgrade in place from the v1 store if it's there.
       const legacy = localStorage.getItem(LEGACY_KEY);
       if (legacy) {
@@ -502,10 +523,10 @@ App.store = (function () {
       // recovered from Settings or handed back for repair.
       console.error("[studyhold] saved data is unreadable — quarantining it rather than deleting it.", e);
       try {
-        const raw = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
+        const raw = localStorage.getItem(storageKey()) || (subject ? null : localStorage.getItem(LEGACY_KEY));
         if (raw) {
           localStorage.setItem(CORRUPT_KEY + "." + Date.now(), raw);
-          localStorage.removeItem(KEY);
+          localStorage.removeItem(storageKey());
         }
       } catch (e2) {
         console.error("[studyhold] couldn't quarantine the unreadable data", e2);
@@ -544,7 +565,7 @@ App.store = (function () {
 
   function save() {
     try {
-      localStorage.setItem(KEY, JSON.stringify(db));
+      localStorage.setItem(storageKey(), JSON.stringify(db));
       saveFailing = false;
     } catch (e) {
       if (saveFailing) return;          // re-entered from the notice below
@@ -1263,6 +1284,28 @@ App.store = (function () {
     emit();
   }
 
+  /**
+   * F157 — point the whole app at somebody else's records, or back at your own.
+   *
+   * `next` is null to return to your own data, or { id, name } for a student
+   * you are authorized to act for. Whatever is currently loaded is flushed to
+   * its own key first, so switching never loses the dataset being left.
+   *
+   * Nothing else in the app needs to know: the views read S.db, and this is
+   * what S.db points at.
+   */
+  function actAs(next) {
+    save();                                   // flush the outgoing dataset
+    subject = next && next.id ? { id: String(next.id), name: String(next.name || "") } : null;
+    db = load();
+    revision++;
+    emit();
+    return subject;
+  }
+
+  /** null when you're in your own account. */
+  function actingAs() { return subject; }
+
   function reset() { db = seed(); commit(); }
 
   /** Opt-in sample data, for demoing the app without entering a real schedule. */
@@ -1302,6 +1345,7 @@ App.store = (function () {
     get profile() { return db.profile; },
     get account() { return db.account; },
     commit, subscribe, save, replaceAll, rev,
+    actAs, actingAs,
     corruptBackups, readCorruptBackup, discardCorruptBackup,
     all, byId, insert, update, remove, restore, purgeTrash,
     cls, teacher, period, classColor, className, currentTerm, termClasses,

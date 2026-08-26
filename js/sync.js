@@ -25,7 +25,12 @@ App.sync = (function () {
     error: null,
     listeners: new Set(),
     timer: null,
-    inflight: false
+    inflight: false,
+    // F157 — acting for another account. Separate handles from the whole-DB
+    // push above, because the two must never be mistaken for each other.
+    opTimer: null,
+    opsInflight: false,
+    opsBase: null          // the server's copy, as at the last accepted flush
   };
 
   /* --------------------------------------------------------- plumbing -- */
@@ -147,6 +152,16 @@ App.sync = (function () {
   }
 
   function signOut() {
+    // F157 — leave the child's account first. Signing out with their records
+    // loaded would clear the *child's* cached account fields and leave the
+    // parent's own dataset untouched but unreachable behind a subject that
+    // no longer has a session.
+    if (S.actingAs()) {
+      clearTimeout(state.opTimer);
+      state.opTimer = null;
+      state.opsBase = null;
+      S.actAs(null);
+    }
     signOutLocal();
     S.commit((db) => {
       db.account.userId = null;
@@ -191,6 +206,10 @@ App.sync = (function () {
    * known sync, take it; if we have local edits since, ask the user.
    */
   async function pullAndMerge() {
+    // Same hazard as push(): GET /sync returns *my* records, and adopting
+    // them while a child's dataset is loaded would overwrite the child's copy
+    // on this device with the parent's.
+    if (S.actingAs()) return;
     setStatus("syncing");
     try {
       const res = await pull();
@@ -242,6 +261,12 @@ App.sync = (function () {
    * conflict instead of being silently lost.
    */
   async function push(overwrite) {
+    // F157 — the one thing that must never happen, so it is checked before
+    // anything else can return first. PUT /sync writes state[myOwnId], so
+    // pushing while somebody else's records are loaded would file the child's
+    // database under the parent's name. Edits made in that mode travel as
+    // record-level ops instead; see flushSubjectOps().
+    if (S.actingAs()) return { ok: false, reason: "acting-as", message: "Editing someone else's account." };
     if (!isSignedIn()) return { ok: false, reason: "signed-out", message: "You're not signed in." };
     if (state.inflight) return { ok: false, reason: "busy", message: "A sync is already running." };
     state.inflight = true;
@@ -326,9 +351,133 @@ App.sync = (function () {
     });
   }
 
+  /* ------------------------------------------ F157 — acting for a student -- */
+  /*
+   * A parent editing their child's account.
+   *
+   * Edits are sent as record-level ops rather than a whole-DB push, because
+   * two people editing one database through the whole-DB door can only be
+   * reconciled by discarding one of them (see pushState in the API).
+   *
+   * The ops are derived by *diffing* rather than by intercepting every
+   * mutation. The store has three record-level entry points (insert/update/
+   * remove) but also a general commit(fn) that hands out the raw database, and
+   * views use both. Hooking only the first three would silently fail to sync
+   * whatever went through the fourth — a bug that looks like "sometimes my
+   * changes don't save". A diff catches every path by construction.
+   */
+
+  // Must stay in step with SUBJECT_COLLECTIONS on the server; anything else
+  // is not writable from here and is left alone by the diff.
+  const SUBJECT_COLLECTIONS = ["assignments", "classes", "periods", "events"];
+  const MAX_OPS_PER_REQUEST = 25;
+
+  function snapshotFor(dbLike) {
+    const out = {};
+    for (const c of SUBJECT_COLLECTIONS) {
+      out[c] = {};
+      for (const r of (dbLike[c] || [])) if (r && r.id) out[c][r.id] = JSON.stringify(r);
+    }
+    return out;
+  }
+
+  /** Ops describing how the loaded database differs from `base`. */
+  function diffOps(base) {
+    const now = snapshotFor(S.db);
+    const ops = [];
+    for (const c of SUBJECT_COLLECTIONS) {
+      const was = (base && base[c]) || {};
+      const is = now[c] || {};
+      for (const id of Object.keys(is)) {
+        if (was[id] !== is[id]) ops.push({ op: "upsert", collection: c, id, record: JSON.parse(is[id]) });
+      }
+      for (const id of Object.keys(was)) {
+        if (!(id in is)) ops.push({ op: "delete", collection: c, id });
+      }
+    }
+    return ops;
+  }
+
+  /**
+   * Send everything that changed since the last flush.
+   *
+   * The baseline only advances on a batch the server accepted, so a failed
+   * send is retried by the next edit rather than lost. Batches are capped to
+   * match the server's per-request limit.
+   */
+  async function flushSubjectOps() {
+    const subj = S.actingAs();
+    if (!subj || !isSignedIn()) return { ok: false, reason: "not-acting" };
+    if (state.opsInflight) return { ok: false, reason: "busy" };
+
+    const ops = diffOps(state.opsBase);
+    if (!ops.length) return { ok: true, sent: 0 };
+
+    state.opsInflight = true;
+    setStatus("syncing");
+    try {
+      for (let i = 0; i < ops.length; i += MAX_OPS_PER_REQUEST) {
+        await call("/subject-ops", {
+          method: "POST",
+          body: { subjectId: subj.id, ops: ops.slice(i, i + MAX_OPS_PER_REQUEST) }
+        });
+      }
+      state.opsBase = snapshotFor(S.db);
+      setStatus("idle");
+      return { ok: true, sent: ops.length };
+    } catch (e) {
+      setStatus("error", e.message);
+      return { ok: false, reason: "error", message: e.message };
+    } finally {
+      state.opsInflight = false;
+    }
+  }
+
+  /** Load a student's records and point the app at them. */
+  async function actAsStudent(child) {
+    if (!child || !child.id) return { ok: false, message: "No student chosen." };
+    try {
+      const res = await call("/subject-state/" + encodeURIComponent(child.id));
+      if (!res || !res.state) {
+        return { ok: false, message: `${child.name || "They"} hasn't synced any data yet.` };
+      }
+      S.actAs({ id: child.id, name: child.name });
+      S.replaceAll(res.state);
+      // The baseline is what the server has. Diffs are measured from here, so
+      // simply opening the account sends nothing.
+      state.opsBase = snapshotFor(S.db);
+      if (App.router) App.router.refresh();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, message: e.message };
+    }
+  }
+
+  /** Flush anything outstanding, then go back to your own account. */
+  async function stopActing() {
+    if (S.actingAs()) await flushSubjectOps();
+    clearTimeout(state.opTimer);
+    state.opTimer = null;
+    state.opsBase = null;
+    S.actAs(null);
+    if (App.router) App.router.refresh();
+    return { ok: true };
+  }
+
   /** Debounced push, called from store.commit() on every write. */
   function queue() {
-    if (!isSignedIn() || !S.db.account.autoSync) return;
+    if (!isSignedIn()) return;
+    // F157 — in acting-as mode a write is not a whole-DB push. Same debounce,
+    // different destination. `autoSync` is the account's own preference for
+    // its own data and deliberately doesn't gate this: a parent who turned
+    // sync off for themselves still expects the edit they just made to their
+    // child's schedule to arrive.
+    if (S.actingAs()) {
+      clearTimeout(state.opTimer);
+      state.opTimer = setTimeout(() => { state.opTimer = null; flushSubjectOps(); }, PUSH_DEBOUNCE_MS);
+      return;
+    }
+    if (!S.db.account.autoSync) return;
     clearTimeout(state.timer);
     state.timer = setTimeout(() => {
       // Clearing the handle is not bookkeeping — refresh() and info() both
@@ -623,6 +772,7 @@ App.sync = (function () {
     init, info, isSignedIn, authToken, on,
     signUp, signIn, signOut, restore, forgotPassword, resetPassword,
     push, pull, pullAndMerge, queue, refresh,
+    actAsStudent, stopActing, flushSubjectOps,
     createLinkCode, redeemLinkCode, children, parents, unlink,
     pushLocation, readLocation,
     requestFriend, respondFriend, listFriends, removeFriend,

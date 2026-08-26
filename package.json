@@ -23,6 +23,7 @@
     "test:shop": "node tests/shop.mjs",
     "test:quotes": "node tests/quotes.mjs",
     "test:mobile": "node tests/mobile.mjs",
+    "test:acting": "node tests/acting.mjs",
     "test:urlguard": "node tests/urlguard.mjs",
     "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs",
     "test:activities": "node --import ./tests/stub/register.mjs tests/activities.mjs",
