@@ -333,3 +333,86 @@ button { cursor: pointer; }
   outline: 3px solid var(--brand-600);
   outline-offset: 2px;
 }
+
+/* ==========================================================================
+   Token-shop accents — the same [data-accent] mechanism as the four free
+   palettes above, with values that only become selectable once the matching
+   shop item is owned and worn. js/shop.js stamps the attribute; taking the
+   item off falls straight back to the Settings choice.
+   ========================================================================== */
+
+[data-accent="violet"] {
+  --brand-50: #f5f3ff; --brand-100: #ede9fe; --brand-200: #ddd6fe; --brand-300: #c4b5fd;
+  --brand-400: #a78bfa; --brand-500: #7c3aed; --brand-600: #6d28d9; --brand-700: #5b21b6;
+}
+[data-theme="dark"][data-accent="violet"] {
+  --brand-50: #241146; --brand-100: #2e1760; --brand-200: #43219a;
+  --brand-400: #a78bfa; --brand-500: #a78bfa; --brand-600: #8b5cf6; --brand-700: #7c3aed;
+}
+
+[data-accent="emerald"] {
+  --brand-50: #ecfdf5; --brand-100: #d1fae5; --brand-200: #a7f3d0; --brand-300: #6ee7b7;
+  --brand-400: #34d399; --brand-500: #059669; --brand-600: #047857; --brand-700: #065f46;
+}
+[data-theme="dark"][data-accent="emerald"] {
+  --brand-50: #05271c; --brand-100: #073626; --brand-200: #0b5138;
+  --brand-400: #34d399; --brand-500: #34d399; --brand-600: #10b981; --brand-700: #059669;
+}
+
+[data-accent="sunset"] {
+  --brand-50: #fff5ed; --brand-100: #ffe8d5; --brand-200: #fed0aa; --brand-300: #fdb072;
+  --brand-400: #fb8b3c; --brand-500: #e2571b; --brand-600: #c03f14; --brand-700: #9a3412;
+}
+[data-theme="dark"][data-accent="sunset"] {
+  --brand-50: #3a1608; --brand-100: #4d1d0a; --brand-200: #722c0f;
+  --brand-400: #fb8b3c; --brand-500: #fb8b3c; --brand-600: #e2571b; --brand-700: #c03f14;
+}
+
+[data-accent="midnight"] {
+  --brand-50: #eef2ff; --brand-100: #e0e7ff; --brand-200: #c7d2fe; --brand-300: #a5b4fc;
+  --brand-400: #6366f1; --brand-500: #3730a3; --brand-600: #312e81; --brand-700: #1e1b4b;
+}
+[data-theme="dark"][data-accent="midnight"] {
+  --brand-50: #131235; --brand-100: #1b1a4a; --brand-200: #272566;
+  --brand-400: #818cf8; --brand-500: #818cf8; --brand-600: #6366f1; --brand-700: #4f46e5;
+}
+
+/* Elite. Near-black in light mode, near-white in dark — the inversion is the
+   point, and both directions still clear 4.5:1 against their own surface. */
+[data-accent="obsidian"] {
+  --brand-50: #f1f2f6; --brand-100: #e2e4ec; --brand-200: #c4c8d6; --brand-300: #8f96ab;
+  --brand-400: #4a5163; --brand-500: #232838; --brand-600: #171b28; --brand-700: #0d101a;
+}
+[data-theme="dark"][data-accent="obsidian"] {
+  --brand-50: #1a1d27; --brand-100: #242833; --brand-200: #333949;
+  --brand-400: #d7dce8; --brand-500: #e6eaf3; --brand-600: #c7cddc; --brand-700: #aab2c6;
+}
+
+/* --------------------------------------------------------- avatar frames --
+   Worn frames ring every .avatar in the app at once — the profile chip, the
+   settings card, the parent portal. The ring is drawn with box-shadow rather
+   than border so it never changes the avatar's box size and reflows a row. */
+[data-frame="bronze"] .avatar    { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #b06a2c; }
+[data-frame="silver"] .avatar    { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #9aa5b4; }
+[data-frame="gold"] .avatar      { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #d4a017; }
+[data-frame="prismatic"] .avatar {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #7c3aed;
+  animation: prismatic-ring 6s linear infinite;
+}
+@keyframes prismatic-ring {
+  0%   { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #e11d48; }
+  25%  { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #d97706; }
+  50%  { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #059669; }
+  75%  { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #2563eb; }
+  100% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #e11d48; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-frame="prismatic"] .avatar { animation: none; }
+}
+
+/* -------------------------------------------------------------- banners --
+   A bought banner repaints the hero gradient only. Text on it stays #fff, so
+   every gradient below is dark enough across its whole span to hold white. */
+[data-banner="aurora"]  .hero { background: linear-gradient(125deg, #0f3460 0%, #1b7a8c 45%, #45c6a0 100%); }
+[data-banner="nebula"]  .hero { background: linear-gradient(125deg, #2b1055 0%, #7517a8 55%, #b53fa8 100%); }
+[data-banner="eclipse"] .hero { background: linear-gradient(125deg, #0b0b12 0%, #2b2340 50%, #a1512b 100%); }

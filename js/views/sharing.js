@@ -289,7 +289,7 @@ App.views.sharing = (function () {
             if (!c) continue;
             const meets = S.classesOnDate(U.today()).some((x) => x.cls.id === id);
             if (!meets) continue;
-            const per = S.period(c.periodId);
+            const per = S.classPeriod(c);
             if (per && now >= U.toMin(per.start) && now < U.toMin(per.end)) return c;
           }
           return null;
@@ -382,7 +382,7 @@ App.views.sharing = (function () {
   let checkins = null, guardianNotes = null;
 
   function loadGuardianInbox() {
-    if (!App.sync.isSignedIn()) return;
+    if (!App.sync.isSignedIn()) { checkins = []; guardianNotes = []; return; }
     Promise.all([App.sync.listCheckins(), App.sync.listGuardianNotes()])
       .then(([c, n]) => { checkins = c; guardianNotes = n; App.router.refresh(); })
       .catch(() => {});
@@ -393,56 +393,101 @@ App.views.sharing = (function () {
   let focusWindows = null;
 
   function loadFocusWindows() {
-    if (!App.sync.isSignedIn()) return;
+    // Signed out, the local self-set windows are the whole story — there's
+    // nothing to fetch, but the card still has something to draw.
+    if (!App.sync.isSignedIn()) { focusWindows = []; return; }
     App.sync.listFocusWindows().then((f) => { focusWindows = f; App.router.refresh(); }).catch(() => {});
   }
 
+  /**
+   * Focus windows — guardian-proposed AND self-set.
+   *
+   * This card used to render nothing at all unless a signed-in account had a
+   * pending proposal from a linked parent, which meant a student without one
+   * could never see or start a quiet period. It is always on screen now: a
+   * self-started window needs no account and no link, and a proposed one
+   * shows up alongside it when there is a guardian to propose it.
+   */
   function focusWindowCard() {
-    if (!App.sync.isSignedIn()) return "";
     const list = focusWindows || [];
     const pending = list.filter((f) => f.status === "pending");
-    const active = list.find((f) => f.status === "agreed" && f.endAt > Date.now());
-    if (!pending.length && !active) return "";
+    const remoteActive = list.find((f) => f.status === "agreed" && f.endAt > Date.now());
+    const localActive = S.activeFocusWindow();
+    const active = remoteActive || (localActive && localActive.endAt ? localActive : null);
 
     const fmt = (ms) => {
       const d = new Date(ms);
       return U.fmtTime(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
     };
+    const isSelf = active && active.by === "self";
 
     return `<div class="card">
-      <div class="card-head"><h3>Focus windows ${UI.helpHint("A shared quiet period your guardian proposes and you agree to (or not) — you can always see it and end it early. It's an agreement, not a lock on your device.")}</h3></div>
+      <div class="card-head">
+        <div><h3>Focus windows ${UI.helpHint("A quiet period you set for yourself, or one a guardian proposes and you agree to. Either way you can see it and end it early — it's an agreement, not a lock on your device.")}</h3>
+          <div class="sub">${S.hasGuardian() ? "Yours, or proposed by a guardian" : "Set one for yourself — no account needed"}</div></div>
+        ${active ? `<span class="badge ok">Active</span>` : ""}
+      </div>
       <div class="card-body col gap-12">
         ${active ? `<div class="row gap-8" style="align-items:center;background:var(--ok-bg);padding:10px 12px;border-radius:var(--radius-sm)">
-          <span class="grow small">Focus window active until ${U.esc(fmt(active.endAt))}${active.note ? " — " + U.esc(active.note) : ""}</span>
-          <button class="btn btn-sm" data-focus-end="${active.id}">End early</button>
-        </div>` : ""}
+          <span class="grow small">${isSelf ? "Your focus window runs" : "Focus window active"} until ${U.esc(fmt(active.endAt))}${active.note ? " — " + U.esc(active.note) : ""}</span>
+          <button class="btn btn-sm" data-focus-end="${U.esc(active.id)}" data-focus-self="${isSelf ? "1" : ""}">End early</button>
+        </div>` : `<p class="small muted" style="margin:0">No focus window running.</p>`}
         ${pending.map((f) => `<div class="row gap-8" style="align-items:center;background:var(--warn-bg);padding:10px 12px;border-radius:var(--radius-sm)">
           <span class="grow small">${U.esc(f.fromName)} proposed a focus window ${U.esc(fmt(f.startAt))}–${U.esc(fmt(f.endAt))}${f.note ? " — " + U.esc(f.note) : ""}</span>
           <button class="btn btn-sm" data-focus-decline="${f.id}">Decline</button>
           <button class="btn btn-sm btn-primary" data-focus-agree="${f.id}">Agree</button>
         </div>`).join("")}
+        ${active ? "" : `<div class="row gap-8 wrap">
+          <button class="btn btn-sm" data-self-focus="30">30 min</button>
+          <button class="btn btn-sm" data-self-focus="60">1 hour</button>
+          <button class="btn btn-sm" data-self-focus="90">90 min</button>
+          <button class="btn btn-sm btn-primary" data-self-focus="custom">Set one…</button>
+        </div>`}
       </div>
     </div>`;
   }
 
+  /**
+   * Notes — from a guardian if there is one, and from yourself either way.
+   *
+   * Same story as the focus-window card: this only ever rendered a guardian's
+   * messages, so with no guardian linked it rendered nothing and the student
+   * had no note surface here at all. Self-notes are local records, so they
+   * work signed out.
+   */
   function guardianInboxCard() {
-    if (!App.sync.isSignedIn()) return "";
     const pending = (checkins || []).filter((c) => !c.respondedAt);
-    const notes = guardianNotes || [];
-    if (!pending.length && !notes.length) return "";
+    const remoteNotes = guardianNotes || [];
+    const myNotes = S.recentGuardianNotes().filter((n) => n.by === "self");
+    const hasGuardian = S.hasGuardian();
 
     return `<div class="card">
-      <div class="card-head"><h3>From your guardians</h3></div>
+      <div class="card-head">
+        <div><h3>${hasGuardian ? "Notes and check-ins" : "Your notes"}</h3>
+          <div class="sub">${hasGuardian
+            ? "From your guardians, and the ones you leave yourself"
+            : "Reminders you leave yourself — nobody else sees these"}</div></div>
+        <button class="btn btn-sm" data-self-note>+ Note</button>
+      </div>
       <div class="card-body col gap-12">
         ${pending.map((c) => `<div class="row gap-8" style="align-items:center;background:var(--warn-bg);padding:10px 12px;border-radius:var(--radius-sm)">
           <span class="grow small">${U.esc(c.fromName)} asked you to check in ${U.esc(U.relDate(U.dateKey(new Date(c.at))))}</span>
           <button class="btn btn-sm btn-primary" data-checkin-respond="${c.id}">I'm okay 👍</button>
         </div>`).join("")}
-        ${notes.slice(0, 5).map((n) => `<div class="list-item">
+        ${remoteNotes.slice(0, 5).map((n) => `<div class="list-item">
           <span style="font-size:1.1rem">📝</span>
           <span class="grow"><div class="small">${U.esc(n.text)}</div>
             <div class="tiny dim">${U.esc(n.fromName)} · ${U.esc(U.relDate(U.dateKey(new Date(n.at))))}</div></span>
         </div>`).join("")}
+        ${myNotes.slice(0, 5).map((n) => `<div class="list-item">
+          <span style="font-size:1.1rem">🗒️</span>
+          <span class="grow"><div class="small">${U.esc(n.text)}</div>
+            <div class="tiny dim">You · ${U.esc(U.relDate(U.dateKey(new Date(n.at))))}</div></span>
+          <button class="icon-btn btn-sm" data-del-note="${U.esc(n.id)}" aria-label="Delete note">✕</button>
+        </div>`).join("")}
+        ${!pending.length && !remoteNotes.length && !myNotes.length
+          ? `<p class="small muted" style="margin:0">Nothing here yet. Leave yourself a reminder and it
+             shows up on this card.</p>` : ""}
       </div>
     </div>`;
   }
@@ -531,14 +576,20 @@ App.views.sharing = (function () {
 
       ${statusCard()}
 
-      ${!signedIn ? `<div class="card mt-16" style="border-left:3px solid var(--info)">
+      ${!signedIn || S.isSoloStudent() ? `<div class="card mt-16" style="border-left:3px solid var(--info)">
         <div class="card-body row-top gap-10">
           <span style="font-size:1.1rem">ℹ️</span>
           <div class="small muted">
-            <div class="bold" style="color:var(--text)">You're not signed in</div>
-            <p class="mt-4">Everything below works locally, but nothing is actually sent anywhere until you
-            create an account. Sign in to push your status to a linked parent.</p>
-            <button class="btn btn-sm mt-8" data-go="settings">Set up an account</button>
+            <div class="bold" style="color:var(--text)">
+              ${signedIn ? "No parent or teacher is linked — that's fine" : "You're not signed in — that's fine too"}</div>
+            <p class="mt-4">StudyHold is yours first. Classes, homework, grades, the schedule, focus windows,
+            notes and the token shop all work with no linked parent, no linked teacher, and
+            ${signedIn ? "no one else involved" : "no account at all"} — everything on this page that doesn't
+            need someone on the other end works right now.
+            ${signedIn
+              ? "Linking a parent only adds the status they can see; it's optional and you control every toggle."
+              : "An account only adds cross-device sync and the optional parent link."}</p>
+            ${signedIn ? "" : `<button class="btn btn-sm mt-8" data-go="settings">Set up an account</button>`}
           </div>
         </div>
       </div>` : ""}
@@ -572,8 +623,10 @@ App.views.sharing = (function () {
 
   function mount(root) {
     if (App.sync.isSignedIn() && realFriends == null) loadRealFriends();
-    if (App.sync.isSignedIn() && checkins == null) loadGuardianInbox();
-    if (App.sync.isSignedIn() && focusWindows == null) loadFocusWindows();
+    // Both loaders now handle the signed-out case themselves (they seed empty
+    // lists), because the cards they feed render either way.
+    if (checkins == null) loadGuardianInbox();
+    if (focusWindows == null) loadFocusWindows();
 
     U.on(root, "click", "[data-checkin-respond]", (_e, el) => {
       App.sync.respondCheckin(el.dataset.checkinRespond).then(() => { UI.toast("Sent", "Your guardian will see you're okay.", "ok"); loadGuardianInbox(); });
@@ -588,8 +641,57 @@ App.views.sharing = (function () {
         .then(() => { UI.toast("Declined", "", ""); loadFocusWindows(); });
     });
     U.on(root, "click", "[data-focus-end]", (_e, el) => {
+      // A self-set window is a local record, so ending it must not go to the
+      // server — there is nothing there to end, and on a signed-out device
+      // the call would reject and leave the window stuck on.
+      if (el.dataset.focusSelf === "1") {
+        S.endSelfFocusWindow(el.dataset.focusEnd);
+        UI.toast("Ended", "Focus window ended early.", "ok");
+        App.router.refresh();
+        return;
+      }
       App.sync.endFocusWindow(el.dataset.focusEnd)
         .then(() => { UI.toast("Ended", "Focus window ended early.", "ok"); loadFocusWindows(); });
+    });
+
+    U.on(root, "click", "[data-self-focus]", (_e, el) => {
+      const v = el.dataset.selfFocus;
+      const startIt = (mins, note) => {
+        S.startSelfFocusWindow(mins, note);
+        UI.toast("Focus window on", `${mins} minutes. End it early any time.`, "ok");
+        App.router.refresh();
+      };
+      if (v !== "custom") { startIt(Number(v)); return; }
+      UI.modal({
+        title: "Set a focus window",
+        sub: "A quiet period you're holding yourself to",
+        okLabel: "Start it",
+        body: `<div class="form-grid">
+          <div class="field"><label>Minutes</label>
+            <input class="input" type="number" name="minutes" min="5" max="480" value="45" required /></div>
+          <div class="field full"><label>Note <span class="hint">optional</span></label>
+            <input class="input" name="note" placeholder="Chem test tomorrow" /></div>
+        </div>`,
+        onSubmit(d) { startIt(Number(d.minutes) || 45, d.note); }
+      });
+    });
+
+    U.on(root, "click", "[data-self-note]", () => {
+      UI.prompt({
+        title: "Leave yourself a note",
+        label: "It stays on this device unless you're syncing",
+        placeholder: "Ask Ms Rivera about the retake",
+        okLabel: "Save",
+        onSubmit(text) {
+          if (!S.addSelfNote(text)) return;
+          UI.toast("Noted", "", "ok");
+          App.router.refresh();
+        }
+      });
+    });
+
+    U.on(root, "click", "[data-del-note]", (_e, el) => {
+      UI.deleteWithUndo("guardianNotes", el.dataset.delNote, "note");
     });
 
     U.on(root, "click", "[data-add-real-friend]", realFriendForm);
