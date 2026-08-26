@@ -54,6 +54,7 @@
       graduationReqs: [], apiTokens: [], webhooks: [], focusWindows: [],
       guardianNotes: [], checkIns: [], emergencyContacts: [], notifications: [],
       assistantChat: [],  // [{role: "user"|"assistant", text, at}] — the private assistant's thread
+      studyProofs: [],   // photos of work done, each one a token payout (js/shop.js)
       feedComments: {}   // { feedItemId: [{id, byName, text, at}] }
     };
     // A stored value of the wrong *kind* is as bad as a missing one — an
@@ -99,6 +100,21 @@
     }
     need(db.streak, "freezes", 0);  // F040
 
+    // The study-token wallet (F155). Named `wallet`, not `tokens`: this app
+    // already has session tokens and `apiTokens`, and those are credentials.
+    // `seen` is the photo-fingerprint ledger behind the no-paying-twice rule,
+    // and it deliberately outlives the proofs themselves — see js/shop.js.
+    need(db, "wallet", { balance: 0, earned: 0, spent: 0, owned: [], daily: {}, seen: [], lastProofAt: 0 });
+    if (db.wallet && typeof db.wallet === "object") {
+      need(db.wallet, "balance", 0);
+      need(db.wallet, "earned", 0);
+      need(db.wallet, "spent", 0);
+      need(db.wallet, "owned", []);
+      need(db.wallet, "daily", {});
+      need(db.wallet, "seen", []);
+      need(db.wallet, "lastProofAt", 0);
+    }
+
     // ---- settings additions
     need(db, "settings", {});
     const s = db.settings;
@@ -110,6 +126,11 @@
     need(s, "fontSize", "normal");      // U11
     need(s, "dyslexicFont", false);     // U11
     need(s, "trueBlack", false);        // U13
+    // Cosmetics bought in the study shop. Each is the [data-*] value the CSS
+    // keys off; App.shop.sanitize() resets any of them that isn't owned.
+    need(s, "skin", "none");            // surface re-tint, layered over either theme
+    need(s, "avatarRing", "none");      // frame around your own avatar
+    need(s, "nameplate", "");           // title under your name in the sidebar
     need(s, "collapsedNavGroups", []);  // U07
     need(s, "onboarded", true);         // U49 — only for data predating the flag; a fresh seed sets it false explicitly
     need(s, "emptyStateStyle", "drawn"); // U16 — "drawn" or "emoji"
@@ -123,6 +144,11 @@
       dirty = true;
     }
     need(s, "locale", "en");            // F099
+    need(s, "currency", "USD");         // what an outside-school fee is billed in
+    // Sharing an outside-school commitment with a parent is the default: they
+    // are usually the ones paying for it and driving to it. School clubs are
+    // never included — see the summary built in sync.js.
+    need(s, "shareActivities", true);
     need(s, "wellbeing", { hideGPA: false, breakEveryMin: 50, breakLenMin: 8 });   // F080
     // Custom GPA weighting — defaults reproduce the old hardcoded +1.0/cap-5.
     need(s, "gpaScale", { ap: 1, honors: 1, max: 5 });
@@ -197,6 +223,37 @@
     });
 
     db.terms.forEach((t) => { if (t && t.parentId === undefined) t.parentId = null; }); // F007
+
+    // ---- outside-school activities
+    // An activity used to be assumed to belong to the school: its adult was
+    // picked from the teacher list, its location was a room number, and the
+    // timetable only drew it on a school day. None of that describes a
+    // Saturday music lesson or a club run by a gym across town, which is what
+    // most of a family's calendar outside school actually is. These fields
+    // carry the parts a school activity has no need for — who runs it, where
+    // it really is, who to call, and what it costs — and `external` is the
+    // flag every view filters on.
+    if (!Array.isArray(db.activities)) { db.activities = []; dirty = true; }
+    db.activities.forEach((a) => {
+      if (!a || typeof a !== "object") return;
+      // days/hours are dereferenced unguarded by the Activities view and by
+      // activitiesOn(); v2's migrate() backfills them for classes but never
+      // did for activities, so an import missing either took the view down.
+      if (!Array.isArray(a.days)) { a.days = []; dirty = true; }
+      if (!Array.isArray(a.hours)) { a.hours = []; dirty = true; }
+      if (typeof a.name !== "string") { a.name = String(a.name == null ? "Untitled activity" : a.name); dirty = true; }
+      if (a.external === undefined) { a.external = false; dirty = true; }
+      if (a.provider === undefined) { a.provider = ""; dirty = true; }        // the studio, club, gym or tutor centre
+      if (a.contactName === undefined) { a.contactName = ""; dirty = true; }  // the coach/instructor, who is not a school teacher
+      if (a.contactEmail === undefined) { a.contactEmail = ""; dirty = true; }
+      if (a.contactPhone === undefined) { a.contactPhone = ""; dirty = true; }
+      if (a.address === undefined) { a.address = ""; dirty = true; }
+      if (a.website === undefined) { a.website = ""; dirty = true; }
+      if (a.cost === undefined) { a.cost = null; dirty = true; }
+      if (a.costPer === undefined) { a.costPer = "month"; dirty = true; }
+      if (a.notes === undefined) { a.notes = ""; dirty = true; }
+      if (a.addedBy === undefined) { a.addedBy = ""; dirty = true; }          // "" = the student; otherwise a guardian's name
+    });
 
     // Habits are dereferenced as h.log[dateKey] during the Goals render, and
     // goals as g.current in the progress bar. Backfill both so a record from
@@ -681,6 +738,121 @@
 
   S.busClock = function () { return S.settings.commute; };
 
+  /* -------------------------------------- F156 outside-school activities */
+
+  /**
+   * A fee, formatted in the family's own currency.
+   *
+   * An ISO code rather than a stored symbol, so Intl decides where the symbol
+   * goes — "kr 68" and "68 kr" are not interchangeable, and hard-coding a
+   * prefix gets one of them wrong. An unknown code falls back to showing the
+   * code itself rather than throwing inside a render.
+   *
+   * `code` overrides this device's setting, which the parent portal needs: a
+   * fee the student recorded in euros is not a dollar figure just because the
+   * parent's own app is set to dollars.
+   */
+  S.money = function (n, code) {
+    const amount = Number(n) || 0;
+    code = code || S.settings.currency || "USD";
+    const loc = App.i18n ? App.i18n.locale() : "en";
+    try {
+      return new Intl.NumberFormat(loc, {
+        style: "currency", currency: code,
+        minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+        maximumFractionDigits: 2
+      }).format(amount);
+    } catch (e) {
+      return `${U.round(amount, 2)} ${code}`;
+    }
+  };
+
+  S.externalActivities = function () { return S.db.activities.filter((a) => a.external); };
+  S.schoolActivities = function () { return S.db.activities.filter((a) => !a.external); };
+
+  // How often a fee repeats, as a multiplier onto a month. "session" is the
+  // only one that depends on the activity itself: a lesson billed per session
+  // costs whatever the weekly meeting count adds up to.
+  const COST_PER_MONTH = { session: null, week: 52 / 12, month: 1, term: 1 / 4, year: 1 / 12, total: 0 };
+
+  /**
+   * An activity's fee expressed as a monthly figure, or 0 when there is none.
+   *
+   * A fee is an outside-school idea in this model, and the form clears the
+   * field when an activity is moved back to the school side — but a record
+   * that predates that, or one edited by hand, can still carry a stale
+   * number, and returning it here would put a fee on a school club's card and
+   * a figure in the family's monthly total that nobody is actually billed.
+   */
+  S.activityCostMonthly = function (a) {
+    if (!a || !a.external || a.cost == null) return 0;
+    const cost = Number(a.cost);
+    if (!Number.isFinite(cost) || cost <= 0) return 0;
+    const per = COST_PER_MONTH[a.costPer] === undefined ? 1 : COST_PER_MONTH[a.costPer];
+    // A one-off ("total") is a real cost but not a recurring one, and adding
+    // it to a monthly total would overstate what the family pays every month.
+    if (per === 0) return 0;
+    if (per === null) return cost * ((a.days || []).length * (52 / 12));
+    return cost * per;
+  };
+
+  /** What every outside-school activity adds up to per month. */
+  S.monthlyActivityCost = function () {
+    return U.sum(S.externalActivities(), (a) => S.activityCostMonthly(a));
+  };
+
+  /** One-off fees (registration, kit, a term paid up front) that recur never. */
+  S.oneOffActivityCost = function () {
+    return U.sum(S.externalActivities(), (a) =>
+      (a.costPer === "total" && Number.isFinite(Number(a.cost)) ? Number(a.cost) : 0));
+  };
+
+  // v2 draws an activity on a date only when `isSchoolDay(iso) || mode ===
+  // "weekly"`. Weekly is the default, so most installs never saw the gap —
+  // but a school on an A/B cycle sets rotating mode, and there the whole
+  // condition collapses to "only when the school is open". Saturday swim, a
+  // music lesson in the holidays, tutoring over the winter break: all
+  // invisible, on exactly the days a family most needs to see them.
+  //
+  // Only outside-school activities are added back. A school club really
+  // doesn't meet when the school is shut, so loosening the rule for both
+  // would trade one wrong answer for another.
+  const origScheduleFor = S.scheduleFor;
+  S.scheduleFor = function (iso) {
+    const out = origScheduleFor(iso);
+    if (S.isSchoolDay(iso) || S.db.settings.schedule.mode === "weekly") return out;
+    const already = new Set(out.filter((x) => x.kind === "activity").map((x) => x.id));
+    S.activitiesOn(U.dowName(iso), iso)
+      .filter((a) => a.external && !already.has(a.id))
+      .forEach((a) => {
+        out.push({
+          kind: "activity", id: a.id, title: a.name, color: a.color,
+          start: a.start, end: a.end, location: a.address || a.location, sub: a.provider || a.type
+        });
+      });
+    return out.sort((a, b) => U.toMin(a.start) - U.toMin(b.start));
+  };
+
+  // liveStatus() reads v2's own private scheduleFor(), so the wrap above
+  // never reached "what's on right now" — the dashboard still said nothing
+  // was left today while the student was on their way to a Sunday practice.
+  // Same computation, over the schedule that includes it.
+  S.liveStatus = function () {
+    const items = S.scheduleFor(U.today()).filter((x) => x.start && x.end);
+    const now = U.nowMin();
+    const current = items.find((x) => now >= U.toMin(x.start) && now < U.toMin(x.end)) || null;
+    const next = items.find((x) => U.toMin(x.start) > now) || null;
+    let progress = 0, remaining = 0;
+    if (current) {
+      const s = U.toMin(current.start), e = U.toMin(current.end);
+      // A zero-length entry divides by zero here and renders NaN% in the
+      // dashboard's progress ring.
+      progress = e > s ? U.clamp((now - s) / (e - s), 0, 1) : 1;
+      remaining = Math.max(0, e - now);
+    }
+    return { current, next, progress, remaining, untilNext: next ? U.toMin(next.start) - now : null };
+  };
+
   /* ============================================ F073-080 wellbeing ===== */
 
   S.logMood = function (mood, energy) {
@@ -796,6 +968,22 @@
       const before1 = db.studySessions.length;
       db.studySessions = db.studySessions.filter((s2) => s2.date >= studyCut);
       n += before1 - db.studySessions.length;
+
+      // A study photo is the heaviest thing this app writes — a year of daily
+      // proofs is hundreds of megabytes of IndexedDB — so the same retention
+      // window that drops old study sessions drops the photos behind them.
+      // The fingerprint ledger is deliberately NOT swept: it is what keeps an
+      // old photo from being re-submitted for a second payout, and it has its
+      // own cap (RULES.seenLimit) measured in kilobytes, not megabytes.
+      if (Array.isArray(db.studyProofs)) {
+        const keep = [];
+        db.studyProofs.forEach((p) => {
+          if (p && p.date >= studyCut) { keep.push(p); return; }
+          if (p && p.photoId && App.idb) App.idb.del(p.photoId).catch(() => {});
+          n++;
+        });
+        db.studyProofs = keep;
+      }
 
       const usageCut = U.dateKey(U.addDays(new Date(), -r.usageDays));
       Object.keys(db.usage).forEach((k) => { if (k < usageCut) { delete db.usage[k]; n++; } });

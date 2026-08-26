@@ -28,7 +28,9 @@
         badge: () => U.sum(S.db.decks, (d) => d.cards.filter((c) => !c.next || c.next <= U.today()).length) },
       { id: "notes",      label: "Notes",       icon: "✐" },
       { id: "reading",    label: "Reading",     icon: "▥",
-        badge: () => S.db.reading.filter((r) => !r.done).length }
+        badge: () => S.db.reading.filter((r) => !r.done).length },
+      { id: "shop",       label: "Study shop",  icon: "◆",
+        badge: () => App.shop.affordableCount() }
     ]},
     { group: "Life", items: [
       { id: "activities", label: "Activities", icon: "◇" },
@@ -321,6 +323,10 @@
 
   App.applyShellPrefs = function () {
     const html = document.documentElement;
+    // Study-shop cosmetics are checked against the wallet BEFORE anything is
+    // stamped: a backup that names a skin or accent this wallet never bought
+    // has to be taken off, and stamping first would paint it anyway.
+    if (App.shop) App.shop.sanitize();
     html.setAttribute("data-sidebar", S.settings.sidebarCollapsed ? "collapsed" : "expanded");
     html.setAttribute("data-density", S.settings.density === "compact" ? "compact" : "comfortable");
     // Always stamped, indigo included — leaving it off for the default made
@@ -333,6 +339,10 @@
     if (S.settings.dyslexicFont) html.setAttribute("data-dyslexic", "1"); else html.removeAttribute("data-dyslexic");
     if (S.settings.trueBlack) html.setAttribute("data-trueblack", "1"); else html.removeAttribute("data-trueblack");
     if (S.settings.highContrast) html.setAttribute("data-contrast", "high"); else html.removeAttribute("data-contrast"); // U12
+    const skin = S.settings.skin;
+    if (skin && skin !== "none") html.setAttribute("data-skin", skin); else html.removeAttribute("data-skin");
+    const ring = S.settings.avatarRing;
+    if (ring && ring !== "none") html.setAttribute("data-ring", ring); else html.removeAttribute("data-ring");
     // F099 — the document language. index.html hardcodes lang="en" and
     // setLocale() only wrote the setting, so switching to 中文 left the page
     // declared as English: a screen reader kept reading Chinese nav labels
@@ -719,6 +729,7 @@
     { id: "assignment", icon: "✎", label: "Assignment", sub: "Homework, an essay, a test", go: () => App.views.homework.form(null) },
     { id: "class", icon: "▣", label: "Class", sub: "A course on your timetable", go: () => App.views.classes.classForm(null) },
     { id: "activity", icon: "◇", label: "Activity", sub: "Practice, a club, a job", go: () => App.views.activities.form(null) },
+    { id: "external", icon: "🌍", label: "Outside school", sub: "A lesson, an external class, a club team", go: () => App.views.activities.form(null, { external: true }) },
     { id: "event", icon: "▤", label: "Event", sub: "A one-off on the calendar", go: () => App.views.calendar.eventForm && App.views.calendar.eventForm(null) },
     { id: "note", icon: "✐", label: "Note", sub: "Something to write down", go: () => App.views.notes.form(null) },
     { id: "ai", icon: "✦", label: "Add with AI", sub: "Describe it, or upload a photo", go: () => App.aiAdd.open({ scope: "activities" }) }
@@ -1066,11 +1077,17 @@
     const chip = document.getElementById("profileChip");
     if (!chip) return;
     const p = S.profile;
+    // A nameplate bought in the study shop replaces the grade line when one
+    // is worn — two lines is what the chip has room for, and the student
+    // chose the second one.
+    const plate = S.settings.nameplate;
     chip.innerHTML = `
       ${UI.avatar(p.name, p.color)}
       <span class="grow truncate" style="min-width:0">
         <div class="small bold truncate">${U.esc(p.name)}</div>
-        <div class="tiny dim truncate">${U.esc(p.grade || "")}</div>
+        ${plate
+          ? `<span class="nameplate">${U.esc(plate)}</span>`
+          : `<div class="tiny dim truncate">${U.esc(p.grade || "")}</div>`}
       </span>
       <span class="dim">⚙</span>`;
   }

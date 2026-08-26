@@ -74,6 +74,77 @@ exfiltrate someone's schoolwork. Long messages are put on the clipboard
 instead of into the URL: mail clients disagree on how long a `mailto:` may be
 and the ones that dislike a long one drop the body without saying so.
 
+**Study tokens and the shop (F155).** A student photographs the work they
+did, the photo earns tokens, and the tokens buy how StudyHold looks — accent
+colours, surface skins, an avatar ring, a nameplate in the sidebar.
+
+The honest part first: **nothing here proves anyone studied.** A photo is
+evidence a person chose to show, on their own device, to their own copy of the
+app; there is no invigilator and no server, and the UI says so rather than
+implying otherwise. What the design can honestly promise is narrower — the
+obvious ways to farm the number don't work, and each refusal names its reason:
+
+- every photo is fingerprinted (64-bit average hash) before it counts, so the
+  same page re-cropped or re-compressed still collides;
+- the fingerprint ledger outlives the photo, so deleting a proof frees storage,
+  not the payout;
+- an image with almost no detail (a wall, a blank screen) has nothing to
+  fingerprint and is refused as such;
+- 10 minutes between submissions, 4 hours and 4 tokens per photo maximum, and
+  8 tokens a day. Past the cap a photo still saves and still logs as study
+  time — it just stops paying.
+
+Every proof also writes a real study session, so time proved this way lands in
+the heatmap, the weekly total and any study goal, exactly like a finished focus
+block. Photos live in IndexedDB beside class attachments — local, never
+uploaded.
+
+The cosmetics were the part with a trap in it: a shop full of colours is a shop
+full of ways to make the app unreadable. So every purchasable accent's text
+colour clears 4.5:1 on all four surfaces in both themes, and every skin is a
+re-tint at *matched luminance* — each surface was mixed toward a hue and scaled
+back to the relative luminance of the colour it replaces, so every contrast
+ratio in the app is arithmetically unchanged. `tests/shop.mjs` re-derives both
+from `css/theme.css`, and `App.shop.sanitize()` takes off any cosmetic a
+restored backup names but this wallet never bought.
+
+**Outside-school activities (F156).** The Activities screen assumed every
+extracurricular belonged to the school: its adult was picked from the staff
+list, its location was a room number, and the timetable drew it only on a day
+the school was open. That is not what most of a family's week outside class
+actually looks like — music lessons, a club team, a language school, tutoring,
+a weekend class. Those are run by somebody else, meet somewhere with an
+address, cost money, and very often fall on a Saturday.
+
+An activity now says which of the two it is, and the outside-school side
+carries the fields the school side has no use for: who runs it, the instructor
+and how to reach them, an address and website, and a fee with its billing
+period, rolled up into what the family pays per month (one-off fees are
+reported separately rather than folded into a monthly figure they are not part
+of). Fees are formatted with `Intl` from a currency setting, so this is not a
+US-only feature.
+
+The scheduling rule changed with it. v2 drew an activity only when
+`isSchoolDay(iso) || mode === "weekly"`; weekly is the default, so most
+installs never saw the gap, but a school on an A/B cycle sets rotating mode
+and there the condition collapses to "only when the school is open" — the
+Saturday squad session and the lesson in the holidays disappeared. Outside-school
+activities are no longer bound to the school calendar; school clubs still are,
+because a club really doesn't meet when the school is shut.
+
+**Parents can add one.** The parent portal is read-only by design, and that is
+why it is safe to hand a parent, so this is not a write into the student's
+data. A guardian fills in the activity from their portal; it lands as a
+suggestion in the student's Sharing screen, where they add it (their own
+device does the insert, and the record is marked with who suggested it) or
+dismiss it. The server whitelists the posted fields rather than trimming them,
+because the object crosses accounts: no `id` that could collide with one of
+the student's own records, no `javascript:` website, no unknown field at all.
+Whether the student added it is reported back to the parent who sent it.
+Outside-school activities also appear in the parent summary, behind their own
+privacy toggle — school clubs never do, since which clubs someone joined is
+theirs to tell.
+
 **Add from a link (F152).** Most of what a student retypes into a school
 tracker is already published on a web page. Paste the link instead: the server
 fetches the page, strips it to text, and extracts bell-schedule periods, a

@@ -3,6 +3,17 @@
    ========================================================================== */
 
 App.views.settings = (function () {
+  // Enough to cover the places this app is actually used from, formatted by
+  // Intl rather than by a stored symbol — see S.money().
+  const CURRENCIES = [
+    ["USD", "US dollar ($)"], ["EUR", "Euro (€)"], ["GBP", "Pound (£)"],
+    ["CAD", "Canadian dollar"], ["AUD", "Australian dollar"], ["NZD", "NZ dollar"],
+    ["INR", "Indian rupee (₹)"], ["JPY", "Japanese yen (¥)"], ["CNY", "Chinese yuan"],
+    ["MXN", "Mexican peso"], ["BRL", "Brazilian real"], ["ZAR", "South African rand"],
+    ["NGN", "Nigerian naira"], ["PHP", "Philippine peso"], ["SEK", "Swedish krona"],
+    ["NOK", "Norwegian krone"], ["DKK", "Danish krone"], ["PLN", "Polish złoty"],
+    ["CHF", "Swiss franc"], ["SGD", "Singapore dollar"], ["AED", "UAE dirham"]
+  ];
   const U = App.utils, S = App.store, UI = App.ui;
 
   let tab = "account";
@@ -57,6 +68,7 @@ App.views.settings = (function () {
       ["Events", d.events.length], ["Notes", d.notes.length],
       ["Flashcards", U.sum(d.decks, (x) => x.cards.length)],
       ["Study sessions", d.studySessions.length],
+      ["Study photos", (d.studyProofs || []).length],
       ["Books", d.reading.length], ["Applications", d.collegeApps.length]
     ];
   }
@@ -72,6 +84,25 @@ App.views.settings = (function () {
         <span class="track"></span>
       </label>
     </div>`;
+  }
+
+  /**
+   * What the study shop has to say for itself in Settings.
+   *
+   * Skins, avatar rings and nameplates are equipped in the shop rather than
+   * here, because equipping them and buying them are the same gesture and
+   * splitting that across two screens would leave a student wondering where
+   * the thing they just bought went. Accents are the exception: the picker
+   * above already existed, so an owned accent simply appears in it.
+   */
+  function shopSummary() {
+    const worn = App.shop.kinds()
+      .map((k) => App.shop.equipped(k))
+      .filter(Boolean)
+      .map((i) => U.esc(i.name));
+    const bal = App.shop.balance();
+    const wearing = worn.length ? `Wearing ${worn.join(", ")}.` : "Nothing equipped yet.";
+    return `${wearing} ${bal} token${bal === 1 ? "" : "s"} to spend.`;
   }
 
   /* ------------------------------------------------------------- account */
@@ -344,11 +375,18 @@ App.views.settings = (function () {
               ${[1, 2, 3, 5, 7, 14].map((v) => `<option value="${v}" ${v === st.dueSoonDays ? "selected" : ""}>${v} days</option>`).join("")}
             </select>
           </div>
-          <div class="between" style="padding:12px 0">
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
             <div><div class="bold small">Language</div>
               <div class="tiny dim">Nav labels, common actions, and dates</div></div>
             <select class="select input-sm" id="localeSel" style="width:140px">
               ${App.i18n.available().map((l) => `<option value="${l.code}" ${l.code === st.locale ? "selected" : ""}>${l.name}</option>`).join("")}
+            </select>
+          </div>
+          <div class="between" style="padding:12px 0">
+            <div><div class="bold small">Currency</div>
+              <div class="tiny dim">What outside-school fees are shown in</div></div>
+            <select class="select input-sm" data-pref-str="currency" style="width:140px">
+              ${CURRENCIES.map(([code, label]) => `<option value="${code}" ${code === (st.currency || "USD") ? "selected" : ""}>${U.esc(label)}</option>`).join("")}
             </select>
           </div>
         </div>
@@ -370,11 +408,21 @@ App.views.settings = (function () {
           </div>
           <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
             <div><div class="bold small">Accent colour</div><div class="tiny dim">Buttons, links, and highlights — independent of class colours</div></div>
-            <div class="row gap-6">
+            <div class="row gap-6 wrap" style="justify-content:flex-end">
               ${[["indigo", "#4f46e5"], ["teal", "#0f766e"], ["rose", "#be123c"], ["amber", "#b45309"]].map(([id, hex]) => `
                 <button class="swatch ${((st.accent || "indigo") === id) ? "active" : ""}" data-accent-opt="${id}"
                         style="background:${hex};width:24px;height:24px" aria-label="${id}"></button>`).join("")}
+              ${App.shop.items("accent").filter((i) => App.shop.owns(i.id)).map((i) => `
+                <button class="swatch ${(st.accent === i.value) ? "active" : ""}" data-accent-opt="${U.esc(i.value)}"
+                        style="background:${U.esc(i.preview.a)};width:24px;height:24px" aria-label="${U.esc(i.name)}"></button>`).join("")}
             </div>
+          </div>
+          <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div>
+              <div class="bold small">Study-shop looks</div>
+              <div class="tiny dim">${shopSummary()}</div>
+            </div>
+            <button class="btn btn-sm" data-open-shop>Open the shop</button>
           </div>
           <div class="between" style="padding:12px 0;border-bottom:1px solid var(--border)">
             <div><div class="bold small">Colour-blind preview</div><div class="tiny dim">Simulates how class colours and charts look</div></div>
@@ -1595,6 +1643,10 @@ App.views.settings = (function () {
     U.on(root, "change", "[data-pref-num]", (_e, el) => {
       S.commit((db) => { db.settings[el.dataset.prefNum] = Number(el.value); });
     });
+    U.on(root, "change", "[data-pref-str]", (_e, el) => {
+      S.commit((db) => { db.settings[el.dataset.prefStr] = el.value; });
+      App.router.refresh();
+    });
     U.on(root, "change", "[data-pref-nested]", (_e, el) => {
       const [group, key] = el.dataset.prefNested.split(".");
       S.commit((db) => { db.settings[group][key] = el.checked; });
@@ -1621,6 +1673,7 @@ App.views.settings = (function () {
       App.applyShellPrefs();
       App.router.refresh();
     });
+    U.on(root, "click", "[data-open-shop]", () => App.router.go("shop"));
     U.on(root, "click", "[data-accent-opt]", (_e, el) => {
       S.commit((db) => { db.settings.accent = el.dataset.accentOpt; });
       App.applyShellPrefs();

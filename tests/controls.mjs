@@ -22,7 +22,7 @@ const ok = (name, cond, extra) => {
 };
 
 const VIEWS = ["dashboard", "calendar", "schedule", "homework", "classes", "grades",
-  "planner", "focus", "flashcards", "notes", "reading", "activities", "goals",
+  "planner", "focus", "flashcards", "notes", "reading", "shop", "activities", "goals",
   "college", "guidance", "contacts", "analytics", "sharing", "groups", "parent", "settings", "assistant"];
 
 /**

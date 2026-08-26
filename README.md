@@ -2,7 +2,7 @@
 
 A full student platform built with **plain HTML, CSS, and JavaScript** — no framework, no build step, no bundler — plus a small **Netlify Functions** backend for the things that genuinely need a server.
 
-Twenty screens covering classes, homework, grades, scheduling, study tools, extracurriculars, college applications, analytics, and a real parent portal with live GPS.
+Twenty-three screens covering classes, homework, grades, scheduling, study tools, extracurriculars in and out of school, college applications, analytics, and a real parent portal with live GPS.
 
 ---
 
@@ -112,9 +112,11 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 - **Flashcards** — Leitner spaced repetition, plus **multiple-choice and type-the-answer quiz modes** with forgiving answer matching.
 - **Notes** — **Markdown** editor with live preview, and **one-click note → flashcard deck** extraction from "term — definition" lines.
 - **Reading** — books and chapter assignments with pages-per-day pacing and behind/ahead detection.
+- **Study shop** — photograph the work you actually did, earn **study tokens**, spend them on how StudyHold looks: accent colours, surface skins, an avatar ring, a nameplate under your name. The photos never leave the device, and the economy is built so the obvious shortcuts don't pay — see below.
 
 ### Life
 - **Activities** — practices, clubs, and volunteering with hour logging. Optionally date-bounded (a season that starts and ends on real dates, not just "Fall"). **"Add with AI"** *(needs `GEMINI_API_KEY`)* turns a plain-English description ("swimming 6-6:45pm weekdays, Sept 5 to Oct 25") or a photo of a schedule or bell-times page into editable drafts — nothing saves until you review and confirm each one.
+- **Outside school** — the half of the week a school tracker usually ignores: music lessons, a club team, a language school, tutoring, a dojo, a weekend coding class. Each carries who runs it, the instructor and how to reach them, an address, and what it costs (per session / week / month / term / year, or one-off), rolled up into a monthly figure. They are not bound to the school calendar, so a Saturday squad session and a lesson in the holidays both show up on the schedule where a school club correctly doesn't. **A parent can add one from the parent portal** — it arrives as a suggestion the student adds or dismisses, so the portal stays read-only.
 - **Goals & habits** — goals that auto-track from live data (GPA, service hours, study minutes), habit streaks, attendance.
 - **Applications** — college and scholarship tracker with deadlines, essay status, recommendation-letter tracking, and a **pre-written recommendation request email**.
 - **Contacts** — teacher directory with office hours and one-tap pre-filled email.
@@ -122,7 +124,7 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 ### Connect *(needs an account)*
 - **Sharing** — privacy toggles and a live preview of exactly what a parent sees.
 - **Study groups** — shared flashcard decks and a **crowdsourced "what was the homework?" feed** with confirmations, one tap to add a post to your own homework list.
-- **Parent portal** — link with a single-use code, then see live status, screen time, attendance, upcoming work, and (if shared) grades.
+- **Parent portal** — link with a single-use code, then see live status, screen time, attendance, upcoming work, outside-school activities and what they cost, and (if shared) grades. Parents can also **suggest an outside-school activity**, which the student confirms in their own app.
 
 ### Everywhere
 - **Command palette** (`⌘K`) over every screen, assignment, class, note, and contact.
@@ -131,6 +133,55 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 - **Import** from Canvas / Google Classroom / Infinite Campus (`.ics` and `.csv`), with a preview-and-pick step.
 - **Undo on every delete**, plus a trash bin in Settings.
 - Dark mode, keyboard shortcuts, responsive to phone width, print stylesheet.
+
+---
+
+## Study tokens, and what stops them being free
+
+The loop is simple: photograph the page you worked, say how long it took, get
+tokens, spend them on accents, skins, avatar rings and nameplates. The
+interesting part is that **nothing here can prove a student studied** — a photo
+is evidence a person chose to show, on their own device, to their own copy of
+the app. Pretending otherwise would be the dishonest version of this feature.
+
+So the guarantee is narrower and actually true: the obvious ways to farm the
+number don't work, and the app says why out loud when it refuses one.
+
+| What someone tries | What happens |
+|---|---|
+| Submitting the same photo again | Refused. Every photo is fingerprinted with a 64-bit average hash before it counts, so a re-crop or a re-compress of the same page still collides. |
+| Deleting the proof and re-submitting it | Still refused. The fingerprint ledger outlives the photo it came from — deleting a proof frees the storage, not the payout. |
+| A photo of a wall, a desk, or a blank screen | Refused. An image with almost no detail carries nothing to fingerprint, and is named as the reason. |
+| A stack of photos submitted in one sitting | Refused after the first. There is a 10-minute cooldown between submissions. |
+| Claiming nine hours for one photo | Clamped. Four hours is the most one submission can claim and 4 tokens the most it can pay. |
+| Grinding all day | Capped at 8 tokens a day. Past the cap a photo still saves and still logs as study time — it just doesn't pay. |
+
+One token per 15 minutes claimed, plus one for the first photo of the day.
+Every photo also writes a real study session, so proof-of-work time shows up in
+the study heatmap, the weekly total and any study goal, exactly like a
+completed focus block does.
+
+**And what the guards can't do**, said plainly rather than left to be
+discovered: they can't tell whose work is in the photo, whether it was done
+today, or whether the 40 minutes claimed for it were 40 minutes. The device
+clock belongs to whoever holds the device. This is a habit tracker a student
+keeps honest for their own benefit — a number to beat, not a grade, and not
+something to hand a teacher as evidence. The one thing worth noting: the
+fingerprint ledger syncs with the rest of the account, so a photo already
+spent on a phone can't be spent again on a laptop.
+
+Photos live in IndexedDB alongside class attachments and cover images — the
+same local store, never uploaded, never reviewed by anyone. The whole economy
+(`js/shop.js`) runs in the browser; there is no server involved and no score
+shared with anyone.
+
+**The cosmetics keep the app readable.** Every purchasable accent's text colour
+clears 4.5:1 on all four surfaces in both themes. Every skin is a *re-tint at
+matched luminance*: each surface colour was mixed toward a hue and then scaled
+back to the relative luminance of the colour it replaces, so every contrast
+ratio in the app is arithmetically what it was before — a skin changes the
+temperature of the screen, not its legibility. `tests/shop.mjs` asserts both
+against `css/theme.css`, so a future hand-picked hex can't quietly undo it.
 
 ---
 
