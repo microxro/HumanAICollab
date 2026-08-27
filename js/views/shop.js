@@ -32,17 +32,48 @@ App.views.shop = (function () {
     return { kind: "ok", text: `${left} token${left === 1 ? "" : "s"} still available today.` };
   }
 
-  /* -------------------------------------------------------- earning form -- */
+  /* -------------------------------------------------------- earning form --
+
+     Two stages in one dialog, because they are two halves of one decision:
+     show the work, then answer for it.
+
+       1. pick a photo → the local checks (blank, already-spent) run first,
+          because they are free and a duplicate should never cost an API call
+       2. the model says whether it is schoolwork and writes a quiz about it
+       3. answering the quiz is what earns the tokens
+
+     Stage 2 replaces the body of the same modal rather than opening a second
+     one, so the photo stays on screen next to the questions and Escape means
+     the same thing throughout.                                              */
+
+  /** Is the graded path available at all right now? */
+  function canVerify() {
+    return !!(App.assistant && App.assistant.available && App.assistant.available());
+  }
 
   function proofForm() {
     const rules = SH.RULES;
-    const q0 = SH.quote(30);
+    const verified = canVerify();
+
+    // Without the AI there is no quiz, so there is no payout — the photo is
+    // still worth recording as study time, and that needs a duration from
+    // somewhere. Self-reported minutes are fine for a log; they were only
+    // dangerous as a price, which is why this input exists on this path and
+    // nowhere else.
+    const unverifiedFields = `
+        <div class="field">
+          <label for="proofMinutes">Minutes studied</label>
+          <input class="input" type="number" id="proofMinutes" name="minutes"
+                 min="${rules.minMinutes}" max="${rules.maxMinutes}" step="1" value="30" required />
+          <span class="hint">Logged as study time. No tokens — those need the quiz.</span>
+        </div>`;
 
     UI.modal({
       title: "Log a study photo",
-      sub: "A photo of the work, and how long it took",
+      sub: verified ? "Photograph the work, then answer a few questions about it"
+                    : "Photograph the work — tokens need a connection",
       size: "wide",
-      okLabel: "Earn tokens",
+      okLabel: verified ? "Check this photo" : "Log it",
       body: `
         <label class="proof-drop" data-drop>
           <span class="ico" aria-hidden="true">📷</span>
@@ -58,16 +89,7 @@ App.views.shop = (function () {
         </div>
 
         <div class="form-grid mt-16">
-          <div class="field">
-            <label for="proofMinutes">Minutes studied</label>
-            <!-- step="1", not 5: a student who studied 41 minutes types 41, and a
-                 stepMismatch rejects it with a browser message about a value
-                 that was perfectly reasonable. -->
-            <input class="input" type="number" id="proofMinutes" name="minutes"
-                   min="${rules.minMinutes}" max="${rules.maxMinutes}" step="1" value="30" required />
-            <span class="hint">${rules.minMinutes}–${rules.maxMinutes}. One token per ${rules.minutesPerToken} minutes,
-              up to ${rules.maxPerProof} per photo.</span>
-          </div>
+          ${verified ? "" : unverifiedFields}
           <div class="field">
             <label for="proofClass">Class</label>
             <select class="select" id="proofClass" name="classId">${UI.classOptions(null, true)}</select>
@@ -79,9 +101,11 @@ App.views.shop = (function () {
           </div>
         </div>
 
-        <div class="row gap-8 mt-12" data-quote>
-          <span class="small dim">This photo is worth</span> ${tokenPill(q0.total)}
-        </div>
+        <p class="small dim mt-12" data-quote>${verified
+          ? `A full-marks quiz pays ${rules.grades.A} tokens, ${rules.grades.B} for most of it,
+             ${rules.grades.C} for half. Below half pays nothing, and still logs the time.`
+          : `You're offline or signed out, so there's no quiz to answer — this saves as study
+             time and earns nothing.`}</p>
 
         <p class="proof-error small mt-12" data-proof-error hidden role="alert"></p>`,
 
@@ -92,27 +116,12 @@ App.views.shop = (function () {
         const img = root.querySelector("[data-preview]");
         const note = root.querySelector("[data-preview-note]");
         const err = root.querySelector("[data-proof-error]");
-        const minutes = root.querySelector("#proofMinutes");
-        const quoteBox = root.querySelector("[data-quote]");
 
         const showError = (msg) => {
           err.textContent = msg;
           err.hidden = false;
         };
         const clearError = () => { err.hidden = true; err.textContent = ""; };
-
-        const paintQuote = () => {
-          const q = SH.quote(minutes.value);
-          const why = q.total === 0
-            ? `<span class="small dim">— nothing left in today's cap, but it still logs as study time.</span>`
-            : q.bonus
-              ? `<span class="small dim">(${q.base} for the time + ${q.bonus} for the first photo today)</span>`
-              : q.capped
-                ? `<span class="small dim">(trimmed to what's left of today's cap)</span>`
-                : "";
-          quoteBox.innerHTML = `<span class="small dim">This photo is worth</span> ${tokenPill(q.total)} ${why}`;
-        };
-        minutes.addEventListener("input", paintQuote);
 
         // Reading the photo here (rather than only on submit) means a
         // duplicate or a blank frame is caught while the file picker is still
@@ -166,8 +175,6 @@ App.views.shop = (function () {
           try { file.files = e.dataTransfer.files; } catch (_) { /* older browsers */ }
           take(f);
         });
-
-        paintQuote();
       },
 
       onSubmit(d, root) {
@@ -180,29 +187,244 @@ App.views.shop = (function () {
           return false;
         }
         err.hidden = true;
-
         const btn = root.querySelector('button[type="submit"]');
-        UI.busy(btn, SH.submit({ file: f, minutes: d.minutes, classId: d.classId, note: d.note }))
-          .then((res) => {
-            UI.closeModal();
-            if (res.awarded > 0) {
-              UI.toast(`+${res.awarded} token${res.awarded === 1 ? "" : "s"} 🎉`,
-                `${U.fmtDur(res.proof.minutes)} logged${res.proof.classId ? " to " + S.className(res.proof.classId) : ""}` +
-                (res.capped ? " — trimmed by today's cap." : "."), "ok");
-            } else {
+        const meta = { classId: d.classId, note: d.note };
+
+        if (!canVerify()) {
+          UI.busy(btn, SH.submit({ file: f, minutes: d.minutes, ...meta }))
+            .then((res) => {
+              UI.closeModal();
               UI.toast("Logged, no tokens",
-                `Today's ${SH.RULES.dailyCap}-token cap is reached, but the study time still counts.`);
+                "Tokens need the quiz, and that needs a connection. The study time still counts.");
+              App.router.refresh();
+            })
+            .catch((e) => {
+              err.textContent = e.message || "That photo couldn't be saved.";
+              err.hidden = false;
+            });
+          return false;
+        }
+
+        // The free checks run before the paid one. A duplicate, a blank frame
+        // or an unexpired cooldown are all refusals this device can make on
+        // its own, and none of them should cost an API call or make a student
+        // answer four questions before being told no.
+        UI.busy(btn, SH.inspect(f).then((info) => {
+          const wait = SH.cooldownLeft();
+          if (wait > 0) {
+            throw new Error(`Next photo in ${wait} minute${wait === 1 ? "" : "s"}. Study happens between submissions, not during them.`);
+          }
+          if (info.blank) {
+            throw new Error("That photo is almost entirely one flat colour — photograph the actual work, not a wall or a blank screen.");
+          }
+          if (info.duplicate) {
+            throw new Error("You've already earned tokens for this photo. Take a new one of what you did this time.");
+          }
+          return App.assistant.verifyStudyPhoto(f, info.hash);
+        }))
+          .then((verdict) => {
+            if (!verdict || verdict.schoolwork !== true) {
+              // Not an error state: the student did something the app can't
+              // pay for, and the useful thing is the reason plus the picker
+              // still being open.
+              err.textContent = (verdict && verdict.reason)
+                || "That doesn't look like schoolwork. Photograph the work you actually did.";
+              err.hidden = false;
+              return;
             }
-            App.router.refresh();
+            quizStage(f, meta, verdict);
           })
           .catch((e) => {
-            err.textContent = e.message || "That photo couldn't be saved.";
+            err.textContent = e.message || "That photo couldn't be checked.";
             err.hidden = false;
           });
 
-        return false;   // the async path closes the modal itself
+        return false;   // the async path opens the quiz or closes the modal
       }
     });
+  }
+
+  /* -------------------------------------------------------------- quiz -- */
+
+  function questionHtml(q, i) {
+    const name = `q${i}`;
+    return `<fieldset class="quiz-q" data-q="${i}">
+      <legend class="bold small">${i + 1}. ${U.esc(q.prompt)}</legend>
+      ${q.choices.map((c, j) => `
+        <label class="quiz-choice" data-choice="${j}">
+          <input type="radio" name="${name}" value="${j}" required />
+          <span>${U.esc(c)}</span>
+        </label>`).join("")}
+    </fieldset>`;
+  }
+
+  /**
+   * Stage two: the questions, and what the answers were worth.
+   *
+   * `verdict` is the classify response — questions with no answers in them,
+   * plus the ticket that carries the key server-side.
+   */
+  function quizStage(file, meta, verdict) {
+    const qs = verdict.questions || [];
+    const fifties = SH.held("fifty");
+
+    UI.modal({
+      title: `${verdict.subject || "Study"} — ${qs.length} questions`,
+      sub: "Answer these to earn the tokens. The answers are checked on the server.",
+      size: "wide",
+      okLabel: "Submit answers",
+      body: `
+        <p class="small dim">${U.esc(verdict.reason || "")}</p>
+        <div class="quiz-list mt-12">${qs.map(questionHtml).join("")}</div>
+        <div class="row gap-8 mt-12" data-fifty-row ${fifties ? "" : "hidden"}>
+          <button type="button" class="btn btn-sm" data-fifty>
+            Use a 50/50 <span class="dim">(${fifties} left)</span>
+          </button>
+          <span class="tiny dim">Removes two wrong options from the first question you haven't answered.</span>
+        </div>
+        <p class="proof-error small mt-12" data-quiz-error hidden role="alert"></p>`,
+
+      onMount(root) {
+        const fiftyBtn = root.querySelector("[data-fifty]");
+        if (!fiftyBtn) return;
+        fiftyBtn.addEventListener("click", () => {
+          // The 50/50 has to pick a target, and the least surprising one is
+          // the question the student is stuck on: the first unanswered.
+          const target = [...root.querySelectorAll(".quiz-q")]
+            .find((fs) => !fs.querySelector("input:checked"));
+          if (!target) {
+            UI.toast("Nothing to narrow", "Every question already has an answer.");
+            return;
+          }
+          if (!SH.spendHeld("fifty")) return;
+
+          // Which two to hide is a client-side guess — the key is on the
+          // server. Hiding two the student has NOT picked keeps it honest:
+          // it never removes the option they were leaning towards, and on a
+          // question they'd have got right it can only remove wrong ones.
+          const choices = [...target.querySelectorAll(".quiz-choice")];
+          const shuffled = choices.slice().sort(() => Math.random() - 0.5).slice(0, 2);
+          shuffled.forEach((c) => {
+            c.hidden = true;
+            const input = c.querySelector("input");
+            input.checked = false;
+            input.disabled = true;
+            input.required = false;
+          });
+          const left = SH.held("fifty");
+          fiftyBtn.innerHTML = `Use a 50/50 <span class="dim">(${left} left)</span>`;
+          if (!left) root.querySelector("[data-fifty-row]").hidden = true;
+        });
+      },
+
+      onSubmit(d, root) {
+        const err = root.querySelector("[data-quiz-error]");
+        const answers = qs.map((_, i) => {
+          const picked = root.querySelector(`input[name="q${i}"]:checked`);
+          return picked ? Number(picked.value) : -1;
+        });
+        if (answers.some((a) => a < 0)) {
+          err.textContent = "Answer every question before submitting.";
+          err.hidden = false;
+          return false;
+        }
+        err.hidden = true;
+
+        const btn = root.querySelector('button[type="submit"]');
+        UI.busy(btn, App.assistant.gradeStudyQuiz(verdict.ticket, answers))
+          .then((graded) => {
+            const scored = { ...graded, subject: verdict.subject };
+            if (graded.tokens > 0) return finish(file, meta, scored);
+            // A zero is the one place a retake is worth offering, and it has
+            // to be offered before the proof saves: saving spends the photo's
+            // fingerprint, and a spent photo can't be re-checked.
+            failedStage(file, meta, scored);
+          })
+          .catch((e) => {
+            err.textContent = e.message || "Those answers couldn't be marked.";
+            err.hidden = false;
+          });
+
+        return false;
+      }
+    });
+  }
+
+  /** Stage three, only when the quiz was failed: save it, or spend a retake. */
+  function failedStage(file, meta, graded) {
+    const retakes = SH.held("retake");
+
+    UI.modal({
+      title: `${graded.correct} of ${graded.total} — no tokens`,
+      sub: "The study time still counts. The tokens don't.",
+      size: "wide",
+      body: `
+        <p class="small">Half the questions right is the line, and this was under it.
+          Nothing is lost: the photo and the session save either way.</p>
+        ${retakes
+          ? `<p class="small mt-12">You have ${retakes} retake${retakes === 1 ? "" : "s"}.
+             Spending one asks for a fresh set of questions about the same photo —
+             different questions, not the same ones again.</p>`
+          : `<p class="small dim mt-12">A retake from the shop would buy a fresh set of
+             questions about this photo. You don't have one.</p>`}
+        <p class="proof-error small mt-12" data-retake-error hidden role="alert"></p>`,
+      footer: `
+        ${retakes ? `<button type="button" class="btn btn-primary left" data-retake>Use a retake</button>` : ""}
+        <button type="button" class="btn" data-save-anyway>Save without tokens</button>`,
+
+      onMount(root) {
+        const err = root.querySelector("[data-retake-error]");
+        root.querySelector("[data-save-anyway]").addEventListener("click", () => {
+          finish(file, meta, graded);
+        });
+
+        const btn = root.querySelector("[data-retake]");
+        if (!btn) return;
+        btn.addEventListener("click", () => {
+          if (!SH.spendHeld("retake")) {
+            err.textContent = "That retake is already spent.";
+            err.hidden = false;
+            return;
+          }
+          UI.busy(btn, SH.inspect(file).then((info) => App.assistant.verifyStudyPhoto(file, info.hash)))
+            .then((verdict) => {
+              if (!verdict || verdict.schoolwork !== true) {
+                err.textContent = (verdict && verdict.reason) || "That photo couldn't be checked again.";
+                err.hidden = false;
+                return;
+              }
+              quizStage(file, meta, verdict);
+            })
+            .catch((e) => {
+              err.textContent = e.message || "That photo couldn't be checked again.";
+              err.hidden = false;
+            });
+        });
+      }
+    });
+  }
+
+  /** Write the proof, whatever it turned out to be worth. */
+  function finish(file, meta, graded) {
+    return SH.submit({ file, verdict: graded, ...meta })
+      .then((res) => {
+        UI.closeModal();
+        if (res.awarded > 0) {
+          UI.toast(`+${res.awarded} token${res.awarded === 1 ? "" : "s"} 🎉`,
+            `Grade ${graded.grade} · ${U.fmtDur(res.proof.minutes)} logged` +
+            (res.capped ? " — trimmed by today's cap." : "."), "ok");
+        } else {
+          UI.toast("Logged, no tokens",
+            SH.remainingToday() === 0
+              ? `Today's ${SH.RULES.dailyCap}-token cap is reached, but the study time still counts.`
+              : `${graded.correct} of ${graded.total} isn't enough for tokens, but the study time counts.`);
+        }
+        App.router.refresh();
+      })
+      .catch((e) => {
+        UI.closeModal();
+        UI.toast("That photo couldn't be saved", e.message || "", "warn");
+      });
   }
 
   /** Full-size look at one proof, with the option to remove it. */
@@ -298,7 +520,8 @@ App.views.shop = (function () {
       return `<div class="shop-swatch shop-glyph" aria-hidden="true">🔔</div>`;
     }
     if (it.kind === "boost") {
-      return `<div class="shop-swatch shop-glyph" aria-hidden="true">${it.value === "freeze" || it.value === "vault" ? "🧊" : "✖️"}</div>`;
+      const glyph = { freeze: "🧊", vault: "🧊", fifty: "½", skip: "⏩", retake: "↻" }[it.value] || "✖️";
+      return `<div class="shop-swatch shop-glyph" aria-hidden="true">${glyph}</div>`;
     }
     // Everything left is a colour pair; an item without one would throw here,
     // which is why the two kinds above return before reaching it.
@@ -316,10 +539,13 @@ App.views.shop = (function () {
 
     // A consumable is used the moment it's bought, so it never reads as owned
     // or worn — buying a second streak freeze is the whole point of it.
+    const full = !!it.max && SH.held(it.value) >= it.max;
     const action = it.consumable
-      ? `<button class="btn btn-sm btn-primary" data-buy="${it.id}" ${afford ? "" : "disabled"}>
-           ${afford ? `Buy · ${it.price}` : `${it.price} tokens`}
-         </button>`
+      ? full
+        ? `<button class="btn btn-sm" disabled>Full · ${it.max}</button>`
+        : `<button class="btn btn-sm btn-primary" data-buy="${it.id}" ${afford ? "" : "disabled"}>
+             ${afford ? `Buy · ${it.price}` : `${it.price} tokens`}
+           </button>`
       : !owned
         ? `<button class="btn btn-sm btn-primary" data-buy="${it.id}" ${afford ? "" : "disabled"}>
              ${afford ? `Buy · ${it.price}` : `${it.price} tokens`}
@@ -328,8 +554,13 @@ App.views.shop = (function () {
           ? `<button class="btn btn-sm" data-unequip="${it.kind}">Take off</button>`
           : `<button class="btn btn-sm btn-primary" data-equip="${it.id}">Wear</button>`;
 
+    // A timed boost is spent when bought; a banked one waits for its moment,
+    // so what matters on its card is how many are in hand, not how many were
+    // ever bought.
+    const banked = it.max ? SH.held(it.value) : 0;
     const badge = it.consumable
-      ? (count ? `<span class="badge ok">Used ×${count}</span>` : tokenPill(it.price))
+      ? (banked ? `<span class="badge brand">${banked} banked</span>`
+         : count ? `<span class="badge ok">Used ×${count}</span>` : tokenPill(it.price))
       : worn ? `<span class="badge brand">Wearing</span>`
       : owned ? `<span class="badge ok">Owned</span>` : tokenPill(it.price);
 
@@ -360,16 +591,24 @@ App.views.shop = (function () {
     return `<div class="grid g-main">
       <div class="card">
         <div class="card-head">
-          <div><h3>Show your work</h3><div class="sub">A photo, the minutes, and what you did</div></div>
+          <div><h3>Show your work</h3><div class="sub">A photo of it, and a few questions about it</div></div>
           <span class="badge ${st.kind}">${U.esc(st.text)}</span>
         </div>
         <div class="card-body col gap-16">
           <button class="btn btn-primary btn-lg btn-block" data-add-proof>📷 Add a study photo</button>
+          ${SH.cooldownLeft() > 0 && SH.held("skip") > 0
+            ? `<button class="btn btn-block" data-skip-cooldown>⏩ Skip the wait
+                 <span class="dim">(${SH.held("skip")} banked)</span></button>`
+            : ""}
 
           <div>
             <h4 class="mb-8">How a photo pays</h4>
             <ul class="earn-rules">
-              <li>${Math.round(rules.tokensPerMinute * 15)} tokens per 15 minutes you claim, up to ${rules.maxPerProof} for a single photo.</li>
+              <li>The photo has to be schoolwork. A screenshot of something else is read,
+                  refused, and told why.</li>
+              <li>Then a few questions about that page — <strong>full marks pays
+                  ${rules.grades.A}</strong>, most of them ${rules.grades.B}, half ${rules.grades.C}.
+                  Under half pays nothing and still logs the time.</li>
               <li>+${rules.firstOfDayBonus} for the first photo of the day. ${rules.dailyCap} tokens is the daily ceiling <em>for photos</em>.</li>
               <li>${rules.cooldownMin} minutes between photos.</li>
               <li>The same photo never pays twice — every one is fingerprinted before it counts,
@@ -532,6 +771,12 @@ App.views.shop = (function () {
       App.router.refresh();
     });
     U.on(root, "click", "[data-add-proof]", proofForm);
+    U.on(root, "click", "[data-skip-cooldown]", () => {
+      const r = SH.skipCooldown();
+      if (!r.ok) { UI.toast("Can't skip that", r.error, "warn"); return; }
+      UI.toast("Wait skipped", "Photograph the next thing now.", "ok");
+      App.router.refresh();
+    });
     U.on(root, "click", "[data-proof]", (_e, el) => viewProof(el.dataset.proof));
     U.on(root, "click", "[data-buy]", (_e, el) => buyItem(el.dataset.buy));
     U.on(root, "click", "[data-equip]", (_e, el) => {

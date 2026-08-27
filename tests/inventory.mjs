@@ -73,6 +73,7 @@ const surface = await page.evaluate(() => ({
   planner: App.planner ? Object.keys(App.planner) : [],
   guidance: App.guidance ? Object.keys(App.guidance) : [],
   assistant: App.assistant ? Object.keys(App.assistant) : [],
+  shop: App.shop ? Object.keys(App.shop) : [],
   charts: App.charts ? Object.keys(App.charts) : [],
   nlp: App.nlp ? Object.keys(App.nlp) : [],
   ics: App.ics ? Object.keys(App.ics) : [],
@@ -84,6 +85,8 @@ const surface = await page.evaluate(() => ({
 }));
 
 const apiRoutes = readFileSync("netlify/functions/api.js", "utf8");
+const shopSrc = readFileSync("js/shop.js", "utf8");
+const assistantClientSrc = readFileSync("js/assistant.js", "utf8");
 
 /* ------------------------------------------------------------- the report -- */
 
@@ -140,6 +143,19 @@ ok("F156 client methods present",
      .every((k) => surface.sync.includes(k)),
    surface.sync.filter((k) => /Suggest/i.test(k)).join(", "));
 ok("F156 is documented in the roadmap", /\*\*Outside-school activities \(F156\)\.\*\*/.test(roadmap));
+ok("F158 client methods present",
+   ["verifyStudyPhoto", "gradeStudyQuiz"].every((k) => surface.assistant.includes(k)),
+   surface.assistant.filter((k) => /Study/i.test(k)).join(", "));
+ok("F158 shop methods present",
+   ["held", "spendHeld", "skipCooldown"].every((k) => surface.shop.includes(k)),
+   surface.shop.join(", "));
+ok("F158 is documented in the roadmap", /\(F158\)\.\*\*/.test(roadmap));
+// The regression this whole feature exists to prevent: claimed minutes must
+// not be a rate any more. A `tokensPerMinute` back in RULES means somebody
+// reinstated the lever.
+ok("claimed minutes are not a rate", !/tokensPerMinute/.test(shopSrc), "tokensPerMinute is back in js/shop.js");
+ok("the answer key is not sent to the client",
+   !/answerIndex/.test(assistantClientSrc), "answerIndex appears in js/assistant.js");
 ok("F100 client methods present",
    ["mintApiToken", "listApiTokens", "revokeApiToken", "addWebhook", "listWebhooks", "removeWebhook"]
      .every((k) => surface.sync.includes(k)),

@@ -114,7 +114,14 @@
       need(db.wallet, "daily", {});
       need(db.wallet, "seen", []);
       need(db.wallet, "lastProofAt", 0);
-      // F158. Consumables that wait in the wallet for their moment (a retake,
+      // F158. `bought` is the per-item purchase tally; `owned` records the
+      // fact of ownership once, because it syncs and a repeatable item was
+      // appending a row per purchase.
+      if (!db.wallet.bought || typeof db.wallet.bought !== "object"
+          || Array.isArray(db.wallet.bought)) {
+        db.wallet.bought = {}; dirty = true;
+      }
+      // Consumables that wait in the wallet for their moment (a retake,
       // a cooldown skip, a 50/50) rather than firing when bought.
       if (!db.wallet.consumables || typeof db.wallet.consumables !== "object"
           || Array.isArray(db.wallet.consumables)) {

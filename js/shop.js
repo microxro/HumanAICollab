@@ -286,7 +286,19 @@ App.shop = (function () {
   function kinds() { return ["title", "ring", "accent", "skin", "alarm", "boost"]; }
   function kindLabel(kind) { return KIND_LABEL[kind] || kind; }
   function owns(id) { return wallet().owned.includes(id); }
-  function ownedCount(id) { return wallet().owned.filter((x) => x === id).length; }
+  /**
+   * How many times `id` has been bought.
+   *
+   * `owned` records the fact of ownership once — it syncs, and a repeatable
+   * item was appending a row per purchase forever. The count lives in its own
+   * map instead. Wallets written before that change have the tally only in
+   * `owned`, so both are consulted and the larger wins.
+   */
+  function ownedCount(id) {
+    const t = wallet();
+    const tallied = Number(t.bought && t.bought[id]) || 0;
+    return Math.max(tallied, t.owned.filter((x) => x === id).length);
+  }
 
   /* ------------------------------------------------------------- tiers -- */
 
@@ -798,6 +810,11 @@ App.shop = (function () {
     const it = item(id);
     if (!it) return { ok: false, error: "That item isn't in the shop." };
     if (!it.consumable && owns(id)) return { ok: false, error: "You already own that." };
+    // A disabled button is a hint, not a rule — the shop grid can be stale by
+    // the time a click lands, and this is the only place that actually spends.
+    if (it.max && held(it.value) >= it.max) {
+      return { ok: false, error: `You're holding the most ${it.name.toLowerCase()}s you can (${it.max}). Use one first.` };
+    }
     if (balance() < it.price) {
       return { ok: false, error: `That costs ${it.price} tokens — you have ${balance()}.` };
     }
@@ -806,8 +823,11 @@ App.shop = (function () {
       t.balance -= it.price;
       t.spent += it.price;
       // A consumable can be bought again and again, and `owned` syncs — so
-      // record the fact of ownership once rather than one row per purchase.
+      // record the fact of ownership once and keep the tally separately,
+      // rather than appending a row per purchase forever.
       if (!t.owned.includes(id)) t.owned.push(id);
+      if (!t.bought || typeof t.bought !== "object" || Array.isArray(t.bought)) t.bought = {};
+      t.bought[id] = (Number(t.bought[id]) || 0) + 1;
       note(t, -it.price, "Bought " + it.name);
       // A consumable is spent the moment it's bought; everything else is worn.
       if (it.consumable) { if (typeof it.apply === "function") it.apply(db); }

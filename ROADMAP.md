@@ -160,10 +160,10 @@ did, the photo earns tokens, and the tokens buy how StudyHold looks — accent
 colours, surface skins, an avatar ring, a nameplate in the sidebar.
 
 The honest part first: **nothing here proves anyone studied.** A photo is
-evidence a person chose to show, on their own device, to their own copy of the
-app; there is no invigilator and no server, and the UI says so rather than
-implying otherwise. What the design can honestly promise is narrower — the
-obvious ways to farm the number don't work, and each refusal names its reason:
+evidence a person chose to show, on their own device, and the wallet lives in
+localStorage where devtools can set it to any number at all. What the design
+can honestly promise is narrower — the obvious ways to farm the number don't
+work, and each refusal names its reason:
 
 - every photo is fingerprinted (64-bit average hash) before it counts, so the
   same page re-cropped or re-compressed still collides;
@@ -171,9 +171,58 @@ obvious ways to farm the number don't work, and each refusal names its reason:
   not the payout;
 - an image with almost no detail (a wall, a blank screen) has nothing to
   fingerprint and is refused as such;
-- 10 minutes between submissions, 4 hours and 4 tokens per photo maximum, and
-  8 tokens a day. Past the cap a photo still saves and still logs as study
-  time — it just stops paying.
+- 10 minutes between submissions, and 250 tokens a day. Past the cap a photo
+  still saves and still logs as study time — it just stops paying.
+
+**A photo has to answer for itself now (F158).** The list above was the whole
+defence, and it was not enough. None of it looked at what the photo showed, and
+the payout came from a number the student typed into a box — so a screenshot of
+a games library plus a claim of four hours was worth exactly as much as an
+evening of real work, every ten minutes, forever.
+
+So the photo is read before it is paid. `POST /assistant/study-proof` asks
+whether the image is schoolwork at all and, if it is, writes four
+multiple-choice questions **about that specific page** — the actual numbers,
+terms and steps visible in it. `POST /assistant/study-quiz` marks the answers.
+Full marks pays 100, most of them 50, half 25; under half pays nothing and
+still logs the time.
+
+The quiz is the part that does the work, and it is a much harder thing to fake
+than a number in a form field: a random screenshot yields no quiz, and a page
+you photographed but never read yields questions you cannot answer.
+
+Three details the design turns on:
+
+- **The answer key never reaches the browser.** It rides in a ticket signed
+  with the same HMAC-SHA256 that signs session tokens, so the client holds an
+  opaque string it can neither read out of the network tab nor forge. Grading
+  happens on the server, and the tokens credited are the server's number.
+- **A ticket is marked exactly once.** Without that it is a signed oracle:
+  grade it, read which answers were wrong, correct those, grade again — full
+  marks in two calls without reading the page. Tickets carry a nonce and are
+  consumed against it, which is what lets the response keep saying *which*
+  questions were wrong, the only feedback a student gets.
+- **The free checks run before the paid one.** A duplicate, a blank frame or an
+  unexpired cooldown are refusals the device can make on its own; none of them
+  should cost an API call or make somebody answer four questions before being
+  told no.
+
+Self-reported minutes are gone from the payout entirely. The study session
+still needs a duration, so it takes the model's own estimate of the visible
+content — carried on the signed ticket rather than the request body, so it
+cannot be inflated either. When the AI is unreachable (offline, signed out, no
+`GEMINI_API_KEY`) there is no quiz and therefore no payout: the photo saves as
+study time and earns nothing, and a minutes field reappears on that path alone,
+because self-reported time is harmless as a *record* and was only dangerous as
+a *price*.
+
+Three consumables came with it, the kind that wait in the wallet rather than
+firing when bought — a **50/50** that removes two options from a question you
+are stuck on, a **cooldown skip**, and a **retake** that buys a fresh set of
+questions about the same photo. `spendHeld()` reads the count and writes the
+result in one commit, so a double-click cannot spend two, and spending is
+always something the student chooses: a consumable that spends itself the
+moment it would be useful is one you lose without deciding to.
 
 Every proof also writes a real study session, so time proved this way lands in
 the heatmap, the weekly total and any study goal, exactly like a finished focus
