@@ -68,7 +68,7 @@ App.ics = (function () {
 
     const out = [
       "BEGIN:VCALENDAR", "VERSION:2.0",
-      "PRODID:-//Scholar//School Tracker//EN",
+      "PRODID:-//StudyHold//School Tracker//EN",
       "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
       `X-WR-CALNAME:${esc(S.profile.name + " — School")}`,
       "X-WR-TIMEZONE:" + (Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")
@@ -76,7 +76,7 @@ App.ics = (function () {
 
     if (o.classes) {
       S.termClasses().forEach((c) => {
-        const p = S.period(c.periodId);
+        const p = S.classPeriod(c);
         if (!p || !c.days.length) return;
         // Anchor on the first matching weekday from the term start.
         const start = term ? U.parseDate(term.start) : new Date();
@@ -161,7 +161,7 @@ App.ics = (function () {
   }
 
   function download(opts) {
-    U.download(`scholar-${U.today()}.ics`, build(opts), "text/calendar");
+    U.download(`studyhold-${U.today()}.ics`, build(opts), "text/calendar");
   }
 
   /* ------------------------------------------------------------ import -- */

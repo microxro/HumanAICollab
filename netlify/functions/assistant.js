@@ -567,7 +567,10 @@ const ACTION_SCHEMA = {
       items: {
         type: "OBJECT",
         properties: {
-          kind: { type: "STRING", enum: ["addAssignment", "completeAssignment", "addActivity", "addNote", "addEvent"] },
+          kind: { type: "STRING", enum: [
+            "addAssignment", "completeAssignment", "addActivity", "addNote", "addEvent",
+            "deleteAssignment", "deleteActivity", "deleteNote", "deleteEvent"
+          ] },
           title: { type: "STRING" },
           className: { type: "STRING", description: "Class name to attach to, or empty string." },
           due: { type: "STRING", description: "YYYY-MM-DD, or empty string." },
@@ -576,7 +579,7 @@ const ACTION_SCHEMA = {
           start: { type: "STRING", description: "24-hour HH:MM, or empty string." },
           end: { type: "STRING", description: "24-hour HH:MM, or empty string." },
           body: { type: "STRING", description: "For addNote only." },
-          targetId: { type: "STRING", description: "For completeAssignment: the exact id from context. Empty string otherwise." },
+          targetId: { type: "STRING", description: "For completeAssignment and every delete* kind: the exact id from context. Empty string otherwise." },
           summary: { type: "STRING", description: "One plain-language line describing this change, shown for confirmation." }
         },
         required: ["kind", "title", "className", "due", "type", "days", "start", "end", "body", "targetId", "summary"]
@@ -586,7 +589,7 @@ const ACTION_SCHEMA = {
   required: ["answer", "actions"]
 };
 
-const ACT_SYSTEM = `You are the private assistant built into Scholar, a school-tracker app, for one
+const ACT_SYSTEM = `You are the private assistant built into StudyHold, a school-tracker app, for one
 student. You only know the JSON context given for this one message.
 
 You can do two things: answer questions about that context, and propose changes to the student's
@@ -597,10 +600,12 @@ Propose actions ONLY when the student is clearly asking to record or change some
 "I have a test Friday", "mark X done"). A question like "what's due?" gets an answer and an empty
 actions array. Never propose an action the student didn't ask for.
 
-For completeAssignment, targetId must be an exact id copied from the context — never invent one; if
-you can't find a confident match, ask which one instead of guessing. Dates are YYYY-MM-DD; resolve
-relative dates ("Friday", "next week") against today's date in the context. Match className to a
-real class name in the context when you can, otherwise leave it blank.
+For completeAssignment and every delete* kind, targetId must be an exact id copied from the
+context — never invent one; if you can't find a confident match, ask which one instead of guessing.
+Only propose a delete* action when the student clearly asks to remove or cancel something, never as
+a side effect of another request. Dates are YYYY-MM-DD; resolve relative dates ("Friday", "next
+week") against today's date in the context. Match className to a real class name in the context when
+you can, otherwise leave it blank.
 
 Keep "answer" brief — a sentence or two. Every action needs a clear "summary", because the student
 sees it and confirms before anything is saved.`;
@@ -622,14 +627,14 @@ async function act(req) {
   return ok(result);
 }
 
-const ASK_SYSTEM = `You are the private assistant built into Scholar, a school-tracker app, for one
+const ASK_SYSTEM = `You are the private assistant built into StudyHold, a school-tracker app, for one
 student. You only know what's in the JSON context you're given for this one message — no memory
 of anything else, no access to any other student's data, nothing stored between questions.
 
 Your scope is exactly two things, and nothing else:
 1. Answering questions about the context you were given — this student's own classes, schedule,
    assignments, grades/GPA, activities, goals, habits, reading, attendance, and bell schedule.
-2. Explaining how to use the Scholar app — where a feature lives, what something does, how a
+2. Explaining how to use the StudyHold app — where a feature lives, what something does, how a
    part of the app works. You don't have a manual; reason from the context and common sense about
    a student schedule-tracking app, and say plainly if you're not sure of an exact detail rather
    than inventing one.

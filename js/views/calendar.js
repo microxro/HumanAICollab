@@ -395,7 +395,8 @@ App.views.calendar = (function () {
               return `<div class="week-ev" style="top:${top}px;height:${h}px;left:${left};width:${width};right:auto;
                            background:${U.esc(it.color)};color:${fg}"
                            title="${U.esc(it.title)} · ${U.fmtTime(it.start)}–${U.fmtTime(it.end)}"
-                           ${it.kind === "event" ? `data-ev="${it.id}"` : it.kind === "class" ? `data-class="${it.id}"` : ""}>
+                           ${it.kind === "event" ? `data-ev="${it.id}"`
+                             : (it.kind === "class" || it.kind === "extra") ? `data-class="${it.id}"` : ""}>
                 <div class="truncate bold">${U.esc(it.title)}</div>
                 ${h > 34 && cols === 1 ? `<div class="truncate" style="opacity:.85;font-size:.62rem">${U.fmtTime(it.start)} · ${U.esc(it.location || "")}</div>` : ""}
               </div>`;
@@ -486,15 +487,16 @@ App.views.calendar = (function () {
           <div class="sub">${U.plural(monthEvents, "event")} in ${monthLabel} ·
             classes, deadlines, activities, and study blocks in one place</div>
         </div>
-        <div class="page-actions">
+        <div class="page-actions cal-actions">
           <div class="segmented">
             <button class="${mode === "month" ? "active" : ""}" data-mode="month">Month</button>
             <button class="${mode === "week" ? "active" : ""}" data-mode="week">Week</button>
             <button class="${mode === "agenda" ? "active" : ""}" data-mode="agenda">Agenda</button>
           </div>
-          <button class="btn" data-export-ics>⬇ Export .ics</button>
-          <button class="btn" data-ai-events>✦ Add from a link</button>
+          <button class="btn act-secondary" data-export-ics>⬇ Export .ics</button>
+          <button class="btn act-secondary" data-ai-events>✦ Add from a link</button>
           <button class="btn btn-primary" data-new>+ New event</button>
+          <button class="icon-btn act-overflow" data-cal-more aria-label="More calendar actions" title="More">⋯</button>
         </div>
       </div>
 
@@ -531,6 +533,17 @@ App.views.calendar = (function () {
 
     U.on(root, "click", "[data-new]", () => eventForm(null));
     U.on(root, "click", "[data-export-ics]", exportDialog);
+    // Narrow screens hide Export .ics / Add from a link as standalone
+    // buttons (see .cal-actions-secondary in layout.css) so the toolbar
+    // fits in one row instead of wrapping into three; this menu is the
+    // only way to reach them there, so it reuses the exact same handlers.
+    U.on(root, "click", "[data-cal-more]", (e, el) => {
+      const r = el.getBoundingClientRect();
+      UI.menu([
+        { icon: "⬇", label: "Export .ics", run: exportDialog },
+        { icon: "✦", label: "Add from a link", run: () => App.aiAdd.open({ scope: "events" }) }
+      ], r.right, r.bottom + 4);
+    });
     U.on(root, "click", "[data-day]", (_e, el) => dayDetail(el.dataset.day));
     U.on(root, "click", "[data-ev]", (e, el) => {
       e.stopPropagation();
@@ -650,5 +663,13 @@ App.views.calendar = (function () {
     });
   }
 
-  return { render, mount, eventForm, title: "Calendar" };
+  /** U51 — `#calendar/agenda` opens straight in that mode. */
+  function openSub(id) {
+    if (!["month", "week", "agenda"].includes(id)) return false;
+    mode = id;
+    App.router.refresh();
+    return true;
+  }
+
+  return { render, mount, eventForm, openSub, title: "Calendar" };
 })();

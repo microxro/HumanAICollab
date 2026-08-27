@@ -1,5 +1,5 @@
 /* ==========================================================================
-   api.js — the whole Scholar backend, as one Netlify Function
+   api.js — the whole StudyHold backend, as one Netlify Function
 
    Routes (all under /api):
      POST   /auth/signup            create an account
@@ -17,6 +17,10 @@
      GET    /link/children          (parent)  linked students + live status
      GET    /link/parents           (student) who can see me
      DELETE /link/:otherId          either side removes the link
+
+     POST   /activity-suggestions          (parent)  suggest an outside-school activity
+     GET    /activity-suggestions          (student) what guardians have suggested
+     POST   /activity-suggestions/respond  (student) add it, or dismiss it
 
      POST   /location               (student) push status + shared summary
      GET    /location/:studentId    (parent)  read a linked student's status
@@ -408,7 +412,7 @@ const RESET_TTL_MS = 30 * 60 * 1000;   // 30 minutes
  *
  * This used to fall back to `new URL(req.url).origin`, which in Netlify
  * Functions is derived from the inbound Host header. With SITE_URL unset, a
- * request carrying a spoofed Host produced a genuine Scholar password-reset
+ * request carrying a spoofed Host produced a genuine StudyHold password-reset
  * email whose button pointed at the attacker — one click from full account
  * takeover. There is no safe fallback for that, so a deploy without SITE_URL
  * refuses to send links rather than sending poisoned ones.
@@ -500,8 +504,8 @@ async function emailHealth(req, user) {
       }
       const r = await sendEmail({
         to,
-        subject: "Scholar email test",
-        html: layout("Email is working", "<p>This is a test message from your Scholar deploy. " +
+        subject: "StudyHold email test",
+        html: layout("Email is working", "<p>This is a test message from your StudyHold deploy. " +
           "If you're reading it, password resets and weekly digests can reach you.</p>")
       }).catch((e) => ({ sent: false, reason: "exception", detail: String(e && e.message || e) }));
       if (r.sent) {
@@ -523,7 +527,7 @@ async function forgotPassword(req) {
   const b = await body(req);
   const email = normalizeEmail(b.email);
   // Same response whether or not the account exists, so this endpoint
-  // can't be used to check who has a Scholar account.
+  // can't be used to check who has a StudyHold account.
   const generic = () => ok({ sent: true });
 
   // Deployment-level problems are checked *before* the account lookup and
@@ -563,9 +567,9 @@ async function forgotPassword(req) {
   const resetUrl = `${siteOrigin()}/?resetToken=${encodeURIComponent(token)}`;
   const result = await sendEmail({
     to: email,
-    subject: "Reset your Scholar password",
+    subject: "Reset your StudyHold password",
     html: layout("Reset your password", `
-      <p>Someone (hopefully you) asked to reset the password for this Scholar account${profile ? ", " + escapeHtml(profile.name) : ""}.</p>
+      <p>Someone (hopefully you) asked to reset the password for this StudyHold account${profile ? ", " + escapeHtml(profile.name) : ""}.</p>
       <p style="margin:24px 0"><a href="${resetUrl}" style="background:#4f46e5;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">Reset password</a></p>
       <p style="color:#4b5568;font-size:.85rem">This link works once and expires in 30 minutes. If you didn't request this, ignore this email — your password hasn't changed.</p>
     `)
@@ -767,7 +771,11 @@ async function listChildren(user) {
       status: loc ? loc.status : null,
       summary: loc ? loc.summary : null,
       updatedAt: loc ? loc.at : null,
-      events: events.slice(0, 5)
+      events: events.slice(0, 5),
+      // Only the suggestions this guardian sent, and only their outcome —
+      // a parent who adds a lesson should be able to see whether it landed,
+      // without that becoming a second window into the student's data.
+      sentActivities: await readSentSuggestions(user, k.id)
     });
   }
   return ok({ children: out });
@@ -828,7 +836,7 @@ async function requestFriend(req, user) {
   const target = rec ? await readJSON("profiles", rec.id) : null;
 
   // One reply for "no such account", "already connected" and "already
-  // pending". Distinct answers told the caller which addresses have Scholar
+  // pending". Distinct answers told the caller which addresses have StudyHold
   // accounts, and 409-vs-404 told them which of *those* they had already
   // reached — free contact-graph reconnaissance for anyone with a word list.
   // Nothing here reveals the target's name either; the requester learns it
@@ -981,7 +989,7 @@ async function respondCheckin(req, user) {
 // The device that already builds the one-time .ics export (js/ics.js) also
 // pushes that same text here — the server just stores and serves the last
 // copy under an unguessable token, so there's exactly one place that knows
-// how to turn Scholar data into iCalendar, and it isn't this file.
+// how to turn StudyHold data into iCalendar, and it isn't this file.
 
 /* ============================================================== F100 API == */
 
@@ -1174,9 +1182,9 @@ async function deliverWebhooks(user, event, payload) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "User-Agent": "Scholar-Webhook/1",
-          "X-Scholar-Event": event,
-          "X-Scholar-Signature": "sha256=" + signature
+          "User-Agent": "StudyHold-Webhook/1",
+          "X-StudyHold-Event": event,
+          "X-StudyHold-Signature": "sha256=" + signature
         },
         body: bodyText,
         signal: ctl.signal,
@@ -1397,6 +1405,117 @@ async function listGuardianNotes(user) {
     return list.map((n) => (n.read ? n : { ...n, read: true }));
   }, { fallback: [] });
   return ok({ notes: Array.isArray(saved) ? saved : [] });
+}
+
+/* ------------------------------------------- guardian activity suggestions --
+   A parent adds an outside-school activity — a music lesson, a club team, a
+   Saturday class — from the parent portal.
+
+   It is a *suggestion*, not a write. The parent portal has read access to a
+   summary and no write access to the student's data at all, and that is the
+   reason it is safe to hand a parent; a route that let a guardian insert
+   records straight into a student's synced state would undo it. So this lands
+   in a list the student sees, and the student's own device does the insert
+   when they accept.
+   -------------------------------------------------------------------------- */
+
+const SUGGEST_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const SUGGEST_COST_PERIODS = ["session", "week", "month", "term", "year", "total"];
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_SUGGESTIONS = 30;
+
+/**
+ * Reduce a posted activity to exactly the fields the student's app reads, at
+ * lengths and in shapes it can render.
+ *
+ * Whitelisted rather than trimmed: the object is stored and later handed to
+ * another person's app, so anything not named here — an `id` that would
+ * collide with one of their records, an `hours` log, an extra megabyte of
+ * anything — never gets through. Returns null when there is no name, which is
+ * the one field without a sensible default.
+ */
+function cleanSuggestedActivity(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const str = (v, n) => String(v == null ? "" : v).trim().slice(0, n);
+  const name = str(raw.name, 80);
+  if (!name) return null;
+
+  const cost = Number(raw.cost);
+  const site = str(raw.website, 200);
+  const time = (v, dflt) => (HHMM_RE.test(String(v || "")) ? String(v) : dflt);
+  const date = (v) => (ISO_DATE_RE.test(String(v || "")) ? String(v) : "");
+
+  return {
+    name,
+    type: str(raw.type, 30) || "Class",
+    role: str(raw.role, 60),
+    provider: str(raw.provider, 80),
+    contactName: str(raw.contactName, 80),
+    contactEmail: str(raw.contactEmail, 120),
+    contactPhone: str(raw.contactPhone, 40),
+    address: str(raw.address, 160),
+    // Only a fetchable web scheme survives. javascript:/data: are rendered as
+    // links on the far side, and this object arrives from another account.
+    website: /^https?:\/\//i.test(site) ? site : "",
+    cost: Number.isFinite(cost) && cost >= 0 && cost <= 1e6 ? cost : null,
+    costPer: SUGGEST_COST_PERIODS.includes(raw.costPer) ? raw.costPer : "month",
+    days: Array.isArray(raw.days) ? SUGGEST_DAYS.filter((d) => raw.days.includes(d)) : [],
+    start: time(raw.start, "16:00"),
+    end: time(raw.end, "17:00"),
+    season: str(raw.season, 40) || "Year-round",
+    startDate: date(raw.startDate),
+    endDate: date(raw.endDate),
+    notes: str(raw.notes, 300)
+  };
+}
+
+async function suggestActivity(req, user) {
+  const b = await body(req);
+  const studentId = String(b.studentId || "");
+  const linked = (user.links || []).some((l) => l.id === studentId && l.role === "child");
+  if (!linked) return fail(403, "You aren't linked to that student.");
+
+  const activity = cleanSuggestedActivity(b.activity);
+  if (!activity) return fail(400, "Give the activity a name.");
+
+  const item = {
+    id: randomId(8), fromId: user.id, fromName: user.name,
+    activity, at: Date.now(), status: "pending", respondedAt: null
+  };
+  await prependCapped("activitySuggestions", studentId, item, MAX_SUGGESTIONS);
+  return ok({ sent: true, id: item.id });
+}
+
+/**
+ * The student's own list. Unlike guardian notes this is not marked read on
+ * fetch — a suggestion is answered by a deliberate "Add it" or "No thanks",
+ * and quietly clearing it on a glance would lose the thing the student still
+ * has to decide about.
+ */
+async function listActivitySuggestions(user) {
+  const list = await readJSON("activitySuggestions", user.id, []);
+  return ok({ suggestions: Array.isArray(list) ? list : [] });
+}
+
+async function respondActivitySuggestion(req, user) {
+  const b = await body(req);
+  const id = String(b.id || "");
+  const status = b.action === "dismiss" ? "dismissed" : "added";
+  await mutateListItem("activitySuggestions", user.id,
+    (s) => s.id === id && s.status === "pending",
+    (s) => ({ ...s, status, respondedAt: Date.now() }),
+    "That suggestion is gone or already answered.");
+  return ok({ status });
+}
+
+/** What a guardian sees of what they sent: their own suggestions, and the answer. */
+async function readSentSuggestions(user, studentId) {
+  const list = await readJSON("activitySuggestions", studentId, []);
+  return (Array.isArray(list) ? list : [])
+    .filter((s) => s && s.fromId === user.id)
+    .slice(0, 10)
+    .map((s) => ({ id: s.id, name: (s.activity || {}).name || "", at: s.at, status: s.status }));
 }
 
 /* ------------------------------------------------------------- location -- */
@@ -2398,6 +2517,12 @@ export default async (req) => {
     if (parts[0] === "guardian-notes") {
       if (!parts[1] && method === "GET") return await listGuardianNotes(user);
       if (!parts[1] && method === "POST") return await sendGuardianNote(req, user);
+    }
+
+    if (parts[0] === "activity-suggestions") {
+      if (!parts[1] && method === "GET") return await listActivitySuggestions(user);
+      if (!parts[1] && method === "POST") return await suggestActivity(req, user);
+      if (parts[1] === "respond" && method === "POST") return await respondActivitySuggestion(req, user);
     }
 
     if (parts[0] === "groups") {

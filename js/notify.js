@@ -84,7 +84,7 @@ App.notify = (function () {
       };
       return n;
     } catch (e) {
-      console.warn("[scholar] notification failed", e);
+      console.warn("[studyhold] notification failed", e);
       return null;
     }
   }
@@ -121,7 +121,7 @@ App.notify = (function () {
           mark(key);
           show(`${it.title} in ${U.fmtDur(lead)}`,
                [it.location, it.sub].filter(Boolean).join(" · ") || `Starts at ${U.fmtTime(it.start)}`,
-               key, it.kind === "class" ? "schedule" : "activities");
+               key, it.kind === "class" || it.kind === "extra" ? "schedule" : "activities");
         }
       });
     }
@@ -161,7 +161,9 @@ App.notify = (function () {
       const key = "digest:" + today;
       if (!already(key)) {
         mark(key);
-        const items = S.scheduleFor(today).filter((x) => x.kind === "class").length;
+        // "extra" is an off-schedule class — still a class you have to be at,
+        // so the morning digest counts it.
+        const items = S.scheduleFor(today).filter((x) => x.kind === "class" || x.kind === "extra").length;
         const due = S.dueSoon(0).length;
         show("Today at a glance",
              `${U.plural(items, "class", "classes")} · ${U.plural(due, "assignment")} due today` +
@@ -214,7 +216,7 @@ App.notify = (function () {
 
   function test() {
     if (permission() !== "granted") return false;
-    show("Test reminder", "This is what a Scholar reminder looks like.", "test:" + Date.now());
+    show("Test reminder", "This is what a StudyHold reminder looks like.", "test:" + Date.now());
     return true;
   }
 

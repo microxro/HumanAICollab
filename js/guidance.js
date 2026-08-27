@@ -3,7 +3,7 @@
 
    Answers two questions a student actually has to decide: **which electives
    do I pick**, and **what field is this pointing at**. It answers them from
-   the data Scholar already holds rather than from a personality quiz, and
+   the data StudyHold already holds rather than from a personality quiz, and
    every recommendation carries the numbers that produced it.
 
    Deliberately deterministic and entirely local. No API key, no network, no
@@ -20,7 +20,7 @@
                      from an easy one
      effort          study minutes logged per class — an A that costs three
                      hours a week and an A that costs twenty are not the same
-                     signal, and only Scholar knows the difference
+                     signal, and only StudyHold knows the difference
      work style      category performance pooled across every class: builders
                      score on Projects and Labs, writers on Essays, test-takers
                      on Exams. This is the strongest single predictor of which
@@ -109,7 +109,7 @@ App.guidance = (function () {
    * Electives worth suggesting, per stage. `subjects` are the areas that feed
    * it, `modes` the work styles it rewards, `opens` what it unlocks later.
    *
-   * This is a general catalogue, not any one school's course list — Scholar
+   * This is a general catalogue, not any one school's course list — StudyHold
    * has no way to know what your school offers. The UI says so plainly, and
    * every card is phrased as "ask your counselor whether you have this".
    */

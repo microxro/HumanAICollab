@@ -49,7 +49,7 @@ App.views.assistant = (function () {
         </div>
         <div class="card"><div class="card-body">
           ${UI.emptyState("assistant", "Sign in to use the Assistant",
-            "The AI features run on a shared quota, so they're tied to an account. Everything else in Scholar works without one.")}
+            "The AI features run on a shared quota, so they're tied to an account. Everything else in StudyHold works without one.")}
           <div class="row center gap-8" style="margin-top:12px">
             <button type="button" class="btn btn-primary" data-go="settings">Go to sign in</button>
           </div>

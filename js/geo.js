@@ -22,7 +22,10 @@ App.geo = (function () {
   const EARTH_M = 6371000;
 
   const state = {
-    permission: "unknown",   // unknown | prompt | granted | denied | unsupported
+    permission: "unknown",   // unknown | prompt | granted | denied | denied-live | unsupported
+    apiPermission: "unknown", // the browser's own per-site read, tracked separately —
+                               // see checkPermission()/locate() for why this needs to
+                               // stay distinct from `permission`
     watchId: null,
     last: null,              // { lat, lng, accuracy, ts, heading, speed }
     error: null,
@@ -72,8 +75,19 @@ App.geo = (function () {
     }
     return navigator.permissions.query({ name: "geolocation" })
       .then((res) => {
-        state.permission = res.state;
-        res.onchange = () => { state.permission = res.state; emit(); };
+        state.apiPermission = res.state;
+        // iOS Safari has two independent permission layers: this per-site read,
+        // and an OS-level "Location Services > Safari Websites" toggle that this
+        // API can't see at all. When a live fix attempt fails despite this
+        // reading "granted", locate()/startWatch() mark that as "denied-live"
+        // rather than plain "denied" — don't let a passive re-read of the
+        // unchanged per-site "granted" state silently erase that signal; only a
+        // fresh live attempt (or a genuine per-site change, via onchange below)
+        // should move off it.
+        if (!(state.permission === "denied-live" && res.state === "granted")) {
+          state.permission = res.state;
+        }
+        res.onchange = () => { state.permission = res.state; state.apiPermission = res.state; emit(); };
         return res.state;
       })
       .catch(() => "prompt");
@@ -95,7 +109,7 @@ App.geo = (function () {
     return new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
         (pos) => { resolve(record(pos)); },
-        (err) => { state.error = describe(err); state.permission = err.code === 1 ? "denied" : state.permission; emit(); reject(new Error(state.error)); },
+        (err) => { state.error = describe(err); state.permission = classifyDenied(err) || state.permission; emit(); reject(new Error(state.error)); },
         options()
       );
     });
@@ -112,6 +126,7 @@ App.geo = (function () {
     };
     state.error = null;
     state.permission = "granted";
+    state.apiPermission = "granted";
     emit();
     return state.last;
   }
@@ -122,6 +137,19 @@ App.geo = (function () {
     if (err.code === 2) return "Position unavailable — no GPS or network fix.";
     if (err.code === 3) return "Timed out waiting for a location fix.";
     return err.message || "Location error.";
+  }
+
+  /**
+   * A PERMISSION_DENIED error while the browser's own per-site permission
+   * reads "granted" isn't the same problem as a genuine per-site denial —
+   * it's the signature of iOS Safari's separate OS-level "Location Services >
+   * Safari Websites" toggle being off, which this app has no visibility into
+   * otherwise. Returns null for non-permission errors, so callers can fall
+   * back to leaving `state.permission` unchanged.
+   */
+  function classifyDenied(err) {
+    if (!err || err.code !== 1) return null;
+    return state.apiPermission === "granted" ? "denied-live" : "denied";
   }
 
   /* ------------------------------------------------------------ watching */
@@ -137,7 +165,8 @@ App.geo = (function () {
       },
       (err) => {
         state.error = describe(err);
-        if (err.code === 1) { state.permission = "denied"; stopWatch(); }
+        const denied = classifyDenied(err);
+        if (denied) { state.permission = denied; stopWatch(); }
         emit();
       },
       options()
@@ -237,10 +266,12 @@ App.geo = (function () {
       label = live.current ? live.current.title : "Not sharing";
       detail = "Location sharing is off";
       confidence = "none";
-    } else if (state.permission === "denied") {
+    } else if (state.permission === "denied" || state.permission === "denied-live") {
       presence = "denied";
       label = live.current ? live.current.title : "Schedule only";
-      detail = "Location permission denied — status comes from the timetable";
+      detail = state.permission === "denied-live"
+        ? "Location blocked at the system level — status comes from the timetable"
+        : "Location permission denied — status comes from the timetable";
       confidence = "schedule";
     } else if (!fix) {
       presence = "unknown";
@@ -341,12 +372,18 @@ App.geo = (function () {
 
     // Pause the watch in a hidden tab to save battery; resume on return.
     document.addEventListener("visibilitychange", () => {
-      if (!S.settings.geo.enabled) return;
       if (document.hidden) {
         if (isWatching()) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; }
-      } else if (S.settings.geo.watching && !isWatching()) {
-        startWatch();
+        return;
       }
+      // The browser's own permission decision can change while this tab is
+      // backgrounded — the user fixes it from the browser's own settings, not
+      // from here — and nothing else re-polls it, so pick that up the moment
+      // focus returns instead of leaving a stale "blocked" badge on screen.
+      checkPermission().then(() => {
+        if (S.settings.geo.enabled && S.settings.geo.watching && !isWatching()) startWatch();
+        emit();
+      });
     });
   }
 

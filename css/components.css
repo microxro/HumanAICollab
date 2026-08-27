@@ -2,6 +2,14 @@
    Component library
    ========================================================================== */
 
+/* `hidden` has to actually hide. The UA stylesheet sets `display: none` for
+   it at the lowest possible specificity, so any class that declares a display
+   — `.field` is flex, `.row` is flex, `.card` is block — silently wins and the
+   "hidden" element stays on screen. Every conditionally-shown block in a form
+   depends on this one line; `.today-strip[hidden]` in css/layout.css was a
+   one-off patch for the same problem. */
+[hidden] { display: none !important; }
+
 /* ------------------------------------------------------------ buttons -- */
 
 .btn {
@@ -791,6 +799,13 @@
   white-space: nowrap;
   z-index: 60;
   pointer-events: none;
+}
+/* The topbar sits at the very top of the page, so a tooltip opening upward
+   (the default above) has nowhere to go — it gets clipped by the browser
+   chrome. Everything else in the app keeps opening upward as normal. */
+.topbar [data-tip]:hover::after {
+  bottom: auto;
+  top: calc(100% + 6px);
 }
 
 /* ---------------------------------------------------------- divider -- */

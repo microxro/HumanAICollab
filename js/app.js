@@ -28,7 +28,9 @@
         badge: () => U.sum(S.db.decks, (d) => d.cards.filter((c) => !c.next || c.next <= U.today()).length) },
       { id: "notes",      label: "Notes",       icon: "✐" },
       { id: "reading",    label: "Reading",     icon: "▥",
-        badge: () => S.db.reading.filter((r) => !r.done).length }
+        badge: () => S.db.reading.filter((r) => !r.done).length },
+      { id: "shop",       label: "Study shop",  icon: "◆",
+        badge: () => App.shop.affordableCount() }
     ]},
     { group: "Life", items: [
       { id: "activities", label: "Activities", icon: "◇" },
@@ -60,6 +62,11 @@
     { id: "more",      label: "More", icon: "☰", more: true }
   ];
 
+  // The screens a thumb reaches in one tap. Everything else costs two — the
+  // drawer, then the screen — which is what the palette's Sections group and
+  // the depth suite both budget against.
+  const MOBILE_TAB_IDS = new Set(MOBILE_TABS.filter((t) => !t.more).map((t) => t.id));
+
   /* ------------------------------------------------------------ router -- */
 
   let current = null;
@@ -73,6 +80,24 @@
     notes: (id) => App.views.notes.reader(id),
     contacts: (id) => App.views.contacts.detail(id)
   };
+
+  /**
+   * U51 — resolves `#view/sub` against the view's own sections before falling
+   * back to a record id.
+   *
+   * A view that renders tabs owns its tab state in a module-scoped variable,
+   * which made every tab unaddressable from outside: the only way into
+   * Settings → Data was to open Settings and click the tab. On a phone that
+   * is four taps (More → Settings → tab → control), because the drawer costs
+   * one before the screen does. Views that expose `openSub(id)` can now be
+   * linked straight to a section, and return false for anything they don't
+   * recognise so record ids still reach RECORD_OPENERS below.
+   */
+  function openSubPath(id, sub) {
+    const view = App.views[id];
+    if (view && typeof view.openSub === "function" && view.openSub(sub)) return;
+    if (RECORD_OPENERS[id]) RECORD_OPENERS[id](sub);
+  }
 
   const router = {
     go(idOrPath, subId) {
@@ -91,7 +116,7 @@
       paint();
       document.getElementById("page").scrollTop = 0;   // a real navigation does reset scroll
       closeSidebar();
-      if (sub && RECORD_OPENERS[id]) setTimeout(() => RECORD_OPENERS[id](sub), 60);
+      if (sub) setTimeout(() => openSubPath(id, sub), 60);
     },
     refresh() { paint(); },
     get current() { return current; },
@@ -171,7 +196,7 @@
       root.innerHTML = view.render();
     } catch (err) {
       renderFailed = true;
-      console.error("[scholar] render failed in view:", current, err);
+      console.error("[studyhold] render failed in view:", current, err);
       root.innerHTML = errorPanelHTML(view.title || current, err);
     }
 
@@ -205,7 +230,7 @@
         // Handlers are half-bound at this point, which is worse than a clean
         // failure — replace the body so the user gets an explanation rather
         // than a page where some controls silently do nothing.
-        console.error("[scholar] mount failed in view:", current, err);
+        console.error("[studyhold] mount failed in view:", current, err);
         root.innerHTML = errorPanelHTML(view.title || current, err);
         bindErrorPanel(root);
       }
@@ -225,7 +250,7 @@
     paintSyncBadge();
     paintTodayStrip();
     paintMobileTabbar();
-    document.title = `${view.title} · Scholar`;
+    document.title = `${view.title} · StudyHold`;
 
     // A re-render triggered by a data change shouldn't jump the user to the top.
     page.scrollTop = scrollTop;
@@ -298,6 +323,10 @@
 
   App.applyShellPrefs = function () {
     const html = document.documentElement;
+    // Study-shop cosmetics are checked against the wallet BEFORE anything is
+    // stamped: a backup that names a skin or accent this wallet never bought
+    // has to be taken off, and stamping first would paint it anyway.
+    if (App.shop) App.shop.sanitize();
     html.setAttribute("data-sidebar", S.settings.sidebarCollapsed ? "collapsed" : "expanded");
     html.setAttribute("data-density", S.settings.density === "compact" ? "compact" : "comfortable");
     // Always stamped, indigo included — leaving it off for the default made
@@ -310,6 +339,10 @@
     if (S.settings.dyslexicFont) html.setAttribute("data-dyslexic", "1"); else html.removeAttribute("data-dyslexic");
     if (S.settings.trueBlack) html.setAttribute("data-trueblack", "1"); else html.removeAttribute("data-trueblack");
     if (S.settings.highContrast) html.setAttribute("data-contrast", "high"); else html.removeAttribute("data-contrast"); // U12
+    const skin = S.settings.skin;
+    if (skin && skin !== "none") html.setAttribute("data-skin", skin); else html.removeAttribute("data-skin");
+    const ring = S.settings.avatarRing;
+    if (ring && ring !== "none") html.setAttribute("data-ring", ring); else html.removeAttribute("data-ring");
     // F099 — the document language. index.html hardcodes lang="en" and
     // setLocale() only wrote the setting, so switching to 中文 left the page
     // declared as English: a screen reader kept reading Chinese nav labels
@@ -366,6 +399,15 @@
 
   let palette = null;
 
+  // Groups that list your records rather than things the app can do. They are
+  // unbounded — every open assignment, class and note lands in one — so they
+  // rank below the commands when nothing has been typed. See score().
+  const RECORD_GROUPS = new Set(["Assignments", "Classes", "Notes", "Contacts", "Events", "Flashcards"]);
+
+  // Enough rows that every command stays in the list with an empty query;
+  // the records that follow are found by typing.
+  const CAP = 60;
+
   function commands() {
     const out = [];
 
@@ -381,6 +423,28 @@
       run: () => router.go(it.id)
     }));
 
+    // U51 — sections, not just screens.
+    //
+    // A tabbed view keeps its tab in module state, so a section used to be
+    // unaddressable: the only way to Settings → Data was Settings, then the
+    // tab. On a phone the drawer costs a tap before the screen does, which
+    // put all 34 controls behind those tabs at four taps. Listing each
+    // section as its own destination lands you on it in two, leaving the
+    // third for the control itself.
+    //
+    // Only for screens that aren't already in the mobile tab bar — Homework
+    // and Calendar modes are reachable inside the budget without help, and
+    // listing them here would pad the palette for nothing.
+    FLAT.forEach((it) => {
+      const v = App.views[it.id];
+      if (!v || typeof v.tabs !== "function" || MOBILE_TAB_IDS.has(it.id)) return;
+      const parent = App.i18n.t(it.id, it.label);
+      v.tabs().forEach((t) => out.push({
+        group: "Sections", label: `${parent} → ${t.label}`, icon: it.icon,
+        run: () => router.go(`${it.id}/${t.id}`)
+      }));
+    });
+
     out.push(
       { group: "Create", label: "New assignment", icon: "✎", sub: "N", run: () => App.views.homework.form(null) },
       { group: "Create", label: "New event", icon: "▤", run: () => App.views.calendar.eventForm(null) },
@@ -390,7 +454,7 @@
       { group: "Create", label: "New college application", icon: "◉", run: () => { router.go("college"); setTimeout(() => { const b = document.querySelector("[data-add]"); if (b) b.click(); }, 60); } },
       { group: "Actions", label: "Toggle dark mode", icon: "☾", sub: "T", run: toggleTheme },
       { group: "Actions", label: "Export backup", icon: "⬇", run: () => {
-          U.download(`scholar-backup-${U.today()}.json`, S.exportJSON());
+          U.download(`studyhold-backup-${U.today()}.json`, S.exportJSON());
           UI.toast("Backup downloaded", "", "ok");
         }},
       { group: "Actions", label: "Export calendar (.ics)", icon: "📅", run: () => {
@@ -454,7 +518,13 @@
 
     function score(cmd, q) {
       const l = cmd.label.toLowerCase();
-      if (!q) return 1;
+      // U51 — with no query typed the palette is a menu, not a search result.
+      // Everything scored 1 and the cap then cut it at whatever happened to
+      // be listed first, so the record groups (up to 40 assignments alone)
+      // pushed the commands off the end and a section could only be reached
+      // by typing. Reaching a thing must not depend on knowing its name, so
+      // rank what you can *do* above the records you can open.
+      if (!q) return RECORD_GROUPS.has(cmd.group) ? 1 : 2;
       if (l.startsWith(q)) return 3;
       if (l.includes(q)) return 2;
       if ((cmd.sub || "").toLowerCase().includes(q)) return 1;
@@ -465,10 +535,13 @@
     function draw() {
       const q = input.value.trim().toLowerCase();
       matches = all
-        .map((c) => ({ c, s: score(c, q) }))
+        .map((c, i) => ({ c, i, s: score(c, q) }))
         .filter((x) => x.s > 0)
-        .sort((a, b) => b.s - a.s)
-        .slice(0, 40)
+        // Ties keep their registration order, which is what keeps each group
+        // contiguous. Sort is already stable, so the index is belt and braces
+        // — but it states the dependency instead of leaving it implicit.
+        .sort((a, b) => b.s - a.s || a.i - b.i)
+        .slice(0, CAP)
         .map((x) => x.c);
 
       sel = 0;
@@ -621,7 +694,7 @@
           }
         });
       });
-    }).catch((e) => console.info("[scholar] service worker not registered:", e.message));
+    }).catch((e) => console.info("[studyhold] service worker not registered:", e.message));
   }
 
   /* ------------------------------------------------- U37 today strip ---- */
@@ -656,6 +729,7 @@
     { id: "assignment", icon: "✎", label: "Assignment", sub: "Homework, an essay, a test", go: () => App.views.homework.form(null) },
     { id: "class", icon: "▣", label: "Class", sub: "A course on your timetable", go: () => App.views.classes.classForm(null) },
     { id: "activity", icon: "◇", label: "Activity", sub: "Practice, a club, a job", go: () => App.views.activities.form(null) },
+    { id: "external", icon: "🌍", label: "Outside school", sub: "A lesson, an external class, a club team", go: () => App.views.activities.form(null, { external: true }) },
     { id: "event", icon: "▤", label: "Event", sub: "A one-off on the calendar", go: () => App.views.calendar.eventForm && App.views.calendar.eventForm(null) },
     { id: "note", icon: "✐", label: "Note", sub: "Something to write down", go: () => App.views.notes.form(null) },
     { id: "ai", icon: "✦", label: "Add with AI", sub: "Describe it, or upload a photo", go: () => App.aiAdd.open({ scope: "activities" }) }
@@ -735,7 +809,7 @@
 
   function runOnboarding() {
     UI.modal({
-      title: "Welcome to Scholar",
+      title: "Welcome to StudyHold",
       sub: "Let's set up your classes, bell schedule, and first assignment — about a minute.",
       footer: `<button type="button" class="btn" data-skip>Skip for now</button>
                <button type="button" class="btn btn-primary" data-next>Get started →</button>`,
@@ -921,6 +995,15 @@
       else router.go("settings");
     });
 
+    // The audio session can only be opened from inside a real user gesture,
+    // and the moment a timer hits zero is not one. Opening it on the first
+    // tap or keypress anywhere in the app is what makes the focus alarm
+    // audible later — see js/sound.js for the whole story.
+    const unlockAudio = () => { if (App.sound) App.sound.unlock(); };
+    document.addEventListener("pointerdown", unlockAudio, { passive: true });
+    document.addEventListener("keydown", unlockAudio);
+    document.addEventListener("touchstart", unlockAudio, { passive: true });
+
     // Subsystems that need the DOM and the store ready.
     registerSW();
     App.sync.init();
@@ -1003,11 +1086,17 @@
     const chip = document.getElementById("profileChip");
     if (!chip) return;
     const p = S.profile;
+    // A nameplate bought in the study shop replaces the grade line when one
+    // is worn — two lines is what the chip has room for, and the student
+    // chose the second one.
+    const plate = S.settings.nameplate;
     chip.innerHTML = `
       ${UI.avatar(p.name, p.color)}
       <span class="grow truncate" style="min-width:0">
         <div class="small bold truncate">${U.esc(p.name)}</div>
-        <div class="tiny dim truncate">${U.esc(p.grade || "")}</div>
+        ${plate
+          ? `<span class="nameplate">${U.esc(plate)}</span>`
+          : `<div class="tiny dim truncate">${U.esc(p.grade || "")}</div>`}
       </span>
       <span class="dim">⚙</span>`;
   }
@@ -1021,13 +1110,13 @@
    * loaded successfully.
    */
   function fatal(err) {
-    console.error("[scholar] boot failed", err);
+    console.error("[studyhold] boot failed", err);
     const msg = (err && (err.message || String(err))) || "Unknown error";
     const stack = (err && err.stack) || "";
     const host = document.getElementById("page") || document.body;
     host.innerHTML = `
       <div style="max-width:620px;margin:48px auto;padding:24px;font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.55">
-        <h2 style="margin:0 0 8px">Scholar couldn't start</h2>
+        <h2 style="margin:0 0 8px">StudyHold couldn't start</h2>
         <p style="color:#5b6478;margin:0 0 16px">Your saved data is still on this device — the app just
         couldn't load it. Try these in order.</p>
         <pre style="white-space:pre-wrap;background:#f4f5f8;color:#10141f;padding:10px;border-radius:8px;font-size:12px;overflow-x:auto">${msg
@@ -1050,7 +1139,7 @@
         const raw = localStorage.getItem("scholar.db.v2") || localStorage.getItem("scholar.db.v1") || "{}";
         const a = document.createElement("a");
         a.href = URL.createObjectURL(new Blob([raw], { type: "application/json" }));
-        a.download = "scholar-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+        a.download = "studyhold-backup-" + new Date().toISOString().slice(0, 10) + ".json";
         a.click();
       } catch (e) { alert("Couldn't build a backup: " + e.message); }
     });
@@ -1068,7 +1157,7 @@
 
     const rs = document.getElementById("fatalReset");
     if (rs) rs.addEventListener("click", () => {
-      if (!window.confirm("Erase all Scholar data on this device? This cannot be undone.")) return;
+      if (!window.confirm("Erase all StudyHold data on this device? This cannot be undone.")) return;
       try {
         localStorage.removeItem("scholar.db.v2");
         localStorage.removeItem("scholar.db.v1");
@@ -1083,13 +1172,13 @@
   // app produced a silent no-op, which is how a one-line bug became an
   // unreproducible bug report.
   window.addEventListener("error", (e) => {
-    console.error("[scholar] uncaught error", e.error || e.message);
+    console.error("[studyhold] uncaught error", e.error || e.message);
     if (App.ui && App.ui.toast) {
       App.ui.toast("Something went wrong", (e.error && e.error.message) || e.message || "", "danger");
     }
   });
   window.addEventListener("unhandledrejection", (e) => {
-    console.error("[scholar] unhandled rejection", e.reason);
+    console.error("[studyhold] unhandled rejection", e.reason);
     if (App.ui && App.ui.toast) {
       const r = e.reason;
       App.ui.toast("Something went wrong", (r && (r.message || String(r))) || "", "danger");
@@ -1100,7 +1189,7 @@
     // ?reset=1 recovers an app that won't boot without needing devtools.
     try {
       if (new URL(location.href).searchParams.get("reset") === "1") {
-        if (window.confirm("Reset Scholar's local data on this device? Export a backup first if you need one.")) {
+        if (window.confirm("Reset StudyHold's local data on this device? Export a backup first if you need one.")) {
           localStorage.removeItem("scholar.db.v2");
           localStorage.removeItem("scholar.db.v1");
         }

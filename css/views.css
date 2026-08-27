@@ -147,6 +147,19 @@
 }
 .cal-num { font-size: .755rem; font-weight: 650; align-self: flex-start; }
 
+/* Toolbar overflow, shared by any page whose header has more actions than a
+   phone can show at once (Calendar, Notes, Flashcards).
+   `.act-secondary` marks a button that folds away on narrow screens;
+   `.act-overflow` is the ⋯ trigger that reveals the same actions in a menu.
+   On desktop the secondaries show normally and the trigger is hidden, so
+   nothing here applies until the width actually runs out. */
+.act-overflow { display: none; }
+
+@media (max-width: 640px) {
+  .act-secondary { display: none; }
+  .act-overflow { display: grid; }
+}
+
 /* U40 — workload heat: shade each day by how much is due, so a crunch
    week is visible before opening a single item. Levels 3-4 also carry
    an explicit "Xh due" chip, so the heaviest days never rest on color
@@ -951,4 +964,320 @@
   background: var(--surface-2);
   color: var(--text-3);
   margin-right: 6px;
+}
+
+/* ==========================================================================
+   Study shop — proof gallery and the cosmetics for sale
+
+   Two jobs, one screen: show that the photos are real records (a gallery of
+   what you actually did, at a size where the page is still legible), and
+   show what a cosmetic looks like *before* the tokens are spent, so nothing
+   in here is bought blind.
+   ========================================================================== */
+
+.token-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 11px 4px 8px;
+  border-radius: var(--radius-full);
+  background: var(--brand-50);
+  color: var(--brand-600);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="dark"] .token-pill { color: var(--brand-300); }
+.token-pill .tk { font-size: 1rem; line-height: 1; }
+.token-pill.lg { font-size: 1.15rem; padding: 7px 16px 7px 12px; }
+
+/* The drop target for a photo. It is a <label> wrapping a file input, so a
+   click, a tap, a keyboard Enter and a drag all reach the same control. */
+.proof-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 26px 18px;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .14s var(--ease), background .14s var(--ease);
+}
+.proof-drop:hover, .proof-drop.drag { border-color: var(--brand-500); background: var(--brand-50); }
+.proof-drop:focus-within { box-shadow: var(--ring); border-color: var(--brand-500); }
+.proof-drop .ico { font-size: 1.7rem; line-height: 1; }
+.proof-drop input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+.proof-preview {
+  width: 100%; max-height: 260px; object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+
+.proof-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
+}
+.proof-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.proof-thumb {
+  display: block; width: 100%; aspect-ratio: 4 / 3;
+  background: var(--surface-3);
+  border: none; padding: 0; cursor: zoom-in;
+}
+.proof-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.proof-thumb:focus-visible { box-shadow: var(--ring); }
+/* The blob is gone (cleared site data, or a backup opened on another
+   device). The record is still true, so the card keeps its numbers and says
+   what happened instead of showing a broken image. */
+.proof-thumb-missing {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; aspect-ratio: 4 / 3;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: .72rem;
+  text-align: center;
+  padding: 10px;
+}
+.proof-meta { padding: 9px 11px; display: flex; flex-direction: column; gap: 3px; }
+
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
+  gap: 12px;
+}
+.shop-item {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.shop-item.owned { border-color: var(--brand-200); }
+.shop-item.worn { border-color: var(--brand-500); box-shadow: 0 0 0 1px var(--brand-500); }
+.shop-item .shop-foot { margin-top: auto; display: flex; align-items: center; gap: 8px; }
+
+/* Two stacked bars: the accent as a fill, and the same accent as it reads on
+   a dark surface — the pair a student is actually choosing between. */
+.shop-swatch {
+  display: flex; height: 54px; border-radius: var(--radius-sm); overflow: hidden;
+  border: 1px solid var(--border);
+}
+.shop-swatch span { flex: 1; }
+
+.ring-preview {
+  display: flex; align-items: center; justify-content: center;
+  height: 54px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.plate-preview {
+  display: flex; align-items: center; justify-content: center;
+  height: 54px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+/* The nameplate as it appears in the sidebar, under the student's name. */
+.nameplate {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--brand-50);
+  color: var(--brand-600);
+  font-size: .655rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-theme="dark"] .nameplate { color: var(--brand-300); }
+
+/* Reads exactly like .field-error, but is deliberately NOT that class: the
+   modal's own submit handler removes every .field-error in the form before
+   handing over, and this message has to survive its own submit to explain
+   why a photo was refused. */
+.proof-error {
+  margin-top: 4px;
+  color: var(--danger);
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.proof-error::before { content: "⚠"; flex: none; line-height: 1.35; }
+.proof-error[hidden] { display: none; }
+
+.earn-rules { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.earn-rules li { color: var(--text-2); font-size: .8rem; }
+
+/* ------------------------------------------------- daily quote (dashboard) */
+
+/* Styled through tokens only, so it follows the accent picker and both
+   themes without a second definition. The left rule and the oversized
+   opening mark are the whole decoration — this sits directly under the hero
+   banner and would fight it if it were another filled card. */
+.quote-card {
+  position: relative;
+  margin: 0;
+  padding: 16px 18px 16px 22px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-500);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xs);
+}
+.quote-card blockquote {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: var(--text);
+  text-wrap: pretty;
+}
+.quote-card blockquote::before { content: "\201C"; }
+.quote-card blockquote::after  { content: "\201D"; }
+
+.quote-card figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-top: 10px;
+  font-size: .82rem;
+}
+.quote-card figcaption a {
+  font-weight: 650;
+  color: var(--brand-text);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.quote-card figcaption a:hover,
+.quote-card figcaption a:focus-visible { border-bottom-color: currentColor; }
+.quote-card figcaption a::before { content: "\2014\00a0"; color: var(--text-3); }
+
+.quote-card .quote-source { color: var(--text-3); font-size: .76rem; }
+
+/* ==========================================================================
+   Mobile pass — touch targets and page toolbars
+
+   This block lives at the end of the last-loaded stylesheet on purpose.
+   The original `@media (pointer: coarse)` rules sit in layout.css, which
+   loads second of four; every component size in components.css and
+   views.css therefore overrode them at equal specificity and won on order
+   alone. `.habit-day` is the clearest case — layout.css asks for 36px, the
+   base rule here sets 27px, and 27px is what a phone actually rendered.
+   Re-stating the touch sizes here is what makes them take effect.
+
+   Measured at 375x667 with a real touch pointer: every view had at least
+   one control under the 44px WCAG 2.5.5 minimum, the worst being the
+   28px-tall segmented buttons used for view switching on six pages.
+   ========================================================================== */
+
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 40px; }
+  .segmented { padding: 4px; }
+  .segmented button { min-height: 40px; padding-left: 14px; padding-right: 14px; }
+  .input, .select, .textarea { min-height: 44px; }
+  .input-sm, .select.input-sm, .input.input-sm { min-height: 40px; }
+  .tab { min-height: 44px; }
+  .check { width: 24px; height: 24px; }
+  .habit-day { width: 36px; height: 36px; }
+  /* An inline due-date chip is a real tap target for editing the date, but
+     it sits inside a text row, so it gets its padding from the row rather
+     than a fixed box. */
+  .due-inline { min-height: 32px; align-items: center; }
+
+  /* The help dot stays a 16px dot — it sits inline in a heading, and a 40px
+     circle there would read as a button competing with the heading. Padding
+     plus content-box clipping grows the TAP TARGET to 40px while the painted
+     circle stays 16px, and the negative margin keeps the surrounding text
+     laid out exactly as before. */
+  .help-hint {
+    box-sizing: content-box;
+    padding: 12px;
+    margin: -12px;
+    background-clip: content-box;
+  }
+}
+
+/* --------------------------------------------------- page toolbars ----- */
+
+/* Every page header puts its title and its actions in one flex row, and on
+   a phone the actions wrapped raggedly: buttons of different label lengths
+   broke into two or three uneven lines with no hierarchy, so nothing read
+   as the main action. Notes reached six buttons across three rows and
+   flashcards five, before a single note or deck was visible.
+
+   The rule below gives the whole app one predictable shape on narrow
+   screens: mode switchers take a full-width row of equal segments, the
+   primary action takes a full-width row of its own at the end, and
+   whatever is left shares the row between them. */
+@media (max-width: 640px) {
+  .page-head { gap: 12px; flex-direction: column; align-items: center; text-align: center; }
+  .page-actions { width: 100%; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+  .page-actions > .segmented { flex: 1 1 100%; }
+  .page-actions > .segmented button { flex: 1; text-align: center; }
+
+  .page-actions > .btn:not(.btn-primary) { flex: 1 1 auto; }
+
+  /* Last and full width: the one action the page is for, sized like a
+     phone's primary button rather than competing with the rest. */
+  .page-actions > .btn-primary { flex: 1 1 100%; order: 99; }
+
+  /* An overflow trigger belongs beside the primary action, not stretched. */
+  .page-actions > .icon-btn { flex: 0 0 auto; order: 98; }
+}
+
+/* Checkboxes stay at 24px on touch, which is a decision rather than an
+   oversight: 24x24 is exactly the WCAG 2.2 AA minimum (SC 2.5.8). The 44px
+   used above is the stricter iOS guideline, which a dense list of
+   assignments cannot meet without a painted square that dominates the row.
+
+   Worth recording for whoever tries to improve this: growing the hit area
+   with a transparent `::before` on the input does not work. <input> is a
+   replaced element and renders no pseudo-elements, so such a rule is
+   silently inert — elementFromPoint returns nothing at the offset it is
+   supposed to cover. Enlarging the target properly means making the
+   surrounding label or row the tap target, which is a markup change per
+   call site rather than a stylesheet rule. */
+
+/* ==========================================================================
+   Tier identity on a shop card (views/shop.js)
+
+   Carried by a label AND a colour, never colour alone — the same rule the
+   class palette follows, for the same reason. The stripe sits on top of
+   main's .shop-item box rather than replacing it.
+   ========================================================================== */
+
+.shop-item { border-top: 3px solid var(--border); }
+.shop-item.tier-common { border-top-color: #64748b; }
+.shop-item.tier-rare   { border-top-color: #2a78d6; }
+.shop-item.tier-ultra  { border-top-color: #7c3aed; }
+.shop-item.tier-elite  { border-top-color: #d4a017; }
+
+.shop-item.tier-elite {
+  background: linear-gradient(180deg, rgba(212, 160, 23, .08), transparent 120px), var(--surface);
+}
+
+.tier-head { margin: 0; font-size: 1.02rem; }
+.tier-head.tier-common { color: var(--text-2); }
+.tier-head.tier-rare   { color: #2a78d6; }
+.tier-head.tier-ultra  { color: #7c3aed; }
+.tier-head.tier-elite  { color: #a97a06; }
+[data-theme="dark"] .tier-head.tier-rare  { color: #6ea8f0; }
+[data-theme="dark"] .tier-head.tier-ultra { color: #b49bfa; }
+[data-theme="dark"] .tier-head.tier-elite { color: #e8bf52; }
+
+/* An alarm or a boost has no colour pair to show, so its swatch carries a
+   glyph at the same size instead of two empty halves. */
+.shop-swatch.shop-glyph {
+  display: grid;
+  place-items: center;
+  font-size: 1.3rem;
 }

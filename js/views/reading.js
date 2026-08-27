@@ -69,6 +69,7 @@ App.views.reading = (function () {
         r.done = page >= r.totalPages;
         r.log = (r.log || []).concat([{ date: U.today(), page }]);
         S.commit((db) => { db.streak.xp += Math.max(1, Math.round(gained / 10)); });
+        if (gained > 0) S.awardTokens(App.shop.RATES.readingSession, `Read ${gained} pages of “${r.title}”`);
         UI.toast(r.done ? "Finished! 🎉" : "Progress saved",
                  r.done ? r.title : `${gained > 0 ? "+" + gained : gained} pages`, "ok");
       }
@@ -190,7 +191,7 @@ App.views.reading = (function () {
           </div>
         </div>`
       : UI.emptyState("reading", "Nothing on the shelf",
-          "Track books and chapter assignments — Scholar works out how many pages a day you need to finish on time.",
+          "Track books and chapter assignments — StudyHold works out how many pages a day you need to finish on time.",
           `<button class="btn btn-primary" data-add>+ Add your first book</button>`)}
     </div>`;
   }

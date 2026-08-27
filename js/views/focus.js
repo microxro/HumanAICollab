@@ -8,7 +8,7 @@ App.views.focus = (function () {
   // Timer state lives outside render() so it survives view re-renders and
   // keeps running while you browse other tabs.
   const timer = {
-    phase: "focus",        // focus | short | long
+    phase: "focus",        // focus | short | long | custom
     remaining: null,       // seconds
     running: false,
     round: 1,
@@ -21,7 +21,8 @@ App.views.focus = (function () {
 
   function phaseSeconds(phase) {
     const c = cfg();
-    return (phase === "focus" ? c.focus : phase === "short" ? c.short : c.long) * 60;
+    return (phase === "focus" ? c.focus : phase === "short" ? c.short
+      : phase === "custom" ? (c.custom || 25) : c.long) * 60;
   }
 
   function ensure() {
@@ -102,43 +103,44 @@ App.views.focus = (function () {
         // XP in proportion, so a skipped block can't out-earn a finished one.
         db.streak.xp += Math.max(1, Math.round(25 * (elapsedMin / Math.max(1, planned))));
       });
+      // Tokens follow the same rule: paid per minute actually spent, with the
+      // completion bonus only for a block that ran to the end.
+      S.awardTokens(elapsedMin * App.shop.RATES.focusPerMin + (skipped ? 0 : App.shop.RATES.focusBlockBonus),
+        `${elapsedMin} min of focus${timer.classId ? " · " + S.className(timer.classId) : ""}`);
       const next = timer.round % cfg().rounds === 0 ? "long" : "short";
       timer.round += 1;
       timer.phase = next;
       timer.remaining = phaseSeconds(next);
-      // F075 — a break nudge is still shown (you need to know time's up),
-      // but the audible ping is skipped during quiet hours.
+      // F075 — a break nudge is always shown (you need to know time's up).
+      // The alarm itself is quieter during quiet hours rather than absent;
+      // see js/sound.js.
       UI.toast(skipped ? "Block ended early" : "Focus block complete! 🎉",
         `${elapsedMin} minute${elapsedMin === 1 ? "" : "s"} logged${timer.classId ? " to " + S.className(timer.classId) : ""}. ` +
         `Time for a ${next === "long" ? "long" : "short"} break.`, "ok");
-      if (!App.notify.inQuietHours()) ping();
+      if (!skipped) ring();
     } else {
       timer.phase = "focus";
       timer.remaining = phaseSeconds("focus");
       UI.toast("Break over", "Ready for another focus block?");
-      if (!App.notify.inQuietHours()) ping();
+      if (!skipped) ring();
     }
     App.router.refresh();
   }
 
-  // Short tone via WebAudio — no asset files needed.
-  function ping() {
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = new Ctx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.frequency.value = 660;
-      osc.type = "sine";
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.62);
-      setTimeout(() => ctx.close(), 900);
-    } catch (e) { /* audio is a nicety, never a failure */ }
+  /**
+   * Ring the alarm when a block ends.
+   *
+   * The tone itself lives in App.sound, which holds one gesture-unlocked
+   * AudioContext for the whole app. Building a context here — as this used
+   * to — produced a suspended graph and therefore silence: a timer that
+   * finished without a sound. The system notification is a second channel
+   * for a backgrounded tab, where audio alone may be throttled.
+   */
+  function ring() {
+    App.sound.alarm();
+    if (document.hidden && App.notify.permission() === "granted" && !App.notify.inQuietHours()) {
+      App.notify.show("Time's up", timer.phase === "focus" ? "Break's over — back to it." : "Focus block complete.", "focus-timer", "focus");
+    }
   }
 
   // Update just the clock + ring in place, so the timer stays smooth.
@@ -164,8 +166,8 @@ App.views.focus = (function () {
     if (btn) btn.textContent = timer.running ? "⏸ Pause" : "▶ Start";
 
     document.title = timer.running
-      ? `${U.clock(timer.remaining)} · ${timer.phase === "focus" ? "Focus" : "Break"} — Scholar`
-      : "Scholar — School Tracker";
+      ? `${U.clock(timer.remaining)} · ${timer.phase === "focus" ? "Focus" : "Break"} — StudyHold`
+      : "StudyHold — School Tracker";
   }
 
   /* ------------------------------------------------------------ render -- */
@@ -208,6 +210,8 @@ App.views.focus = (function () {
               <button class="${timer.phase === "focus" ? "active" : ""}" data-phase="focus">Focus ${cfg().focus}m</button>
               <button class="${timer.phase === "short" ? "active" : ""}" data-phase="short">Short ${cfg().short}m</button>
               <button class="${timer.phase === "long"  ? "active" : ""}" data-phase="long">Long ${cfg().long}m</button>
+              <button class="${timer.phase === "custom" ? "active" : ""}" data-phase="custom"
+                title="Set a one-off length — currently ${cfg().custom || 25} minutes">Custom</button>
             </div>
 
             <div class="ring-wrap" style="width:${size}px;height:${size}px">
@@ -294,6 +298,11 @@ App.views.focus = (function () {
 
   function settingsForm() {
     const c = cfg();
+    const voices = App.sound.voices();
+    // A voice is selectable once it's free or bought in the shop; a locked
+    // one is still listed, so what's on offer is visible from here.
+    const owned = (key) => App.sound.isFree(key) || S.ownsShopItem("alarm:" + key);
+
     UI.modal({
       title: "Timer settings",
       okLabel: "Save",
@@ -306,18 +315,89 @@ App.views.focus = (function () {
           <input class="input" type="number" name="long" min="1" max="60" value="${c.long}" /></div>
         <div class="field"><label>Rounds before long break</label>
           <input class="input" type="number" name="rounds" min="1" max="12" value="${c.rounds}" /></div>
+
+        <div class="field full">
+          <label>Alarm sound</label>
+          <div class="row gap-8">
+            <select class="select grow" name="alarm" id="alarmSel">
+              ${Object.entries(voices).map(([key, v]) => `
+                <option value="${key}" ${c.alarm === key ? "selected" : ""} ${owned(key) ? "" : "disabled"}>
+                  ${U.esc(v.label)}${owned(key) ? "" : " — locked in the shop"}
+                </option>`).join("")}
+            </select>
+            <button type="button" class="btn" id="alarmTest">▶ Test</button>
+          </div>
+          <span class="hint">Tap Test to hear it. Browsers only allow sound after you've interacted with
+            the page, which is why the timer unlocks audio the moment you press Start.</span>
+        </div>
+        <div class="field full">
+          <label>Volume — <span id="volLabel">${Math.round((c.volume == null ? 0.7 : c.volume) * 100)}%</span></label>
+          <input class="input" type="range" name="volume" id="volRange" min="0" max="100" step="5"
+                 value="${Math.round((c.volume == null ? 0.7 : c.volume) * 100)}" />
+        </div>
+        <div class="field full">
+          <label class="row gap-8" style="align-items:center">
+            <input type="checkbox" name="sound" ${c.sound === false ? "" : "checked"} />
+            <span>Play a sound when a block ends</span>
+          </label>
+          <label class="row gap-8 mt-8" style="align-items:center">
+            <input type="checkbox" name="vibrate" ${c.vibrate === false ? "" : "checked"} />
+            <span>Vibrate too, on a phone that supports it</span>
+          </label>
+          <label class="row gap-8 mt-8" style="align-items:center">
+            <input type="checkbox" name="quietSound" ${c.quietSound === false ? "" : "checked"} />
+            <span>Still ring during quiet hours, quietly</span>
+          </label>
+          <span class="hint">With this off, a block ending inside your quiet hours
+            (${U.esc(S.settings.notifications.quietStart)}–${U.esc(S.settings.notifications.quietEnd)}) is silent.</span>
+        </div>
       </div>`,
+      onMount(root) {
+        const range = root.querySelector("#volRange");
+        const label = root.querySelector("#volLabel");
+        range.addEventListener("input", () => { label.textContent = range.value + "%"; });
+        root.querySelector("#alarmTest").addEventListener("click", () => {
+          const key = root.querySelector("#alarmSel").value;
+          App.sound.preview(key, Number(range.value) / 100);
+          UI.toast("Testing the alarm", App.sound.voices()[key].label);
+        });
+      },
       onSubmit(d) {
         S.commit((db) => {
-          db.settings.pomodoro = {
+          // Merge rather than replace — a wholesale overwrite here would
+          // silently wipe out a saved custom length every time someone just
+          // changes the regular focus/break minutes.
+          Object.assign(db.settings.pomodoro, {
             focus: U.clamp(Number(d.focus) || 25, 1, 120),
             short: U.clamp(Number(d.short) || 5, 1, 60),
             long: U.clamp(Number(d.long) || 15, 1, 60),
-            rounds: U.clamp(Number(d.rounds) || 4, 1, 12)
-          };
+            rounds: U.clamp(Number(d.rounds) || 4, 1, 12),
+            alarm: owned(d.alarm) ? d.alarm : (db.settings.pomodoro.alarm || "chime"),
+            volume: U.clamp(Number(d.volume) / 100, 0, 1),
+            sound: d.sound === "on" || d.sound === true,
+            vibrate: d.vibrate === "on" || d.vibrate === true,
+            quietSound: d.quietSound === "on" || d.quietSound === true
+          });
         });
         timer.remaining = phaseSeconds(timer.phase);
         UI.toast("Timer settings saved");
+      }
+    });
+  }
+
+  function customForm() {
+    const c = cfg();
+    UI.modal({
+      title: "Custom length",
+      okLabel: "Use it",
+      body: `<div class="field">
+        <label>Minutes</label>
+        <input class="input" type="number" name="minutes" min="1" max="180" value="${c.custom || 25}" autofocus />
+      </div>`,
+      onSubmit(d) {
+        const minutes = U.clamp(Math.round(Number(d.minutes)) || 25, 1, 180);
+        S.commit((db) => { db.settings.pomodoro.custom = minutes; });
+        setPhase("custom");
       }
     });
   }
@@ -353,10 +433,23 @@ App.views.focus = (function () {
 
   function mount(root) {
     paint();
-    root.querySelector("#timerToggle").addEventListener("click", () => (timer.running ? pause() : start()));
+    root.querySelector("#timerToggle").addEventListener("click", () => {
+      // Pressing Start is the gesture that opens the audio session, so the
+      // alarm can actually sound when this block ends. Doing it here as well
+      // as globally means a browser that only counts a gesture on the
+      // element that received it still ends up unlocked.
+      App.sound.unlock();
+      timer.running ? pause() : start();
+    });
     U.on(root, "click", "[data-reset]", reset);
     U.on(root, "click", "[data-skip]", () => complete(true));
-    U.on(root, "click", "[data-phase]", (_e, el) => setPhase(el.dataset.phase));
+    U.on(root, "click", "[data-phase]", (_e, el) => {
+      // Custom always opens the modal — both to set it the first time and to
+      // change it later, since tapping the segment again is the only way
+      // back into a length you'd want to adjust.
+      if (el.dataset.phase === "custom") customForm();
+      else setPhase(el.dataset.phase);
+    });
     U.on(root, "click", "[data-settings]", settingsForm);
     U.on(root, "click", "[data-log]", logForm);
     U.on(root, "click", "[data-del-ss]", (_e, el) => {

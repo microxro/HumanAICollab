@@ -4,7 +4,7 @@
    Stores used:
      users      emailKey → { id, email, name, role, pw:{hash,salt}, createdAt }
      profiles   userId   → { id, email, name, role, links, groups, … }
-     state      userId   → the whole Scholar DB (JSON) + a version counter
+     state      userId   → the whole StudyHold DB (JSON) + a version counter
      links      code     → { studentId, createdAt, usedBy[] }
      locations  userId   → last known status (small, frequently overwritten)
      groups     groupId  → { id, code, name, ownerId, members[], decks[], feed[] }
@@ -12,6 +12,7 @@
      checkins       studentId → [{ id, fromId, fromName, at, respondedAt }]
      guardianNotes  studentId → [{ id, fromId, fromName, text, at, read }]
      focusWindows   studentId → [{ id, fromId, fromName, startAt, endAt, note, status, ... }]
+     activitySuggestions studentId → [{ id, fromId, fromName, activity, at, status }]
      locationEvents studentId → [{ type: "arrival"|"departure", at }]
      icsTokens      userId    → { token }
      icsFeeds       token     → { ics, updatedAt }
@@ -25,6 +26,7 @@ import { getStore } from "@netlify/blobs";
 const STORES = [
   "users", "profiles", "state", "links", "locations", "groups", "codes",
   "checkins", "guardianNotes", "focusWindows", "locationEvents",
+  "activitySuggestions",
   "icsTokens", "icsFeeds", "passwordResets", "apiTokens", "rateLimits"
 ];
 

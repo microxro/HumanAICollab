@@ -110,6 +110,9 @@ App.views.guidance = (function () {
           <button type="button" class="btn btn-primary" data-find-courses ${finding ? "disabled" : ""}>
             ${finding ? "Reading the catalogue…" : n ? "Read it again" : "Find what my school offers"}
           </button>
+          <button type="button" class="btn btn-sm" data-toggle-paste>
+            ${pasteOpen ? "Hide the paste box" : "Or paste your elective list"}
+          </button>
           ${n ? `<button type="button" class="btn" data-clear-courses>Use the general list instead</button>` : ""}
         </div>
         ${findError ? failurePanel() : ""}
@@ -376,7 +379,7 @@ App.views.guidance = (function () {
           <h2>Electives to pick${c.stage === "college" ? "" : " next"}</h2>
         </div>
         <p class="small dim" style="margin-top:-4px">
-          A general catalogue — Scholar has no way to know your school's course list, so treat each
+          A general catalogue — StudyHold has no way to know your school's course list, so treat each
           of these as a question to ask your counselor rather than a course you can definitely take.
         </p>
         ${els.length
@@ -503,7 +506,7 @@ App.views.guidance = (function () {
         <div class="card"><div class="card-body">
           <ul style="margin:0">
             <li>Your school's actual course list, prerequisites, and whether any of this fits your timetable.</li>
-            <li>Test scores, class rank, and anything a transcript holds that Scholar doesn't.</li>
+            <li>Test scores, class rank, and anything a transcript holds that StudyHold doesn't.</li>
             <li>Cost, financial aid, and whether a programme is worth its price — the biggest factor in most of these decisions.</li>
             <li>You. A counselor who has met you knows things no gradebook contains, and this is a
                 starting point for that conversation rather than a replacement for it.</li>
@@ -514,16 +517,18 @@ App.views.guidance = (function () {
 
   /* ------------------------------------------------------------- render -- */
 
+  // Module scope rather than inside render(), so openSub() below can validate
+  // a deep-linked section against the same list the tab strip is built from.
+  const TABS = [
+    { id: "advice",    label: "Advice" },
+    { id: "strengths", label: "Your profile" },
+    { id: "evidence",  label: "What it used" }
+  ];
+
   function render() {
     const c = cfg();
     const conf = G.confidence();
     const dismissed = c.dismissed.length;
-
-    const TABS = [
-      { id: "advice",    label: "Advice" },
-      { id: "strengths", label: "Your profile" },
-      { id: "evidence",  label: "What it used" }
-    ];
 
     return `<div class="page-inner">
       <div class="page-head">
@@ -724,5 +729,13 @@ App.views.guidance = (function () {
     });
   }
 
-  return { render, mount, title: "Guidance" };
+  /** U51 — `#guidance/strengths` opens straight onto that section. */
+  function openSub(id) {
+    if (!TABS.some((t) => t.id === id)) return false;
+    tab = id;
+    App.router.refresh();
+    return true;
+  }
+
+  return { render, mount, openSub, tabs: () => TABS.map((t) => ({ id: t.id, label: t.label })), title: "Guidance" };
 })();

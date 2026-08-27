@@ -1,4 +1,4 @@
-# Scholar — proposed updates
+# StudyHold — proposed updates
 
 150 proposed changes: **100 functionality** and **50 interface**. None duplicate the twenty
 screens or twenty-five features already built — everything here is additive.
@@ -56,6 +56,176 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+**A student on their own.** Focus windows, check-ins and notes were all built
+as things a *linked guardian* does to a student: only a parent account could
+propose a quiet period, only a parent could leave a note, and the cards that
+displayed them rendered nothing at all when nobody was linked. That is the
+wrong default — most students have no parent account, and a feature nobody can
+reach until a second person signs up is not a feature they have.
+
+All three are now self-served as well as guardian-served, entirely locally:
+`startSelfFocusWindow`, `addSelfNote` and `addSelfCheckIn` need no account, no
+link code and no server, and the same cards render both kinds side by side
+(`by: "self"` is the only difference in the record). The Parent portal, opened
+by a student, now says plainly that they do not need a parent account and
+lists what is already theirs, instead of showing them a sign-in prompt for an
+account type they will never have. The signup hint and the Parent-access card
+in Settings say the same thing. One real bug fell out of this: the collection
+holds two record shapes — recurring windows keyed on weekday, one-off windows
+keyed on timestamps — and `activeFocusWindow()` read `w.days.includes(...)`
+unguarded, so a one-off window threw.
+
+**Classes outside the bell schedule.** A class used to be defined by the
+period it occupies, and `classesOnDate()` dropped any class whose `periodId`
+resolved to nothing — so an extracurricular that assigns homework (a robotics
+team, a Saturday academy, a dual-enrollment course) could not be entered at
+all without inventing a fake period for it. Classes now carry either a period
+or their own `start`/`end`, resolved through one selector, `S.classPeriod()`,
+that every reader goes through: the agenda, the ICS feed, contact cards, the
+week's class-minute total. Off-schedule classes match on the weekday in both
+weekly and rotating modes — a Tuesday club is on Tuesday whether the school
+calls it a Day A or a Day B — and they occupy no period, so peer free-period
+matching skips them rather than colliding on a phantom slot.
+
+**The focus alarm actually rings.** The old `ping()` built a fresh
+`AudioContext` at the moment the timer hit zero. Every current browser starts
+one suspended unless it is created or resumed inside a user gesture, and "the
+timer ran out" is not a gesture — so the oscillator played into a suspended
+graph and nothing came out. `js/sound.js` holds one context for the whole app,
+opened on the first real pointer or key event (and again on the timer's own
+Start button), resumed before every play, with an `<audio>` WAV fallback,
+`navigator.vibrate` alongside, and a repeated multi-note pattern rather than a
+single 0.6-second sine nobody hears from across a room. Quiet hours now lower
+the volume instead of removing the sound, because silence at 22:00 is
+indistinguishable from a broken timer; a setting restores the old behaviour.
+The fourth segment reads **Custom** rather than "Custom 25m" — the length
+moved to its tooltip.
+
+**Tiers on the study shop.** This branch arrived with a second, parallel token
+shop — built against a base that predated F155, and therefore unaware that one
+already existed. Merging the two was the interesting part of the work, and the
+resolution is that F155's shop is the one that survives: it has the photo
+proofs, the fingerprint ledger, the contrast-validated skins and the settings-
+backed equipping, and none of that was worth rebuilding. What the second shop
+actually contributed — the thing that was asked for — is folded into it:
+
+  - **Four tiers.** Common (150–200), Rare (300–450), Ultra (500–750), Elite
+    (800–1000), with every item carrying its tier and the suite asserting that
+    each price sits inside its own band. The Shop tab groups by tier rather
+    than by kind, because the tier is what a price *means* to a student.
+  - **A second earning route.** Tokens now also come from work the app already
+    measured: focus minutes (3 each, +20 for finishing the block), a completed
+    assignment (45, +25 if it wasn't late), a streak day (50, +150 every
+    seventh), flashcards, reading, habits, goals. These carry no photo, no
+    cooldown and no daily cap, because there is no claim to check — the guards
+    that matter for them are narrower and sit at the point of payment: an
+    assignment pays once ever however often it is reopened, and a focus block
+    pays for the minutes actually spent.
+  - **Inflated denomination.** Prices and rates were multiplied by 25 together,
+    which changes no ratio and no attainability but puts the top tier at a
+    number worth showing. A wallet written before the change is redenominated
+    by the same factor exactly once, flagged on the wallet, so no balance
+    silently lost 96% of its purchasing power.
+  - **More to buy.** Six alarm voices (the timer's, so a purchase changes what
+    a finished block sounds like), four consumables (streak freezes and 2×/3×
+    earning boosts), a Valedictorian nameplate and a prismatic Elite ring —
+    the last built in the same masked-band idiom as F155's aurora ring, so it
+    can't cover the initials the avatar sized for 4.5:1.
+
+One behaviour changed on the way through: the daily streak used to pay on the
+touch that *creates* a streak, which fires on first open — an economy paying
+for launching the app. It now pays only when a streak continues, and a fresh
+install starts at zero.
+
+**Feedback (F154).** A Feedback tab in Settings: pick what it's about, write
+the message, and send it to humanai736@gmail.com. It composes a `mailto:` and
+hands it to whatever mail app the device already has rather than posting to
+the backend, which is a deliberate choice — server mail only works when
+`RESEND_API_KEY` and `EMAIL_FROM` are both set, so a form wired to it would
+fail silently on a deploy that hasn't configured them, and it would need the
+student signed in, which reporting a bug should never require. The `mailto:`
+route works offline, needs no key, and leaves the sender reading the message
+before it goes.
+
+An optional **app details** block attaches the browser, screen size, settings
+and *counts* of records — never their contents. No class name, note body or
+signed-in address is included, and the full text is shown on screen before
+sending, because a feedback form is the last place that should quietly
+exfiltrate someone's schoolwork. Long messages are put on the clipboard
+instead of into the URL: mail clients disagree on how long a `mailto:` may be
+and the ones that dislike a long one drop the body without saying so.
+
+**Study tokens and the shop (F155).** A student photographs the work they
+did, the photo earns tokens, and the tokens buy how StudyHold looks — accent
+colours, surface skins, an avatar ring, a nameplate in the sidebar.
+
+The honest part first: **nothing here proves anyone studied.** A photo is
+evidence a person chose to show, on their own device, to their own copy of the
+app; there is no invigilator and no server, and the UI says so rather than
+implying otherwise. What the design can honestly promise is narrower — the
+obvious ways to farm the number don't work, and each refusal names its reason:
+
+- every photo is fingerprinted (64-bit average hash) before it counts, so the
+  same page re-cropped or re-compressed still collides;
+- the fingerprint ledger outlives the photo, so deleting a proof frees storage,
+  not the payout;
+- an image with almost no detail (a wall, a blank screen) has nothing to
+  fingerprint and is refused as such;
+- 10 minutes between submissions, 4 hours and 4 tokens per photo maximum, and
+  8 tokens a day. Past the cap a photo still saves and still logs as study
+  time — it just stops paying.
+
+Every proof also writes a real study session, so time proved this way lands in
+the heatmap, the weekly total and any study goal, exactly like a finished focus
+block. Photos live in IndexedDB beside class attachments — local, never
+uploaded.
+
+The cosmetics were the part with a trap in it: a shop full of colours is a shop
+full of ways to make the app unreadable. So every purchasable accent's text
+colour clears 4.5:1 on all four surfaces in both themes, and every skin is a
+re-tint at *matched luminance* — each surface was mixed toward a hue and scaled
+back to the relative luminance of the colour it replaces, so every contrast
+ratio in the app is arithmetically unchanged. `tests/shop.mjs` re-derives both
+from `css/theme.css`, and `App.shop.sanitize()` takes off any cosmetic a
+restored backup names but this wallet never bought.
+
+**Outside-school activities (F156).** The Activities screen assumed every
+extracurricular belonged to the school: its adult was picked from the staff
+list, its location was a room number, and the timetable drew it only on a day
+the school was open. That is not what most of a family's week outside class
+actually looks like — music lessons, a club team, a language school, tutoring,
+a weekend class. Those are run by somebody else, meet somewhere with an
+address, cost money, and very often fall on a Saturday.
+
+An activity now says which of the two it is, and the outside-school side
+carries the fields the school side has no use for: who runs it, the instructor
+and how to reach them, an address and website, and a fee with its billing
+period, rolled up into what the family pays per month (one-off fees are
+reported separately rather than folded into a monthly figure they are not part
+of). Fees are formatted with `Intl` from a currency setting, so this is not a
+US-only feature.
+
+The scheduling rule changed with it. v2 drew an activity only when
+`isSchoolDay(iso) || mode === "weekly"`; weekly is the default, so most
+installs never saw the gap, but a school on an A/B cycle sets rotating mode
+and there the condition collapses to "only when the school is open" — the
+Saturday squad session and the lesson in the holidays disappeared. Outside-school
+activities are no longer bound to the school calendar; school clubs still are,
+because a club really doesn't meet when the school is shut.
+
+**Parents can add one.** The parent portal is read-only by design, and that is
+why it is safe to hand a parent, so this is not a write into the student's
+data. A guardian fills in the activity from their portal; it lands as a
+suggestion in the student's Sharing screen, where they add it (their own
+device does the insert, and the record is marked with who suggested it) or
+dismiss it. The server whitelists the posted fields rather than trimming them,
+because the object crosses accounts: no `id` that could collide with one of
+the student's own records, no `javascript:` website, no unknown field at all.
+Whether the student added it is reported back to the parent who sent it.
+Outside-school activities also appear in the parent summary, behind their own
+privacy toggle — school clubs never do, since which clubs someone joined is
+theirs to tell.
+
 **Add from a link (F152).** Most of what a student retypes into a school
 tracker is already published on a web page. Paste the link instead: the server
 fetches the page, strips it to text, and extracts bell-schedule periods, a
@@ -80,7 +250,7 @@ to the built-in list and says so.
 **Guidance (F151).** Added after the 150, at the owner's request, and the
 first item here that isn't on the original list. A new view that answers the
 two questions a student actually has to decide — *which electives do I pick*
-and *what field is this pointing at* — from the record Scholar already holds.
+and *what field is this pointing at* — from the record StudyHold already holds.
 
 The engine (`js/guidance.js`) is deterministic and entirely local: no API key,
 no network, no provider. That is a deliberate constraint rather than a
@@ -425,4 +595,5 @@ AI path uses and the manual form now exposes too.
 | `U48` | **Larger mobile targets** | Hold every interactive element to 44px, which several icon buttons currently miss. | S |  |
 | `U49` | **First-run setup** | Walk a new student through classes, bell schedule, and one assignment instead of a wall of demo data. | M |  |
 | `U50` | **Contextual help** | Explain what a weighted category or a Leitner box is, at the moment it first appears. | M |  |
+| `U51` | **Three clicks to anything** | Make a view's sections addressable, so a tabbed screen stops costing four taps on a phone. Measured by `tests/depth.mjs`. | S | ✅ |
 

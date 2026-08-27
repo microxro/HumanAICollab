@@ -206,7 +206,24 @@ App.store = (function () {
         role: "Software Lead", hours: [{ date: d(-6), hours: 1.5, note: "Build session" }, { date: d(-13), hours: 1.5, note: "Build session" }] },
       { id: "ac3", name: "Key Club (Volunteer)", type: "Service", advisorId: "tc3", location: "Room 210",
         days: ["Fri"], start: "15:15", end: "16:15", season: "Year-round", color: PALETTE[7],
-        role: "Member", hours: [{ date: d(-9), hours: 3, note: "Food bank" }, { date: d(-16), hours: 4, note: "Park cleanup" }, { date: d(-23), hours: 2.5, note: "Tutoring" }] }
+        role: "Member", hours: [{ date: d(-9), hours: 3, note: "Food bank" }, { date: d(-16), hours: 4, note: "Park cleanup" }, { date: d(-23), hours: 2.5, note: "Tutoring" }] },
+      // Two that have nothing to do with school: no advisor from the teacher
+      // list, an address rather than a room, a bill, and — the part a school
+      // club never has — a Saturday.
+      { id: "ac4", name: "Piano lessons", type: "Music", advisorId: null, location: "Northside Music Academy",
+        days: ["Wed"], start: "17:30", end: "18:15", season: "Year-round", color: PALETTE[3],
+        role: "Grade 6", external: true, provider: "Northside Music Academy",
+        contactName: "Ms. Halvorsen", contactEmail: "lessons@northsidemusic.example", contactPhone: "555-0128",
+        address: "412 Beaumont Ave", website: "https://northsidemusic.example",
+        cost: 32, costPer: "session", notes: "Bring the theory book on the first Wednesday of the month.",
+        hours: [{ date: d(-7), hours: 0.75, note: "Lesson" }, { date: d(-14), hours: 0.75, note: "Lesson" }] },
+      { id: "ac5", name: "Club swim squad", type: "Sport", advisorId: null, location: "Riverside Aquatic Centre",
+        days: ["Sat", "Sun"], start: "08:00", end: "09:30", season: "Year-round", color: PALETTE[0],
+        role: "Squad B", external: true, provider: "Riverside Swim Club",
+        contactName: "Coach Adeyemi", contactEmail: "squad@riverside-swim.example", contactPhone: "555-0164",
+        address: "9 Mill Lane", website: "",
+        cost: 68, costPer: "month", notes: "",
+        hours: [{ date: d(-6), hours: 1.5, note: "Squad session" }, { date: d(-13), hours: 1.5, note: "Squad session" }] }
     ];
 
     const events = [
@@ -337,7 +354,7 @@ App.store = (function () {
         theme: "light", weekStartsMonday: true, gpaWeighted: false,
         locationSharing: true, peerSharing: true, shareGrades: false,
         dueSoonDays: 3,
-        pomodoro: { focus: 25, short: 5, long: 15, rounds: 4 },
+        pomodoro: { focus: 25, short: 5, long: 15, rounds: 4, custom: 25 },
         schedule: {
           mode: "weekly",                 // "weekly" | "rotating"
           cycle: ["A", "B"],
@@ -473,7 +490,7 @@ App.store = (function () {
       if (legacy) {
         const parsed = JSON.parse(legacy);
         if (parsed && typeof parsed === "object") {
-          console.info("[scholar] migrating v1 data → v2");
+          console.info("[studyhold] migrating v1 data → v2");
           return migrate(parsed);
         }
       }
@@ -483,7 +500,7 @@ App.store = (function () {
       // write, a hand-edited import — silently erased every record with
       // nothing but a console warning. Set it aside instead, so it can be
       // recovered from Settings or handed back for repair.
-      console.error("[scholar] saved data is unreadable — quarantining it rather than deleting it.", e);
+      console.error("[studyhold] saved data is unreadable — quarantining it rather than deleting it.", e);
       try {
         const raw = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
         if (raw) {
@@ -491,7 +508,7 @@ App.store = (function () {
           localStorage.removeItem(KEY);
         }
       } catch (e2) {
-        console.error("[scholar] couldn't quarantine the unreadable data", e2);
+        console.error("[studyhold] couldn't quarantine the unreadable data", e2);
       }
     }
     return seed();
@@ -532,7 +549,7 @@ App.store = (function () {
     } catch (e) {
       if (saveFailing) return;          // re-entered from the notice below
       saveFailing = true;
-      console.error("[scholar] save failed (storage full?)", e);
+      console.error("[studyhold] save failed (storage full?)", e);
       try {
         if (App.ui) {
           App.ui.toast("Couldn't save",
@@ -716,25 +733,61 @@ App.store = (function () {
     return true;
   }
 
-  /** Classes meeting on a specific DATE — handles weekly and rotating modes. */
+  /**
+   * When a class actually meets, whichever kind it is.
+   *
+   * A bell class points at a period. An off-schedule class — a club that
+   * assigns homework, a dual-enrollment course, an after-school academy —
+   * carries its own start/end instead, because it doesn't sit in any period
+   * the school rings a bell for. Everything downstream (the agenda, the ICS
+   * feed, contact cards, the week's total class minutes) wants the same
+   * shape from both, so it asks here rather than dereferencing periodId and
+   * dropping whatever comes back null.
+   *
+   * @returns {{id, name, start, end}|null}
+   */
+  function classPeriod(c) {
+    if (!c) return null;
+    if (c.offSchedule) {
+      if (!c.start || !c.end) return null;
+      return { id: "off:" + c.id, name: c.meetingLabel || "Off schedule", start: c.start, end: c.end, offSchedule: true };
+    }
+    return period(c.periodId);
+  }
+
+  /**
+   * Classes meeting on a specific DATE — handles weekly and rotating modes.
+   *
+   * Off-schedule classes are matched on the weekday in BOTH modes: a Tuesday
+   * robotics meeting is on Tuesday whether the school calls it a Day A or a
+   * Day B, and a rotating-schedule student would otherwise never see one.
+   */
   function classesOnDate(iso) {
     const sc = db.settings.schedule;
     const term = currentTerm();
     const pool = termClasses(term && term.id);
+    const bell = pool.filter((c) => !c.offSchedule);
+    const off = pool.filter((c) => c.offSchedule);
+    const dow = U.dowName(iso);
 
-    let matching;
+    let matching = [];
     if (sc.mode === "rotating") {
       const cd = cycleDayFor(iso);
-      if (!cd) return [];
-      matching = pool.filter((c) => (c.patternDays || []).includes(cd));
-    } else {
-      if (!isSchoolDay(iso)) return [];
-      const dow = U.dowName(iso);
-      matching = pool.filter((c) => c.days.includes(dow));
+      if (cd) matching = bell.filter((c) => (c.patternDays || []).includes(cd));
+    } else if (isSchoolDay(iso)) {
+      matching = bell.filter((c) => c.days.includes(dow));
     }
 
+    // A club can meet on a day school is closed (a Saturday competition
+    // practice), so the only gate here is the day of the week and any
+    // season window the class carries.
+    matching = matching.concat(off.filter((c) =>
+      c.days.includes(dow)
+      && (!c.startDate || c.startDate <= iso)
+      && (!c.endDate || c.endDate >= iso)));
+
     return matching
-      .map((c) => ({ cls: c, period: period(c.periodId) }))
+      .map((c) => ({ cls: c, period: classPeriod(c) }))
       .filter((x) => x.period)
       .sort((a, b) => U.toMin(a.period.start) - U.toMin(b.period.start));
   }
@@ -743,7 +796,7 @@ App.store = (function () {
   function classesOn(dowShort) {
     return termClasses()
       .filter((c) => c.days.includes(dowShort))
-      .map((c) => ({ cls: c, period: period(c.periodId) }))
+      .map((c) => ({ cls: c, period: classPeriod(c) }))
       .filter((x) => x.period)
       .sort((a, b) => U.toMin(a.period.start) - U.toMin(b.period.start));
   }
@@ -765,8 +818,8 @@ App.store = (function () {
 
     classesOnDate(iso).forEach(({ cls: c, period: p }) => {
       out.push({
-        kind: "class", id: c.id, title: c.name, color: c.color,
-        start: p.start, end: p.end, location: "Rm " + c.room,
+        kind: c.offSchedule ? "extra" : "class", id: c.id, title: c.name, color: c.color,
+        start: p.start, end: p.end, location: c.room ? "Rm " + c.room : "",
         sub: teacher(c.teacherId) ? teacher(c.teacherId).name : "", room: c.room
       });
     });
@@ -1228,7 +1281,7 @@ App.store = (function () {
   function importJSON(text) {
     const parsed = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.classes)) {
-      throw new Error("That doesn't look like a Scholar backup file.");
+      throw new Error("That doesn't look like a StudyHold backup file.");
     }
     db = migrate(parsed);
     // migrate() only knows about v1/v2 fields. Backfill v3 before anything
@@ -1289,7 +1342,7 @@ App.store = (function () {
     all, byId, insert, update, remove, restore, purgeTrash,
     cls, teacher, period, classColor, className, currentTerm, termClasses,
     cycleDayFor, isSchoolDay, isHoliday, classesOnDate, classesOn, activitiesOn,
-    scheduleFor, liveStatus,
+    scheduleFor, liveStatus, classPeriod,
     openAssignments, dueSoon, overdue, missingWork, assignmentsFor, progressOf, adjustedEstimate,
     withGradeOverride,
     classGrade, categoryBreakdown, neededOnRemaining, simulateAll, saveQuiet,

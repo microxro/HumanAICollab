@@ -1,8 +1,8 @@
 {
-  "name": "scholar-school-tracker",
+  "name": "studyhold-school-tracker",
   "version": "2.0.0",
   "private": true,
-  "description": "Scholar \u2014 a complete school tracker. Static front end (no framework, no build) plus Netlify Functions for accounts, sync, parent portal, and study groups.",
+  "description": "StudyHold \u2014 a complete school tracker. Static front end (no framework, no build) plus Netlify Functions for accounts, sync, parent portal, and study groups.",
   "type": "module",
   "scripts": {
     "dev": "netlify dev",
@@ -20,8 +20,13 @@
     "test:concurrency": "node --import ./tests/stub/register.mjs tests/concurrency.mjs",
     "test:hardening": "node --import ./tests/stub/register.mjs tests/hardening.mjs",
     "test:guidance": "node tests/guidance.mjs",
+    "test:quotes": "node tests/quotes.mjs",
+    "test:mobile": "node tests/mobile.mjs",
     "test:urlguard": "node tests/urlguard.mjs",
-    "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs"
+    "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs",
+    "test:shop": "node tests/shop.mjs",
+    "test:activities": "node --import ./tests/stub/register.mjs tests/activities.mjs",
+    "test:portal": "node tests/portal.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1"

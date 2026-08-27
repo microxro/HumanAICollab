@@ -54,6 +54,7 @@
       graduationReqs: [], apiTokens: [], webhooks: [], focusWindows: [],
       guardianNotes: [], checkIns: [], emergencyContacts: [], notifications: [],
       assistantChat: [],  // [{role: "user"|"assistant", text, at}] — the private assistant's thread
+      studyProofs: [],   // photos of work done, each one a token payout (js/shop.js)
       feedComments: {}   // { feedItemId: [{id, byName, text, at}] }
     };
     // A stored value of the wrong *kind* is as bad as a missing one — an
@@ -72,6 +73,11 @@
     need(db, "sessionRatings", []); // [{id, sessionId, quality, at}]
     need(db, "changeAlerts", []);   // dismissed/seen change-detection alerts
     need(db, "streak", { count: 0, last: null });
+
+    // Quote ids already shown, so the daily quote never repeats until the
+    // whole pool has been through. Lives on db.ui because it's presentation
+    // state, not the student's own data.
+    if (db.ui && typeof db.ui === "object") need(db.ui, "quotesSeen", []);
 
     // Guidance: the only inputs the student supplies directly. Everything
     // else the engine reads is already in the database, which is the point —
@@ -94,6 +100,30 @@
     }
     need(db.streak, "freezes", 0);  // F040
 
+    // The study-token wallet (F155). Named `wallet`, not `tokens`: this app
+    // already has session tokens and `apiTokens`, and those are credentials.
+    // `seen` is the photo-fingerprint ledger behind the no-paying-twice rule,
+    // and it deliberately outlives the proofs themselves — see js/shop.js.
+    need(db, "wallet", { balance: 0, earned: 0, spent: 0, owned: [], daily: {},
+                         seen: [], lastProofAt: 0, ledger: [], boosts: [], scale: 0 });
+    if (db.wallet && typeof db.wallet === "object") {
+      need(db.wallet, "balance", 0);
+      need(db.wallet, "earned", 0);
+      need(db.wallet, "spent", 0);
+      need(db.wallet, "owned", []);
+      need(db.wallet, "daily", {});
+      need(db.wallet, "seen", []);
+      need(db.wallet, "lastProofAt", 0);
+      // `ledger` is the receipt for everything earned and spent — the shop
+      // pays for tracked work as well as photographed work now, and a balance
+      // that moves on its own needs to say why. `boosts` holds timed earning
+      // multipliers. `scale` records which denomination this wallet is in;
+      // see REDENOMINATION in js/shop.js.
+      if (!Array.isArray(db.wallet.ledger)) { db.wallet.ledger = []; dirty = true; }
+      if (!Array.isArray(db.wallet.boosts)) { db.wallet.boosts = []; dirty = true; }
+      need(db.wallet, "scale", 0);
+    }
+
     // ---- settings additions
     need(db, "settings", {});
     const s = db.settings;
@@ -105,11 +135,29 @@
     need(s, "fontSize", "normal");      // U11
     need(s, "dyslexicFont", false);     // U11
     need(s, "trueBlack", false);        // U13
+    // Cosmetics bought in the study shop. Each is the [data-*] value the CSS
+    // keys off; App.shop.sanitize() resets any of them that isn't owned.
+    need(s, "skin", "none");            // surface re-tint, layered over either theme
+    need(s, "avatarRing", "none");      // frame around your own avatar
+    need(s, "nameplate", "");           // title under your name in the sidebar
     need(s, "collapsedNavGroups", []);  // U07
     need(s, "onboarded", true);         // U49 — only for data predating the flag; a fresh seed sets it false explicitly
     need(s, "emptyStateStyle", "drawn"); // U16 — "drawn" or "emoji"
-    need(s, "dashboardLayout", ["hero", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]); // F083
+    need(s, "dashboardLayout", ["hero", "quote", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]); // F083
+    // A layout saved before the quote widget existed has no entry for it, and
+    // an unlisted id sorts to -1 — i.e. above the hero banner. Slot it in
+    // after the hero instead, where it was designed to sit.
+    if (Array.isArray(s.dashboardLayout) && s.dashboardLayout.indexOf("quote") < 0) {
+      const at = s.dashboardLayout.indexOf("hero");
+      s.dashboardLayout.splice(at < 0 ? 0 : at + 1, 0, "quote");
+      dirty = true;
+    }
     need(s, "locale", "en");            // F099
+    need(s, "currency", "USD");         // what an outside-school fee is billed in
+    // Sharing an outside-school commitment with a parent is the default: they
+    // are usually the ones paying for it and driving to it. School clubs are
+    // never included — see the summary built in sync.js.
+    need(s, "shareActivities", true);
     need(s, "wellbeing", { hideGPA: false, breakEveryMin: 50, breakLenMin: 8 });   // F080
     // Custom GPA weighting — defaults reproduce the old hardcoded +1.0/cap-5.
     need(s, "gpaScale", { ap: 1, honors: 1, max: 5 });
@@ -122,6 +170,18 @@
       exam: { label: "Exam schedule", shiftMin: 0 }
     });
     need(s, "singleKeyShortcuts", true);  // WCAG 2.1.4 — switchable off
+
+    // ---- focus-timer sound (js/sound.js)
+    // The timer used to build a fresh AudioContext at ring time, which every
+    // browser starts suspended outside a gesture — so it rang silently.
+    // These are the knobs for the alarm that replaced it.
+    need(s, "pomodoro", { focus: 25, short: 5, long: 15, rounds: 4, custom: 25 });
+    need(s.pomodoro, "custom", 25);
+    need(s.pomodoro, "sound", true);        // play a sound when a block ends
+    need(s.pomodoro, "alarm", "chime");     // which voice — more in the shop
+    need(s.pomodoro, "volume", 0.7);
+    need(s.pomodoro, "vibrate", true);
+    need(s.pomodoro, "quietSound", true);   // ring quietly in quiet hours rather than not at all
     need(s, "passingTimeMin", 5);   // F043
     need(s, "commute", { toMin: 20, fromMin: 20, lastBus: "" }); // F051
     // Nested defaults, in case an older payload has the parent but not the leaf.
@@ -160,6 +220,15 @@
       if (c.examWeight === undefined) c.examWeight = 0; // 0-100, % of final grade from "Final" type work
       if (c.percentileInput === undefined) c.percentileInput = null;
       if (c.timezone === undefined) c.timezone = null;
+      // Off-schedule classes: an extracurricular that assigns homework but
+      // has no period in the bell schedule. They carry their own meeting
+      // times instead; see S.classPeriod().
+      if (c.offSchedule === undefined) c.offSchedule = false;
+      if (c.start === undefined) c.start = null;
+      if (c.end === undefined) c.end = null;
+      if (c.meetingLabel === undefined) c.meetingLabel = "";
+      if (c.startDate === undefined) c.startDate = "";
+      if (c.endDate === undefined) c.endDate = "";
       if (!c.standardsScale) c.standardsScale = 4; // 1..4 proficiency
       if (c.latePenalty === undefined) c.latePenalty = null;    // { perDay, max } — F021
       if (!c.rules) c.rules = { dropLowest: {}, curve: 0 };
@@ -184,6 +253,37 @@
     });
 
     db.terms.forEach((t) => { if (t && t.parentId === undefined) t.parentId = null; }); // F007
+
+    // ---- outside-school activities
+    // An activity used to be assumed to belong to the school: its adult was
+    // picked from the teacher list, its location was a room number, and the
+    // timetable only drew it on a school day. None of that describes a
+    // Saturday music lesson or a club run by a gym across town, which is what
+    // most of a family's calendar outside school actually is. These fields
+    // carry the parts a school activity has no need for — who runs it, where
+    // it really is, who to call, and what it costs — and `external` is the
+    // flag every view filters on.
+    if (!Array.isArray(db.activities)) { db.activities = []; dirty = true; }
+    db.activities.forEach((a) => {
+      if (!a || typeof a !== "object") return;
+      // days/hours are dereferenced unguarded by the Activities view and by
+      // activitiesOn(); v2's migrate() backfills them for classes but never
+      // did for activities, so an import missing either took the view down.
+      if (!Array.isArray(a.days)) { a.days = []; dirty = true; }
+      if (!Array.isArray(a.hours)) { a.hours = []; dirty = true; }
+      if (typeof a.name !== "string") { a.name = String(a.name == null ? "Untitled activity" : a.name); dirty = true; }
+      if (a.external === undefined) { a.external = false; dirty = true; }
+      if (a.provider === undefined) { a.provider = ""; dirty = true; }        // the studio, club, gym or tutor centre
+      if (a.contactName === undefined) { a.contactName = ""; dirty = true; }  // the coach/instructor, who is not a school teacher
+      if (a.contactEmail === undefined) { a.contactEmail = ""; dirty = true; }
+      if (a.contactPhone === undefined) { a.contactPhone = ""; dirty = true; }
+      if (a.address === undefined) { a.address = ""; dirty = true; }
+      if (a.website === undefined) { a.website = ""; dirty = true; }
+      if (a.cost === undefined) { a.cost = null; dirty = true; }
+      if (a.costPer === undefined) { a.costPer = "month"; dirty = true; }
+      if (a.notes === undefined) { a.notes = ""; dirty = true; }
+      if (a.addedBy === undefined) { a.addedBy = ""; dirty = true; }          // "" = the student; otherwise a guardian's name
+    });
 
     // Habits are dereferenced as h.log[dateKey] during the Goals render, and
     // goals as g.current in the progress bar. Backfill both so a record from
@@ -606,7 +706,7 @@
   };
   S.importDeck = function (json, classId) {
     const parsed = JSON.parse(json);
-    if (!parsed || !Array.isArray(parsed.cards)) throw new Error("That doesn't look like a Scholar deck file.");
+    if (!parsed || !Array.isArray(parsed.cards)) throw new Error("That doesn't look like a StudyHold deck file.");
     const cards = parsed.cards.map((c) => Object.assign({}, c, { id: U.uid("c") }));
     return S.insert("decks", { name: parsed.name || "Imported deck", classId: classId || null, cards });
   };
@@ -667,6 +767,121 @@
   };
 
   S.busClock = function () { return S.settings.commute; };
+
+  /* -------------------------------------- F156 outside-school activities */
+
+  /**
+   * A fee, formatted in the family's own currency.
+   *
+   * An ISO code rather than a stored symbol, so Intl decides where the symbol
+   * goes — "kr 68" and "68 kr" are not interchangeable, and hard-coding a
+   * prefix gets one of them wrong. An unknown code falls back to showing the
+   * code itself rather than throwing inside a render.
+   *
+   * `code` overrides this device's setting, which the parent portal needs: a
+   * fee the student recorded in euros is not a dollar figure just because the
+   * parent's own app is set to dollars.
+   */
+  S.money = function (n, code) {
+    const amount = Number(n) || 0;
+    code = code || S.settings.currency || "USD";
+    const loc = App.i18n ? App.i18n.locale() : "en";
+    try {
+      return new Intl.NumberFormat(loc, {
+        style: "currency", currency: code,
+        minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+        maximumFractionDigits: 2
+      }).format(amount);
+    } catch (e) {
+      return `${U.round(amount, 2)} ${code}`;
+    }
+  };
+
+  S.externalActivities = function () { return S.db.activities.filter((a) => a.external); };
+  S.schoolActivities = function () { return S.db.activities.filter((a) => !a.external); };
+
+  // How often a fee repeats, as a multiplier onto a month. "session" is the
+  // only one that depends on the activity itself: a lesson billed per session
+  // costs whatever the weekly meeting count adds up to.
+  const COST_PER_MONTH = { session: null, week: 52 / 12, month: 1, term: 1 / 4, year: 1 / 12, total: 0 };
+
+  /**
+   * An activity's fee expressed as a monthly figure, or 0 when there is none.
+   *
+   * A fee is an outside-school idea in this model, and the form clears the
+   * field when an activity is moved back to the school side — but a record
+   * that predates that, or one edited by hand, can still carry a stale
+   * number, and returning it here would put a fee on a school club's card and
+   * a figure in the family's monthly total that nobody is actually billed.
+   */
+  S.activityCostMonthly = function (a) {
+    if (!a || !a.external || a.cost == null) return 0;
+    const cost = Number(a.cost);
+    if (!Number.isFinite(cost) || cost <= 0) return 0;
+    const per = COST_PER_MONTH[a.costPer] === undefined ? 1 : COST_PER_MONTH[a.costPer];
+    // A one-off ("total") is a real cost but not a recurring one, and adding
+    // it to a monthly total would overstate what the family pays every month.
+    if (per === 0) return 0;
+    if (per === null) return cost * ((a.days || []).length * (52 / 12));
+    return cost * per;
+  };
+
+  /** What every outside-school activity adds up to per month. */
+  S.monthlyActivityCost = function () {
+    return U.sum(S.externalActivities(), (a) => S.activityCostMonthly(a));
+  };
+
+  /** One-off fees (registration, kit, a term paid up front) that recur never. */
+  S.oneOffActivityCost = function () {
+    return U.sum(S.externalActivities(), (a) =>
+      (a.costPer === "total" && Number.isFinite(Number(a.cost)) ? Number(a.cost) : 0));
+  };
+
+  // v2 draws an activity on a date only when `isSchoolDay(iso) || mode ===
+  // "weekly"`. Weekly is the default, so most installs never saw the gap —
+  // but a school on an A/B cycle sets rotating mode, and there the whole
+  // condition collapses to "only when the school is open". Saturday swim, a
+  // music lesson in the holidays, tutoring over the winter break: all
+  // invisible, on exactly the days a family most needs to see them.
+  //
+  // Only outside-school activities are added back. A school club really
+  // doesn't meet when the school is shut, so loosening the rule for both
+  // would trade one wrong answer for another.
+  const origScheduleFor = S.scheduleFor;
+  S.scheduleFor = function (iso) {
+    const out = origScheduleFor(iso);
+    if (S.isSchoolDay(iso) || S.db.settings.schedule.mode === "weekly") return out;
+    const already = new Set(out.filter((x) => x.kind === "activity").map((x) => x.id));
+    S.activitiesOn(U.dowName(iso), iso)
+      .filter((a) => a.external && !already.has(a.id))
+      .forEach((a) => {
+        out.push({
+          kind: "activity", id: a.id, title: a.name, color: a.color,
+          start: a.start, end: a.end, location: a.address || a.location, sub: a.provider || a.type
+        });
+      });
+    return out.sort((a, b) => U.toMin(a.start) - U.toMin(b.start));
+  };
+
+  // liveStatus() reads v2's own private scheduleFor(), so the wrap above
+  // never reached "what's on right now" — the dashboard still said nothing
+  // was left today while the student was on their way to a Sunday practice.
+  // Same computation, over the schedule that includes it.
+  S.liveStatus = function () {
+    const items = S.scheduleFor(U.today()).filter((x) => x.start && x.end);
+    const now = U.nowMin();
+    const current = items.find((x) => now >= U.toMin(x.start) && now < U.toMin(x.end)) || null;
+    const next = items.find((x) => U.toMin(x.start) > now) || null;
+    let progress = 0, remaining = 0;
+    if (current) {
+      const s = U.toMin(current.start), e = U.toMin(current.end);
+      // A zero-length entry divides by zero here and renders NaN% in the
+      // dashboard's progress ring.
+      progress = e > s ? U.clamp((now - s) / (e - s), 0, 1) : 1;
+      remaining = Math.max(0, e - now);
+    }
+    return { current, next, progress, remaining, untilNext: next ? U.toMin(next.start) - now : null };
+  };
 
   /* ============================================ F073-080 wellbeing ===== */
 
@@ -784,6 +999,22 @@
       db.studySessions = db.studySessions.filter((s2) => s2.date >= studyCut);
       n += before1 - db.studySessions.length;
 
+      // A study photo is the heaviest thing this app writes — a year of daily
+      // proofs is hundreds of megabytes of IndexedDB — so the same retention
+      // window that drops old study sessions drops the photos behind them.
+      // The fingerprint ledger is deliberately NOT swept: it is what keeps an
+      // old photo from being re-submitted for a second payout, and it has its
+      // own cap (RULES.seenLimit) measured in kilobytes, not megabytes.
+      if (Array.isArray(db.studyProofs)) {
+        const keep = [];
+        db.studyProofs.forEach((p) => {
+          if (p && p.date >= studyCut) { keep.push(p); return; }
+          if (p && p.photoId && App.idb) App.idb.del(p.photoId).catch(() => {});
+          n++;
+        });
+        db.studyProofs = keep;
+      }
+
       const usageCut = U.dateKey(U.addDays(new Date(), -r.usageDays));
       Object.keys(db.usage).forEach((k) => { if (k < usageCut) { delete db.usage[k]; n++; } });
     });
@@ -805,7 +1036,10 @@
 
   S.commonFreePeriods = function (peerId) {
     // Compares this student's own free periods against a peer's declared classIds.
-    const myBusy = new Set(S.termClasses().map((c) => c.periodId));
+    // Off-schedule classes occupy no period, so they can neither match nor
+    // clash with a peer's timetable — including their null here would make
+    // every pair of students look "both free" in the same phantom slot.
+    const myBusy = new Set(S.termClasses().filter((c) => !c.offSchedule).map((c) => c.periodId));
     const peer = S.byId("peers", peerId);
     if (!peer) return [];
     const peerBusy = new Set(peer.classIds.map((id) => { const c = S.cls(id); return c ? c.periodId : null; }));
@@ -827,13 +1061,79 @@
   S.openCheckIns = function () { return S.db.checkIns.filter((c) => c.status === "pending"); };
 
   S.addFocusWindow = function (start, end, days) { return S.insert("focusWindows", { start, end, days, agreedAt: Date.now() }); };
+
+  /* ------------------------------------------- a student on their own ---
+   *
+   * Focus windows, check-ins and notes were all built as things a LINKED
+   * GUARDIAN does to a student: only a parent account could propose a quiet
+   * period, only a parent could leave a note. A student with no parent
+   * account — which is most of them, and every student whose family never
+   * signs up — therefore couldn't use any of it at all.
+   *
+   * These are the same features, self-served and entirely local: no account,
+   * no link code, no server. A guardian-proposed window and a self-set one
+   * are the same record with a different `by`, so every reader below handles
+   * both without caring which it is.
+   */
+
+  /** Is anyone actually linked to this account? Solo is the default, not a fault. */
+  S.hasGuardian = function () {
+    if (!App.sync || !App.sync.isSignedIn()) return false;
+    const u = App.sync.info().user || {};
+    return (u.links || []).some((l) => l.role === "parent");
+  };
+  S.isSoloStudent = function () { return !S.hasGuardian(); };
+
+  /**
+   * Start a quiet period on yourself, right now.
+   * @param {number} minutes how long it runs
+   * @param {string} [note]  why — shown while it's active
+   */
+  S.startSelfFocusWindow = function (minutes, note) {
+    const mins = U.clamp(Math.round(Number(minutes) || 30), 5, 8 * 60);
+    const startAt = Date.now();
+    return S.insert("focusWindows", {
+      startAt, endAt: startAt + mins * 60000, note: (note || "").trim(),
+      by: "self", byName: "You", status: "agreed", agreedAt: startAt
+    });
+  };
+
+  S.endSelfFocusWindow = function (id) { S.update("focusWindows", id, { status: "ended", endAt: Date.now() }); };
+
+  /**
+   * The window in force right now, whichever kind it is.
+   *
+   * Two record shapes live in this collection: recurring ones keyed on
+   * weekday + clock time, and one-off ones keyed on timestamps. Reading
+   * `w.days.includes(...)` unguarded threw on the second kind, so this checks
+   * the shape before it reads the fields.
+   */
   S.activeFocusWindow = function () {
-    const now = U.nowMin(), dow = U.dowName(U.today());
-    return S.db.focusWindows.find((w) => w.days.includes(dow) && now >= U.toMin(w.start) && now < U.toMin(w.end)) || null;
+    const now = U.nowMin(), dow = U.dowName(U.today()), ts = Date.now();
+    return S.db.focusWindows.find((w) => {
+      if (!w || w.status === "ended" || w.status === "declined") return false;
+      if (w.startAt && w.endAt) return ts >= w.startAt && ts < w.endAt;
+      if (Array.isArray(w.days)) return w.days.includes(dow) && now >= U.toMin(w.start) && now < U.toMin(w.end);
+      return false;
+    }) || null;
   };
 
   S.addGuardianNote = function (from, text) { return S.insert("guardianNotes", { from, text, at: Date.now() }); };
+  /** A note you leave yourself — the solo equivalent of a note from a guardian. */
+  S.addSelfNote = function (text) {
+    const t = String(text || "").trim();
+    if (!t) return null;
+    return S.insert("guardianNotes", { from: "You", by: "self", text: t, at: Date.now() });
+  };
   S.recentGuardianNotes = function () { return U.sortBy(S.db.guardianNotes, (n) => n.at, true).slice(0, 10); };
+
+  /** Ask yourself to check in later — the solo equivalent of a guardian's nudge. */
+  S.addSelfCheckIn = function (text, atMs) {
+    return S.insert("checkIns", {
+      requestedAt: Date.now(), dueAt: atMs || Date.now(), by: "self",
+      text: String(text || "").trim(), respondedAt: null, status: "pending"
+    });
+  };
 
   S.addEmergencyContact = function (name, phone, relation) { return S.insert("emergencyContacts", { name, phone, relation }); };
 

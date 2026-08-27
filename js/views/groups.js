@@ -166,7 +166,7 @@ App.views.groups = (function () {
       <div class="page-head"><div><h1>${App.i18n.t("groups", "Study groups")}</h1>
         <div class="sub">Share decks and crowdsource what the homework actually was</div></div></div>
       ${UI.emptyState("groupsSignIn", "Sign in to use study groups",
-        "Groups are the one feature that needs an account, because they sync between people. Everything else in Scholar works offline.",
+        "Groups are the one feature that needs an account, because they sync between people. Everything else in StudyHold works offline.",
         `<button class="btn btn-primary" data-go="settings">Go to settings to sign in</button>`)}
     </div>`;
   }

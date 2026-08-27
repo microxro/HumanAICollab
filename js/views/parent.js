@@ -76,6 +76,141 @@ App.views.parent = (function () {
     });
   }
 
+  /* ------------------------------------- suggest an outside-school activity */
+
+  const COST_PERIODS = [
+    ["session", "per session"], ["week", "per week"], ["month", "per month"],
+    ["term", "per term"], ["year", "per year"], ["total", "one-off"]
+  ];
+  const TYPES = ["Class", "Lesson", "Sport", "Music", "Arts", "Tutoring",
+    "Language", "Service", "Club", "Job", "Faith", "Other"];
+
+  /**
+   * The parent portal has read access to a summary and no write access to the
+   * student's data, which is exactly why it is safe to hand a parent. So this
+   * sends a suggestion the student adds (or doesn't) from their own Sharing
+   * screen — the copy says so rather than implying it has already landed.
+   */
+  function suggestActivityForm(studentId, name) {
+    UI.modal({
+      title: "Add an activity",
+      sub: `Outside school — a lesson, a club team, a weekend class. ${name || "They"} confirms it in their app.`,
+      size: "wide",
+      okLabel: "Send it over",
+      body: `<div class="form-grid">
+        <div class="field full">
+          <label>What is it?</label>
+          <input class="input" name="name" required maxlength="80" placeholder="e.g. Piano lessons" />
+        </div>
+        <div class="field">
+          <label>Type</label>
+          <select class="select" name="type">
+            ${TYPES.map((t) => `<option ${t === "Class" ? "selected" : ""}>${U.esc(t)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Who runs it <span class="tiny dim">(optional)</span></label>
+          <input class="input" name="provider" maxlength="80" placeholder="Northside Music Academy" />
+        </div>
+        <div class="field">
+          <label>Instructor <span class="tiny dim">(optional)</span></label>
+          <input class="input" name="contactName" maxlength="80" placeholder="Ms. Halvorsen" />
+        </div>
+        <div class="field">
+          <label>Their phone <span class="tiny dim">(optional)</span></label>
+          <input class="input" type="tel" name="contactPhone" maxlength="40" placeholder="555-0128" />
+        </div>
+        <div class="field full">
+          <label>Address <span class="tiny dim">(optional)</span></label>
+          <input class="input" name="address" maxlength="160" placeholder="412 Beaumont Ave" />
+        </div>
+        <div class="field">
+          <label>Starts</label>
+          <input class="input" type="time" name="start" value="16:00" />
+        </div>
+        <div class="field">
+          <label>Ends</label>
+          <input class="input" type="time" name="end" value="17:00" />
+        </div>
+        <div class="field full">
+          <label>Meets on</label>
+          ${UI.dayPicker("days", ["Sat"])}
+        </div>
+        <div class="field">
+          <label>Cost <span class="tiny dim">(optional)</span></label>
+          <div class="row gap-6">
+            <input class="input" type="number" name="cost" min="0" max="1000000" step="0.01" style="width:110px" placeholder="0" />
+            <select class="select" name="costPer" style="flex:1">
+              ${COST_PERIODS.map(([v, label]) => `<option value="${v}" ${v === "month" ? "selected" : ""}>${label}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Season</label>
+          <input class="input" name="season" maxlength="40" value="Year-round" />
+        </div>
+        <div class="field full">
+          <label>Anything they should know <span class="tiny dim">(optional)</span></label>
+          <input class="input" name="notes" maxlength="300" placeholder="Bring the theory book on the first Wednesday of the month." />
+        </div>
+      </div>`,
+      onMount(root) { UI.bindDays(root); },
+      onSubmit(d) {
+        if (!d.name.trim()) return false;
+        App.sync.suggestActivity(studentId, {
+          name: d.name.trim(), type: d.type, provider: d.provider.trim(),
+          contactName: d.contactName.trim(), contactPhone: d.contactPhone.trim(),
+          address: d.address.trim(), notes: d.notes.trim(),
+          start: d.start, end: d.end, season: d.season.trim(),
+          days: d.days ? d.days.split(",").filter(Boolean) : [],
+          cost: d.cost == null || d.cost === "" ? null : Number(d.cost),
+          costPer: d.costPer
+        })
+          .then(() => { UI.toast("Sent", "They'll see it next time they open the app.", "ok"); refresh(); })
+          .catch((e) => UI.toast("Couldn't send", e.message, "danger"));
+      }
+    });
+  }
+
+  /**
+   * What the student already does outside school, if they share it.
+   *
+   * `null` and `undefined` mean different things here and are worth telling
+   * apart: null is the student's toggle turned off, undefined is a student
+   * whose app simply hasn't pushed a summary yet. Saying "not shared" to the
+   * second is an accusation the data doesn't support.
+   */
+  function outsideActivities(sum, sent) {
+    const acts = sum.activities;
+    const pending = (sent || []).filter((x) => x.status === "pending");
+    const answered = (sent || []).filter((x) => x.status !== "pending").slice(0, 3);
+    const nothingSent = !pending.length && !answered.length;
+    if (acts === undefined && nothingSent) return "";
+    if (acts === null && nothingSent) {
+      return `<p class="empty-note small muted">Outside-school activities aren't shared.</p>`;
+    }
+
+    // Their currency, not this device's — see S.money().
+    const cur = sum.currency;
+    const monthly = (acts || []).reduce((n, a) => n + (Number(a.monthly) || 0), 0);
+    return `<div>
+      <div class="between mb-8">
+        <h4>Outside school</h4>
+        ${monthly ? `<span class="badge">${U.esc(S.money(U.round(monthly, 2), cur))} a month</span>` : ""}
+      </div>
+      ${acts && acts.length ? `<div class="list" style="border:1px solid var(--border);border-radius:var(--radius)">
+        ${acts.map((a) => `<div class="list-item">
+          <span class="grow"><div class="title truncate">${U.esc(a.name)}</div>
+            <div class="meta">${U.esc([a.provider, (a.days || []).join(", "), a.start ? `${U.fmtTime(a.start)}–${U.fmtTime(a.end)}` : ""].filter(Boolean).join(" · "))}</div></span>
+          ${a.monthly ? `<span class="badge">${U.esc(S.money(U.round(a.monthly, 2), cur))}/mo</span>` : ""}
+        </div>`).join("")}
+      </div>` : acts ? `<p class="empty-note small muted">Nothing outside school yet.</p>` : ""}
+      ${pending.length ? `<p class="tiny dim mt-8">Waiting on them: ${U.esc(pending.map((x) => x.name).join(", "))}</p>` : ""}
+      ${answered.length ? `<p class="tiny dim mt-4">${answered.map((x) =>
+        `${U.esc(x.name)} — ${x.status === "added" ? "added" : "not added"}`).join(" · ")}</p>` : ""}
+    </div>`;
+  }
+
   /* --------------------------------------------------------------- view */
 
   function freshness(ts) {
@@ -118,6 +253,7 @@ App.views.parent = (function () {
           <button class="btn btn-sm" data-checkin="${k.id}" title="Ask them to confirm they're okay">🔔 Check in</button>
           <button class="btn btn-sm" data-note="${k.id}" title="Leave a note they'll see in-app">✎ Note</button>
           <button class="btn btn-sm" data-propose-focus="${k.id}" title="Propose a shared quiet period">🤫 Focus window</button>
+          <button class="btn btn-sm" data-add-activity="${k.id}" title="Suggest a lesson, club or class outside school">🌍 Add activity</button>
           <button class="btn btn-sm" data-unlink="${k.id}">Unlink</button>
         </div>
       </div>
@@ -169,7 +305,7 @@ App.views.parent = (function () {
 
         ${fresh.stale && st ? `<div class="card" style="background:var(--warn-bg);border:none">
           <div class="card-body small" style="color:var(--warn);padding:10px 12px">
-            ⚠ This status is ${fresh.text} — their app may be closed. Location only updates while Scholar is open.
+            ⚠ This status is ${fresh.text} — their app may be closed. Location only updates while StudyHold is open.
           </div></div>` : ""}
 
         <div class="grid g-4">
@@ -193,6 +329,8 @@ App.views.parent = (function () {
             max: 100, fmt: (v) => v + "% · " + U.pctToLetter(v) })}
         </div>` : ""}
 
+        ${outsideActivities(sum, k.sentActivities)}
+
         ${sum.upcoming && sum.upcoming.length ? `<div>
           <h4 class="mb-8">Coming up</h4>
           <div class="list" style="border:1px solid var(--border);border-radius:var(--radius)">
@@ -207,16 +345,81 @@ App.views.parent = (function () {
     </div>`;
   }
 
-  function render() {
-    if (!App.sync.isSignedIn()) {
+  /**
+   * What a STUDENT sees when they open this screen.
+   *
+   * The portal is for a parent's own account, so a student landing here used
+   * to get "Sign in to your parent account" — an instruction that makes no
+   * sense for them and reads as though the app expects a parent to exist
+   * before it's useful. It doesn't: this says so plainly, and offers the one
+   * thing a student might actually want here, which is the code that invites
+   * a parent if they choose to.
+   */
+  function studentPanel(signedIn, role) {
+    if (role === "teacher") {
       return `<div class="page-inner">
         <div class="page-head"><div><h1>${App.i18n.t("parent", "Parent portal")}</h1>
-          <div class="sub">See where your student is and how school is going</div></div></div>
-        ${UI.emptyState("parentSignIn", "Sign in to your parent account",
-          "Create an account with the Parent role, then link to your student with the code they generate.",
-          `<button class="btn btn-primary" data-go="settings">Go to settings</button>`)}
+          <div class="sub">This screen is for a parent's own account</div></div></div>
+        <div class="card">
+          <div class="card-head"><h3>You're signed in as a teacher</h3></div>
+          <div class="card-body col gap-12">
+            <p class="small muted" style="margin:0">The parent portal shows a linked child's status, which
+            is a family relationship rather than a teaching one. Your side of the app is Study groups:
+            post an assignment to every section at once, and students see it marked as official.</p>
+            <div class="row gap-8 wrap">
+              <button class="btn btn-primary" data-go="groups">Open study groups</button>
+              <button class="btn" data-go="settings/account">Account settings</button>
+            </div>
+          </div>
+        </div>
       </div>`;
     }
+
+    return `<div class="page-inner">
+      <div class="page-head"><div><h1>${App.i18n.t("parent", "Parent portal")}</h1>
+        <div class="sub">This screen is for a parent's own account</div></div></div>
+
+      <div class="card mb-16">
+        <div class="card-head"><h3>You don't need a parent account</h3></div>
+        <div class="card-body col gap-12">
+          <p class="small muted" style="margin:0">
+            Every part of StudyHold a student uses — classes, homework, grades, the schedule,
+            extracurriculars, focus timer and windows, notes, flashcards, goals, applications and the
+            token shop — is yours to create, read and edit on your own. Nothing is held back until a
+            parent or a teacher links to you, and nothing here is required.
+          </p>
+          <p class="small muted" style="margin:0">
+            If you <em>do</em> want a parent to see your status, they make their own account with the
+            Parent role and enter a code you generate. You choose what that shows, and you can unlink
+            at any time.
+          </p>
+          <div class="row gap-8 wrap">
+            <button class="btn btn-primary" data-go="sharing">Open Sharing</button>
+            ${signedIn
+              ? `<button class="btn" data-go="settings/account">Generate a link code</button>`
+              : `<button class="btn" data-go="settings/account">Set up an account</button>`}
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="border-left:3px solid var(--info)">
+        <div class="card-body row-top gap-10">
+          <span style="font-size:1.1rem">👪</span>
+          <div class="small muted">
+            <div class="bold" style="color:var(--text)">Are you the parent?</div>
+            <p class="mt-4">Sign out and create an account with the Parent role — a parent account is
+            separate from a student's, which is what keeps the student's data theirs.</p>
+            <button class="btn btn-sm mt-8" data-go="settings/account">Go to account settings</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function render() {
+    if (!App.sync.isSignedIn()) return studentPanel(false);
+    const role = (App.sync.info().user || {}).role;
+    if (role && role !== "parent") return studentPanel(true, role);
 
     if (kids === null) refresh();
 
@@ -247,7 +450,7 @@ App.views.parent = (function () {
           <span style="font-size:1.1rem">ℹ️</span>
           <div class="small muted">
             <div class="bold" style="color:var(--text)">What you can and can't see</div>
-            <p class="mt-4">Your student controls every toggle. Location only updates while Scholar is open on
+            <p class="mt-4">Your student controls every toggle. Location only updates while StudyHold is open on
             their device — this is a web app, not a background tracker, so a closed app means a stale status.
             Grades appear only if they've turned on grade sharing.</p>
           </div>
@@ -265,6 +468,10 @@ App.views.parent = (function () {
         .catch((e) => UI.toast("Couldn't request", e.message, "danger"));
     });
     U.on(root, "click", "[data-propose-focus]", (_e, el) => proposeFocusForm(el.dataset.proposeFocus));
+    U.on(root, "click", "[data-add-activity]", (_e, el) => {
+      const kid = (kids || []).find((k) => k.id === el.dataset.addActivity);
+      suggestActivityForm(el.dataset.addActivity, kid ? kid.name : "");
+    });
     U.on(root, "click", "[data-note]", (_e, el) => {
       const id = el.dataset.note;
       UI.prompt({
