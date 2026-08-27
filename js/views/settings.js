@@ -812,8 +812,11 @@ App.views.settings = (function () {
       <div class="card">
         <div class="card-head"><h3>About</h3></div>
         <div class="card-body small muted">
-          <p><strong style="color:var(--text)">Scholar ${S.SCHEMA === 2 ? "2.0" : ""}</strong> —
+          <p><strong style="color:var(--text)">Scholar ${S.SCHEMA === 2 ? "2.0" : ""}</strong>
+          <span class="beta-tag" style="margin-left:6px;vertical-align:2px">Beta</span> —
           a school tracker built with plain HTML, CSS, and JavaScript. No framework, no build step.</p>
+          <p class="mt-8">This is a beta. Everything here works, but details still move between
+          releases — keep an export of your data (Settings &rarr; Data) if it matters to you.</p>
           <p class="mt-8">Accounts, cross-device sync, the parent portal, and study groups run on
           Netlify Functions with Netlify Blobs. Everything else works entirely offline in your browser.</p>
           <p class="mt-8">Location uses the browser Geolocation API with a campus geofence you set yourself.

@@ -427,6 +427,12 @@
   }
   .tab-dot.alert { background: var(--danger); }
 
+  /* `[data-tip] { position: relative }` in components.css matches this button
+     at the same specificity and loads later, so it took the `position` here
+     and left the FAB laid out in flow — off the left edge of the screen and
+     on top of the first tab. Qualifying the selector with the attribute the
+     tooltip needs wins the corner back without giving up the tooltip. */
+  .fab-add[data-tip],
   .fab-add {
     display: grid;
     place-items: center;
@@ -455,6 +461,7 @@ html[data-sidebar="collapsed"] {
   --sidebar-w: 60px;
 }
 html[data-sidebar="collapsed"] .logo-text,
+html[data-sidebar="collapsed"] .beta-tag,
 html[data-sidebar="collapsed"] .nav-label,
 html[data-sidebar="collapsed"] .nav-item .lbl,
 html[data-sidebar="collapsed"] .nav-item .grow,
