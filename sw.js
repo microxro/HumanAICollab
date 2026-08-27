@@ -13,7 +13,7 @@
 // with the current VERSION, so this string is the only thing that evicts a
 // stale shell. It sat at v2.0.0 across every release, which meant returning
 // users kept whatever they first cached.
-const VERSION = "studyhold-v2.6.1";
+const VERSION = "studyhold-v2.7.1";
 const SHELL_CACHE = VERSION + "-shell";
 const RUNTIME_CACHE = VERSION + "-runtime";
 

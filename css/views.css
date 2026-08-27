@@ -1011,6 +1011,43 @@
   background: var(--surface-3);
 }
 
+/* The quiz (F158). A question is a <fieldset> so its options are announced as
+   one group, and each option is a <label> wrapping its radio so the whole row
+   is a target rather than the 13px dot. */
+.quiz-list { display: flex; flex-direction: column; gap: 14px; }
+
+.quiz-q {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px 10px;
+  background: var(--surface-2);
+  margin: 0;
+}
+.quiz-q legend { padding: 0 6px; margin-left: -6px; }
+
+.quiz-choice {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 10px;
+  margin-top: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background .12s var(--ease), border-color .12s var(--ease);
+}
+.quiz-choice:hover { background: var(--surface-3); }
+.quiz-choice:focus-within { box-shadow: var(--ring); border-color: var(--brand-500); }
+/* Never colour alone (U47): a chosen option gets a border and a weight change,
+   not just a tint. */
+.quiz-choice:has(input:checked) {
+  background: var(--brand-50);
+  border-color: var(--brand-500);
+  font-weight: 600;
+}
+.quiz-choice input { margin-top: 3px; flex: none; }
+.quiz-choice[hidden] { display: none; }
+
+[data-theme="dark"] .quiz-choice:has(input:checked) { background: var(--surface-3); }
+
 .proof-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));

@@ -50,6 +50,16 @@ forged credential.
   inline or eval — and the XSS suite covers the input paths. Moving to an
   httpOnly cookie would remove the class entirely and is the single largest
   remaining hardening step; it needs a CSRF design to go with it.
+- **The study-token wallet is client-side, and that is a design limit, not a
+  bug to be found later.** Balances, purchases and the fingerprint ledger live
+  in `localStorage`; anyone willing to open devtools can set the balance to any
+  number. The AI gate on earning (F158) raises the floor rather than the
+  ceiling: it stops the photo route being farmed, which is what a student would
+  actually do, and it does so with the answer key held server-side behind an
+  HMAC-signed ticket that is marked exactly once. It does not, and cannot,
+  make the number authoritative. Nothing outside the device reads it — no
+  leaderboard, no parent view, nothing purchasable with money — so a forged
+  balance costs its owner the point of the feature and nobody else anything.
 - **No server-side account recovery beyond email.** If `EMAIL_FROM` is unset,
   password reset degrades to an honest error rather than a silent failure.
 - **Netlify Blobs is the trust store.** Anyone with the site's Netlify
