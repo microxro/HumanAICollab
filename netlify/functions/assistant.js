@@ -930,6 +930,10 @@ async function studyProof(req, user) {
     h: hash,
     key: questions.map((q) => q.answerIndex),
     est: minutes,
+    // The handle the one-grade-per-ticket rule is keyed on. Without it a
+    // ticket is a signed, replayable oracle: grade, read `wrong`, correct
+    // those, grade again — full marks in two calls without reading the page.
+    n: crypto.randomUUID(),
     qexp: Date.now() + QUIZ_TTL_MS
   });
 
@@ -967,6 +971,17 @@ async function studyQuiz(req, user) {
   const answers = Array.isArray(b.answers) ? b.answers : [];
   if (answers.length !== key.length) {
     return fail(400, "Answer every question before submitting.");
+  }
+
+  // One grade per ticket. Keyed on the ticket's own nonce and given the same
+  // lifetime as the ticket, so the record can expire with the thing it
+  // guards instead of accumulating forever. A second attempt on the same
+  // photo is what a bought retake is for — it fetches a fresh quiz.
+  if (payload.n) {
+    const once = await rateLimit("quiz-once", String(payload.n), 1, QUIZ_TTL_MS);
+    if (!once.allowed) {
+      return fail(409, "That quiz has already been marked. Take a new photo, or use a retake.");
+    }
   }
 
   let correct = 0;

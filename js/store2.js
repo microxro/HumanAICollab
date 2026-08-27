@@ -114,6 +114,12 @@
       need(db.wallet, "daily", {});
       need(db.wallet, "seen", []);
       need(db.wallet, "lastProofAt", 0);
+      // F158. Consumables that wait in the wallet for their moment (a retake,
+      // a cooldown skip, a 50/50) rather than firing when bought.
+      if (!db.wallet.consumables || typeof db.wallet.consumables !== "object"
+          || Array.isArray(db.wallet.consumables)) {
+        db.wallet.consumables = {}; dirty = true;
+      }
       // `ledger` is the receipt for everything earned and spent — the shop
       // pays for tracked work as well as photographed work now, and a balance
       // that moves on its own needs to say why. `boosts` holds timed earning

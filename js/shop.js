@@ -63,13 +63,32 @@ App.shop = (function () {
    */
   const SCALE = 25;
 
+  /**
+   * What a graded photo pays (F158).
+   *
+   * A photo used to be worth the number of minutes the student typed next to
+   * it, which is to say: whatever they wanted. Now the model writes a short
+   * quiz about the page and the score decides the payout, so `grades` is the
+   * whole earning table and claimed time is not part of it at all.
+   *
+   * An A is deliberately pinned to `maxPerProof` — full marks on real work is
+   * exactly what "the most one photo can pay" should mean. B is half, C a
+   * quarter, and anything below half pays nothing while still logging the
+   * study time.
+   *
+   * netlify/functions/assistant.js carries this same table and IS the payer;
+   * these numbers are for the "what pays what" hint in the form. The client
+   * is the side with a motive, so the server's answer wins on disagreement.
+   */
   const RULES = {
-    tokensPerMinute: 5 / 3,   // 15 claimed minutes = 25 tokens
-    minMinutes: 5,            // below this there is nothing worth photographing
-    maxMinutes: 240,          // one submission cannot claim more than four hours
-    maxPerProof: 100,         // …and cannot pay more than 100 tokens
+    grades: { A: 100, B: 50, C: 25 },
+    minMinutes: 5,            // the unverified path still needs a floor to log
+    maxMinutes: 240,          // and a ceiling, however long a claim says
+    maxPerProof: 100,         // an A, and the most any one photo can pay
     firstOfDayBonus: 25,      // showing up at all is the habit worth rewarding
-    dailyCap: 200,            // ceiling on everything a PHOTO earns in one day
+    // Roughly three pieces of verified work. Was 200 when a photo paid for
+    // claimed minutes; verified work is worth more than unverified work was.
+    dailyCap: 250,            // ceiling on everything a PHOTO earns in one day
     cooldownMin: 10,          // minutes between submissions
     hashDistance: 5,          // ≤ this many differing bits = "the same photo"
     minDetail: 4,             // std-dev of the 8×8 grayscale; below this is blank
@@ -141,6 +160,18 @@ App.shop = (function () {
       blurb: "Worn by whoever finishes the reading list." },
     { id: "title:mathlete",  kind: "title", tier: "common", value: "Mathlete 📐",   name: "Mathlete", price: 200,
       blurb: "Earned one problem set at a time." },
+    { id: "boost:fifty",     kind: "boost", tier: "common", value: "fifty", name: "50/50", price: 100,
+      consumable: true, max: 5,
+      blurb: "Takes two wrong options off one quiz question. Banked until you need it.",
+      apply: () => { hold("fifty", 5); } },
+    { id: "boost:skip",      kind: "boost", tier: "common", value: "skip", name: "Cooldown skip", price: 150,
+      consumable: true, max: 3,
+      blurb: "Photograph the next thing straight away instead of waiting ten minutes.",
+      apply: () => { hold("skip", 3); } },
+    { id: "boost:retake",    kind: "boost", tier: "common", value: "retake", name: "Quiz retake", price: 175,
+      consumable: true, max: 3,
+      blurb: "One more attempt at a quiz you failed, so a blurry photo of real work isn't a wasted session.",
+      apply: () => { hold("retake", 3); } },
     { id: "boost:freeze",    kind: "boost", tier: "common", value: "freeze", name: "Streak freeze", price: 200,
       consumable: true,
       blurb: "Banks one streak freeze, so a missed day bridges instead of resetting.",
@@ -344,6 +375,26 @@ App.shop = (function () {
     return left > 0 ? Math.ceil(left / 60000) : 0;
   }
 
+  /**
+   * Spend a banked skip to clear the wait.
+   *
+   * Deliberately explicit rather than folded into cooldownLeft(): a
+   * consumable that spends itself the moment it would be useful is one a
+   * student loses without deciding to. The count and the wait are read and
+   * written in one commit so a double-click can't spend two.
+   */
+  function skipCooldown() {
+    if (cooldownLeft() <= 0) return { ok: false, error: "There's nothing to skip — you can photograph now." };
+    if (held("skip") < 1) return { ok: false, error: "You don't have a cooldown skip. The shop sells them." };
+    S.commit(() => {
+      const t = wallet();
+      holdings().skip = held("skip") - 1;
+      t.lastProofAt = 0;
+      note(t, 0, "Used a cooldown skip");
+    });
+    return { ok: true };
+  }
+
   function firstToday() {
     return !proofs().some((p) => p.date === U.today());
   }
@@ -354,14 +405,12 @@ App.shop = (function () {
    * Rendered live in the form as the student types, so the number they get
    * is never a surprise and the cap is never a silent subtraction.
    */
-  function quote(minutes) {
-    const m = U.clamp(Math.round(Number(minutes) || 0), 0, RULES.maxMinutes);
-    const base = m < RULES.minMinutes ? 0
-      : U.clamp(Math.floor(m * RULES.tokensPerMinute), 1, RULES.maxPerProof);
+  function quote(grade) {
+    const base = RULES.grades[grade] || 0;
     const bonus = base > 0 && firstToday() ? RULES.firstOfDayBonus : 0;
     const wanted = base + bonus;
     const total = Math.min(wanted, remainingToday());
-    return { minutes: m, base, bonus, wanted, total, capped: total < wanted };
+    return { grade: grade || null, base, bonus, wanted, total, capped: total < wanted };
   }
 
   /* ====================================================== photo fingerprint
@@ -487,10 +536,15 @@ App.shop = (function () {
    */
   function submit(opts) {
     const o = opts || {};
-    const minutes = U.clamp(Math.round(Number(o.minutes) || 0), 0, RULES.maxMinutes);
+    // The server's graded result, or null when the quiz couldn't be run at
+    // all. Null is the only route to a zero payout that still saves — see
+    // the unverified path below.
+    const v = o.verdict || null;
+    const minutes = U.clamp(
+      Math.round(Number(v ? v.estimatedMinutes : o.minutes) || 0), 0, RULES.maxMinutes);
 
     if (minutes < RULES.minMinutes) {
-      return Promise.reject(new Error(`Claim at least ${RULES.minMinutes} minutes — anything shorter isn't worth a token.`));
+      return Promise.reject(new Error(`Log at least ${RULES.minMinutes} minutes — anything shorter isn't worth recording.`));
     }
     const wait = cooldownLeft();
     if (wait > 0) {
@@ -505,7 +559,14 @@ App.shop = (function () {
         throw new Error("You've already earned tokens for this photo. Take a new one of what you did this time.");
       }
 
-      const q = quote(minutes);
+      // A ticket is issued for one photo. Without this check a student could
+      // pass the quiz on a page of real work and then attach the receipt to
+      // a screenshot of something else.
+      if (v && v.hash && v.hash !== info.hash) {
+        throw new Error("That quiz was for a different photo. Take a new one and try again.");
+      }
+
+      const q = v ? quote(v.grade) : { grade: null, base: 0, bonus: 0, wanted: 0, total: 0, capped: false };
       const photoId = U.uid("pf");
 
       return App.idb.put(photoId, info.blob).then(() => {
@@ -524,7 +585,14 @@ App.shop = (function () {
           id: U.uid("pr"), at: Date.now(), date: U.today(),
           classId: o.classId || null, minutes, note: String(o.note || "").slice(0, 240),
           photoId, hash: info.hash, width: info.width, height: info.height,
-          tokens: q.total, sessionId
+          tokens: q.total, sessionId,
+          // What the quiz said, kept on the proof so the gallery can show why
+          // a session paid what it did — including when it paid nothing.
+          grade: v ? v.grade : null,
+          correct: v ? v.correct : null,
+          total: v ? v.total : null,
+          subject: v ? String(v.subject || "").slice(0, 60) : "",
+          verified: !!v
         };
 
         S.commit((db) => {
@@ -542,6 +610,13 @@ App.shop = (function () {
           t.balance += q.total;
           t.earned += q.total;
           t.daily[proof.date] = (t.daily[proof.date] || 0) + q.total;
+          // The ledger is the receipt for a balance that moves. A graded
+          // photo is the one earning path where the reason (which grade, on
+          // what) is the only way to tell two identical amounts apart.
+          if (q.total > 0) {
+            note(t, q.total, `Study photo${v && v.grade ? " — grade " + v.grade : ""}` +
+              (proof.subject ? ` · ${proof.subject}` : ""));
+          }
           t.lastProofAt = proof.at;
           t.seen.unshift({ h: info.hash, at: proof.at });
           if (t.seen.length > RULES.seenLimit) t.seen.length = RULES.seenLimit;
@@ -551,7 +626,7 @@ App.shop = (function () {
           while (days.length > 60) delete t.daily[days.shift()];
         });
 
-        return { proof, awarded: q.total, capped: q.capped, quote: q };
+        return { proof, awarded: q.total, capped: q.capped, quote: q, verified: !!v };
       });
     });
   }
@@ -590,6 +665,51 @@ App.shop = (function () {
   }
 
   function ledger(n) { return (wallet().ledger || []).slice(0, n || 25); }
+
+  /* ------------------------------------------------------ held consumables
+
+     A timed boost (double tokens for 24h) starts working the moment it is
+     bought, so buying it is the whole transaction. These three are different:
+     they sit in the wallet until a specific moment arrives — the quiz you
+     just failed, the cooldown you are staring at — so they need a count, and
+     a way to spend one.                                                      */
+
+  function holdings() {
+    const t = wallet();
+    if (!t.consumables || typeof t.consumables !== "object" || Array.isArray(t.consumables)) {
+      t.consumables = {};
+    }
+    return t.consumables;
+  }
+
+  /** How many of `key` are banked. */
+  function held(key) {
+    const n = Number(holdings()[key]);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
+
+  /** Bank one, up to `max`. Called from a catalogue item's apply(). */
+  function hold(key, max) {
+    const c = holdings();
+    c[key] = Math.min(max, held(key) + 1);
+  }
+
+  /**
+   * Spend one, if there is one. Returns whether it was spent, so a caller can
+   * tell "used a retake" from "had none" without reading the count twice and
+   * racing itself between the two reads.
+   */
+  function spendHeld(key) {
+    if (held(key) < 1) return false;
+    S.commit(() => {
+      const c = holdings();
+      c[key] = held(key) - 1;
+      note(wallet(), 0, "Used " + HELD_LABEL[key]);
+    });
+    return true;
+  }
+
+  const HELD_LABEL = { retake: "a quiz retake", skip: "a cooldown skip", fifty: "a 50/50" };
 
   function addBoost(db, mult, hours) {
     const t = wallet();
@@ -685,7 +805,9 @@ App.shop = (function () {
       const t = wallet();
       t.balance -= it.price;
       t.spent += it.price;
-      t.owned.push(id);
+      // A consumable can be bought again and again, and `owned` syncs — so
+      // record the fact of ownership once rather than one row per purchase.
+      if (!t.owned.includes(id)) t.owned.push(id);
       note(t, -it.price, "Bought " + it.name);
       // A consumable is spent the moment it's bought; everything else is worn.
       if (it.consumable) { if (typeof it.apply === "function") it.apply(db); }
@@ -827,6 +949,7 @@ App.shop = (function () {
     affordableCount, nextUp, proofs, earnedToday, remainingToday, cooldownLeft, firstToday,
     quote, fingerprint, distance, seenBefore, inspect, submit, deleteProof,
     buy, equip, unequip, sanitize,
-    award, ledger, multiplier, activeBoost, redenominate, sweepGoalPayouts
+    award, ledger, multiplier, activeBoost, redenominate, sweepGoalPayouts,
+    held, spendHeld, skipCooldown
   };
 })();

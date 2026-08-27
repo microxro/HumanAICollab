@@ -151,6 +151,34 @@ App.assistant = (function () {
     return req("/parse-note-image", { imageBase64: base64, mimeType });
   }
 
+  /* -------------------------------------------------- F158 study proof --
+
+     Two calls, and they have to stay two. The first asks whether the photo
+     is schoolwork and gets a quiz back with no answers in it; the second
+     sends what the student picked and gets the score. Grading on the device
+     would mean shipping the answer key to the device, which is the one thing
+     this design exists to avoid.                                            */
+
+  /**
+   * Photo → { schoolwork, questions[], ticket } or { schoolwork:false, reason }.
+   *
+   * `hash` is the shop's own perceptual fingerprint of the same photo. It is
+   * bound into the ticket so the quiz can only be cashed against the photo it
+   * was written about.
+   */
+  async function verifyStudyPhoto(file, hash) {
+    const { base64, mimeType } = await fileToImagePayload(file);
+    return req("/study-proof", { imageBase64: base64, mimeType, hash: String(hash || "") });
+  }
+
+  /** Answers → { correct, total, grade, tokens, wrong[], estimatedMinutes }. */
+  async function gradeStudyQuiz(ticket, answers) {
+    return req("/study-quiz", {
+      ticket: String(ticket || ""),
+      answers: (answers || []).map((a) => Number(a))
+    });
+  }
+
   /**
    * AI time estimate for one assignment. Sends the student's own historical
    * estimate-vs-actual multiplier so the model can calibrate to how *this*
@@ -440,6 +468,7 @@ App.assistant = (function () {
 
   return {
     parseText, parseImage, parseNoteImage, fromUrl, fromText, estimateAssignment,
+    verifyStudyPhoto, gradeStudyQuiz,
     ask, act, applyAction, buildContext,
     history, pushHistory, clearHistory, checkHealth, available
   };

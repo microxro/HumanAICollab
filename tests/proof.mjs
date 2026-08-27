@@ -155,8 +155,14 @@ let ticket;
 /* ============================================================= grading ==== */
 console.log("\nproof: the score decides the payout, and the server decides the score");
 {
-  const grade = async (answers, tok) =>
-    (await callAi("study-quiz", { body: { ticket: tok || ticket, answers }, token: student.token })).data;
+  // A ticket is single-use now, so each of these gets a fresh one.
+  const freshTicket = async () => {
+    gem.__reset();
+    gem.__queue(goodQuiz());
+    return (await callAi("study-proof", { body: IMG, token: student.token })).data.ticket;
+  };
+  const grade = async (answers) =>
+    (await callAi("study-quiz", { body: { ticket: await freshTicket(), answers }, token: student.token })).data;
 
   const a = await grade(GOOD_KEY);
   ok("4 of 4 is an A worth 4 tokens",
@@ -175,14 +181,39 @@ console.log("\nproof: the score decides the payout, and the server decides the s
   ok("but never says what the right ones were",
      JSON.stringify(f).indexOf('"key"') === -1 && f.answers === undefined);
 
-  const short = await callAi("study-quiz", { body: { ticket, answers: [1, 2] }, token: student.token });
+  const short = await callAi("study-quiz", {
+    body: { ticket: await freshTicket(), answers: [1, 2] }, token: student.token
+  });
   ok("a partial submission is refused, not graded on what's there", short.status === 400, String(short.status));
+}
+
+/* ============================================================== replay ==== */
+console.log("\nproof: a ticket is marked once, so the quiz can't be brute-forced");
+{
+  gem.__reset();
+  gem.__queue(goodQuiz());
+  const t = (await callAi("study-proof", { body: IMG, token: student.token })).data.ticket;
+
+  // Attempt one: get it wrong on purpose, and read which ones were wrong —
+  // that feedback is useful to a student and lethal without this rule.
+  const first = await callAi("study-quiz", { body: { ticket: t, answers: [0, 0, 0, 0] }, token: student.token });
+  ok("the first attempt is graded", first.status === 200 && first.data.correct === 1, JSON.stringify(first.data));
+  ok("and says which were wrong", first.data.wrong.length === 3, JSON.stringify(first.data.wrong));
+
+  // Attempt two: apply what attempt one just revealed.
+  const second = await callAi("study-quiz", { body: { ticket: t, answers: GOOD_KEY }, token: student.token });
+  ok("the same ticket cannot be graded twice", second.status === 409, String(second.status));
+  ok("so knowing the wrong answers buys nothing", second.data.tokens === undefined, JSON.stringify(second.data));
+  ok("and the student is told what to do instead", /retake|new photo/i.test(second.data.error || ""), second.data.error);
 }
 
 console.log("\nproof: the minutes come off the ticket, not the request");
 {
+  gem.__reset();
+  gem.__queue(goodQuiz());
+  const t = (await callAi("study-proof", { body: IMG, token: student.token })).data.ticket;
   const r = await callAi("study-quiz", {
-    body: { ticket, answers: GOOD_KEY, estimatedMinutes: 9999 }, token: student.token
+    body: { ticket: t, answers: GOOD_KEY, estimatedMinutes: 9999 }, token: student.token
   });
   ok("the model's own estimate is what comes back", r.data.estimatedMinutes === 45, String(r.data.estimatedMinutes));
 }
