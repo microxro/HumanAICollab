@@ -29,7 +29,7 @@ App.views.shop = (function () {
     const wait = SH.cooldownLeft();
     const left = SH.remainingToday();
     if (wait > 0) return { kind: "warn", text: `Next quiz in ${wait} minute${wait === 1 ? "" : "s"}.` };
-    if (left === 0) return { kind: "warn", text: `You've hit today's ${SH.RULES.dailyCap}-token cap. Quizzes still log the time.` };
+    if (left === 0) return { kind: "warn", text: `You've hit today's ${SH.dailyCap()}-token cap. Quizzes still log the time.` };
     return { kind: "ok", text: `${left} token${left === 1 ? "" : "s"} still available today.` };
   }
 
@@ -146,7 +146,8 @@ App.views.shop = (function () {
               : "this topic has paid all it can today — a different one pays full");
           }
           if (q.bonus) parts.push(`including the +${SH.RULES.firstOfDayBonus} first-quiz-of-the-day bonus`);
-          if (q.capped) parts.push(`trimmed by today's ${SH.RULES.dailyCap}-token cap`);
+          if (q.mult > 1) parts.push(`${q.mult}× boost included`);
+          if (q.capped) parts.push(`trimmed by today's ${SH.dailyCap()}-token cap`);
           quoteEl.textContent = parts.join(" · ") + `. Half marks pays ${SH.quote("C", { topic: topic.value, difficulty: diff.value }).total}, under half pays nothing.`;
         };
         showQuote();
@@ -385,7 +386,7 @@ App.views.shop = (function () {
     } else {
       UI.toast("Saved, no tokens",
         SH.remainingToday() === 0
-          ? `Today's ${SH.RULES.dailyCap}-token cap is reached, but the attempt is still in your log.`
+          ? `Today's ${SH.dailyCap()}-token cap is reached, but the attempt is still in your log.`
           : `${res.quiz.correct} of ${res.quiz.total} isn't enough for tokens. Read it again and try another.`);
     }
     App.router.refresh();
@@ -542,7 +543,6 @@ App.views.shop = (function () {
     const list = U.sortBy(SH.quizzes(), (q) => q.at, true);
     const st = statusLine();
     const rules = SH.RULES;
-    const rates = SH.RATES;
     const boost = SH.activeBoost();
     const week = SH.quizzes().filter((q) => q.date >= U.dateKey(U.addDays(new Date(), -6)));
     const passed = SH.quizzes().filter((q) => q.tokens > 0).length;
@@ -550,7 +550,7 @@ App.views.shop = (function () {
     return `<div class="grid g-main">
       <div class="card">
         <div class="card-head">
-          <div><h3>Answer for what you studied</h3><div class="sub">You pick the topic, the quiz is written for it</div></div>
+          <div><h3>Answer for what you studied</h3><div class="sub">You pick the topic, the quiz is written for it — and this is the only way to earn</div></div>
           <span class="badge ${st.kind}">${U.esc(st.text)}</span>
         </div>
         <div class="card-body col gap-16">
@@ -573,7 +573,7 @@ App.views.shop = (function () {
               <li>The same topic pays full once a day, then
                   ${Math.round(rules.repeatFactors[1] * 100)}%, then nothing — a different topic
                   always pays full.</li>
-              <li>+${rules.firstOfDayBonus} for the first quiz of the day. ${rules.dailyCap} tokens is the daily ceiling <em>for quizzes</em>.</li>
+              <li>+${rules.firstOfDayBonus} for the first quiz of the day. ${SH.dailyCap()} tokens is today's ceiling.</li>
               <li>${rules.cooldownMin} minutes between quizzes, and no quiz can be marked twice.</li>
               <li>The minutes you spend answering land in your study log, so they count toward the
                   heatmap and your weekly goal.</li>
@@ -581,17 +581,16 @@ App.views.shop = (function () {
           </div>
 
           <div>
-            <h4 class="mb-8">…and what pays without one</h4>
-            <p class="tiny dim mt-0 mb-8">No quiz, no cap, no cooldown: the app watched these happen,
-              so there is no claim to check.</p>
+            <h4 class="mb-8">…and what doesn't pay</h4>
+            <p class="tiny dim mt-0 mb-8">Everything else. This is the only way to earn a token.</p>
             <ul class="earn-rules">
-              <li><strong>${rates.assignmentDone}</strong> for finishing an assignment, +${rates.assignmentEarly} if it wasn't late.
-                  Paid once per assignment, however often it's reopened.</li>
-              <li><strong>${rates.streakDay} a day</strong> for keeping your streak, +${rates.streakWeekBonus} every seventh day.</li>
-              <li><strong>${rates.flashcardCard} per card</strong> reviewed, <strong>${rates.readingSession}</strong> per reading session,
-                  <strong>${rates.habitCheck}</strong> per habit ticked, <strong>${rates.goalComplete}</strong> for reaching a goal.</li>
-              <li>The focus timer pays nothing. A timer left running is not studying, and an economy
-                  that paid by the minute for it rewarded exactly that.</li>
+              <li>Finishing an assignment, keeping a streak, reviewing a deck, logging pages, ticking a
+                  habit, reaching a goal — all still tracked, none of them currency. Every one was a
+                  button you press in an app rather than something you had to know.</li>
+              <li>The focus timer pays nothing either. A timer left running is not studying, and paying
+                  by the minute for it rewarded exactly that.</li>
+              <li>A <strong>boost</strong> from the shop is the one thing that changes the numbers above:
+                  it multiplies what a quiz pays <em>and</em> raises the day's ceiling with it.</li>
             </ul>
           </div>
 
@@ -620,7 +619,7 @@ App.views.shop = (function () {
           </div>
           <div class="row between">
             <span class="small dim">Earned today</span>
-            <span class="bold nums">${SH.earnedToday()} / ${rules.dailyCap}</span>
+            <span class="bold nums">${SH.earnedToday()} / ${SH.dailyCap()}</span>
           </div>
           <div class="row between">
             <span class="small dim">Tokens spent</span>
@@ -685,7 +684,7 @@ App.views.shop = (function () {
       <div class="page-head">
         <div>
           <h1>${App.i18n.t("shop", "Study shop")}</h1>
-          <div class="sub">Answer a quiz on what you studied, earn tokens, spend them on how StudyHold looks.</div>
+          <div class="sub">Answering a quiz on what you studied is the only way to earn tokens. Spend them on how StudyHold looks.</div>
         </div>
         <div class="page-actions row gap-8">
           ${tokenPill(bal, true)}
@@ -710,7 +709,7 @@ App.views.shop = (function () {
           <div class="stat-ico" aria-hidden="true">📅</div>
           <div class="stat-label">Earned today</div>
           <div class="stat-value nums">${SH.earnedToday()}</div>
-          <div class="stat-foot">of ${SH.RULES.dailyCap} available</div>
+          <div class="stat-foot">of ${SH.dailyCap()} available</div>
         </div>
         <div class="stat">
           <div class="stat-ico" aria-hidden="true">✨</div>

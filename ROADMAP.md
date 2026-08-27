@@ -278,11 +278,28 @@ questions, wait out the cooldown, repeat. Three rules close it.
   questions appearing and the answers going back. That is the only reason they
   are allowed into the study log at all.
 
-The focus timer stopped paying tokens in the same change. Paying by the minute
-for a running timer made the shop's best strategy "start a block and walk
-away", which is the exact opposite of what a study app should reward. Finished
-assignments, streak days, flashcard reviews, reading sessions, habits and
-goals still pay: the app watched all of those happen.
+**The quiz is now the only mint.** The focus timer stopped paying in the same
+change — paying by the minute for a running timer made the shop's best
+strategy "start a block and walk away" — and then so did everything else:
+finished assignments, streak days, flashcard reviews, reading sessions,
+habits and goals. Each was defensible on its own, and the argument for them
+was real: the app *watched* those happen, so there was no claim to check. But
+what they measured was app usage, not knowledge, and together they were most
+of the economy — a balance that mostly said "this student presses buttons
+here a lot".
+
+So `award()` is gone and `S.awardTokens` with it. There is no rate card and no
+way for any other module to pay: tokens are minted in exactly one function,
+`record()`, for a quiz the server marked. That is the property worth having,
+and it is one an added call site would quietly break, so `tests/shop.mjs` and
+`tests/inventory.mjs` both assert the absence rather than the behaviour.
+
+Removing the other routes left the boost items paying for nothing, since they
+multiplied `award()` and the quiz never went through it. They now multiply the
+quiz — and raise the daily cap by the same factor, because a multiplier under
+a fixed ceiling does not double a day's earnings, it just reaches the same
+ceiling in fewer quizzes, which is not what the card says and not worth 400
+tokens.
 
 The three consumables carried over and still fit — the 50/50 narrows a
 question, the cooldown skip starts the next quiz now, and the retake buys a

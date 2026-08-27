@@ -112,7 +112,7 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 - **Flashcards** — Leitner spaced repetition, plus **multiple-choice and type-the-answer quiz modes** with forgiving answer matching.
 - **Notes** — **Markdown** editor with live preview, and **one-click note → flashcard deck** extraction from "term — definition" lines.
 - **Reading** — books and chapter assignments with pages-per-day pacing and behind/ahead detection.
-- **Study shop** — earn **study tokens** two ways: from the work StudyHold measured for itself (finished assignments, streak days, flashcard reviews, reading, habits, goals) and by **answering a quiz on a topic you choose** — you name what you studied, the model writes five questions about it, and the score decides the payout. Spend them across four tiers — **Common, Rare, Ultra and Elite**, the top of which runs to 1000 tokens — on accent colours, surface skins, an avatar ring, a nameplate under your name, the focus timer's alarm voice, streak freezes and timed earning multipliers. Only the topic ever leaves the device, the economy is built so the obvious shortcuts don't pay (see below), nothing costs money, and no feature that was free moved behind it.
+- **Study shop** — earn **study tokens** exactly one way: by **answering a quiz on a topic you choose**. You name what you studied, pick a difficulty, the model writes five questions about it, and the score decides the payout. Nothing else pays — not a finished assignment, not a streak day, not the focus timer. Spend them across four tiers — **Common, Rare, Ultra and Elite**, the top of which runs to 1000 tokens — on accent colours, surface skins, an avatar ring, a nameplate under your name, the focus timer's alarm voice, streak freezes and timed earning multipliers. Only the topic ever leaves the device, the economy is built so the obvious shortcuts don't pay (see below), nothing costs money, and no feature that was free moved behind it.
 
 ### Life
 - **Activities** — practices, clubs, and volunteering with hour logging. Optionally date-bounded (a season that starts and ends on real dates, not just "Fall"). **"Add with AI"** *(needs `GEMINI_API_KEY`)* turns a plain-English description ("swimming 6-6:45pm weekdays, Sept 5 to Oct 25") or a photo of a schedule or bell-times page into editable drafts — nothing saves until you review and confirm each one.
@@ -141,13 +141,17 @@ A student account stands on its own. Classes, homework, grades, schedule, extrac
 
 ## Study tokens, and what stops them being free
 
-Tokens arrive two ways. Some come from work StudyHold measured itself — an
-assignment marked done, a streak day, a deck reviewed, pages read, a habit
-ticked, a goal reached — and those need no quiz, no cap and no cooldown,
-because there is no claim to check. The main route is the quiz: **name the
-topic you studied, pick a difficulty, and answer five questions about it**.
-Spend either on accents, skins, avatar rings, nameplates, alarm voices, streak
-freezes and earning multipliers, across four tiers.
+Tokens arrive exactly one way: **name the topic you studied, pick a
+difficulty, and answer five questions about it**. Spend them on accents,
+skins, avatar rings, nameplates, alarm voices, streak freezes and earning
+multipliers, across four tiers.
+
+An assignment marked done, a streak day, a deck reviewed, pages read, a habit
+ticked, a goal reached and a focus block finished all used to pay as well.
+None of them do now. Each was defensible alone, and together they were most of
+the economy — earned by pressing buttons in an app rather than by knowing
+anything. One route means one rate card, one thing to be good at, and a
+balance that means the same thing however you got there.
 
 The interesting part is that **nothing here can prove a student studied** —
 answering five questions is evidence you know the material, not evidence of an
@@ -170,8 +174,9 @@ number don't work, and the app says why out loud when it refuses one.
 | A stack of quizzes in one sitting | Refused after the first. There is a 10-minute cooldown between quizzes. |
 | Claiming nine hours for one quiz | There is nothing to claim. The only minutes recorded are the wall time between the questions appearing and the answers going back. |
 | Grinding all day | Capped at 250 tokens a day *from quizzes*. Past the cap a quiz still saves — it just doesn't pay. |
-| Marking an assignment done, reopening it, marking it done again | Paid once, ever. The record carries the flag. |
-| Starting a focus block and walking away | Pays nothing at all. The timer stopped paying tokens when the quiz replaced the photo: a running timer is not studying. |
+| Marking an assignment done, reopening it, marking it done again | Pays nothing either way. Finishing work is tracked; it is not currency. |
+| Starting a focus block and walking away | Pays nothing at all. A running timer is not studying, and paying by the minute for one rewarded exactly that. |
+| Finding another route — a streak day, a reviewed deck, a ticked habit | There isn't one. The shop no longer hands any other module a way to pay: tokens are minted in one function, for a quiz the server marked. |
 
 Full marks pays 100, most of them 50, half 25; under half pays nothing. That is
 at medium difficulty — easy is ×0.75 and hard ×1.25 — plus 25 for the first
@@ -182,6 +187,11 @@ tokens is the hole this closes.
 A quiz that took real minutes to answer also writes a study session, so the
 time shows up in the study heatmap, the weekly total and any study goal,
 exactly like a completed focus block does.
+
+A bought **boost** is the one thing that moves those numbers: it multiplies
+what a quiz pays *and* raises the day's ceiling with it, because a multiplier
+under a fixed cap doesn't double a day's earnings — it just reaches the same
+ceiling sooner, which is not what the item says on the card.
 
 Three of the Common-tier items exist for the quiz rather than for looks, and
 they wait in the wallet until you choose to spend one: a **50/50** takes two

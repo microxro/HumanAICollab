@@ -28,14 +28,13 @@
        choice;
      • quizzes have a cooldown, and the day's earnings are capped.
 
-   The second earning route needs none of those guards, because it isn't a
-   claim: an assignment marked done, a streak day, a deck reviewed, pages
-   read, a habit ticked, a goal reached. The app already recorded all of it.
-   Those pay through award() below, are written to the wallet ledger with a
-   reason, and are NOT capped — a cap belongs on what can be claimed, not on
-   what has been observed. Their own anti-farm rules are narrower and live at
-   the point of payment: an assignment pays once ever however often it is
-   reopened.
+   The quiz is the ONLY way to earn. Finishing an assignment, keeping a
+   streak, reviewing a deck, reading, ticking a habit and reaching a goal all
+   used to pay too, and none of them do any more: every one of them was a
+   button the student controls, so the number they added up to said "this
+   student uses the app a lot", not "this student studied". One route, one
+   rate card, one thing to be good at — and a balance that means the same
+   thing however you got there.
 
    Four tiers, cheapest first:
 
@@ -108,22 +107,6 @@ App.shop = (function () {
     minMinutes: 1,            // under a minute of answering isn't a study session
     maxMinutes: 240,          // and a tab left open overnight isn't four hours
     historyLimit: 200         // quizzes kept in the log, newest first
-  };
-
-  /**
-   * What the work the app can measure pays. These are not claims, so they are
-   * not capped and need no quiz — the app saw the assignment close, counted
-   * the cards, watched the streak tick over.
-   */
-  const RATES = {
-    assignmentDone: 45,      // first time an assignment is completed, ever
-    assignmentEarly: 25,     // extra, when it's done on or before the due date
-    streakDay: 50,           // once a day, on the streak touch
-    streakWeekBonus: 150,    // every 7th day
-    flashcardCard: 3,        // per card reviewed, paid once per session
-    readingSession: 30,      // per logged reading session
-    goalComplete: 200,       // hitting a goal target, once per goal
-    habitCheck: 15           // ticking today's habit box
   };
 
   /** Tier bands, in tokens. An item's tier is checked against these. */
@@ -376,7 +359,18 @@ App.shop = (function () {
     return typeof d === "number" && isFinite(d) ? d : 0;
   }
 
-  function remainingToday() { return Math.max(0, RULES.dailyCap - earnedToday()); }
+  /**
+   * Today's ceiling.
+   *
+   * A live boost raises it in step with what it pays, because the two
+   * together are the only honest reading of "everything doubles for 24
+   * hours": a multiplier under a fixed cap doesn't double a day's earnings,
+   * it just reaches the same ceiling in fewer quizzes, which is not what the
+   * item says on the card and not worth its price.
+   */
+  function dailyCap() { return Math.round(RULES.dailyCap * multiplier()); }
+
+  function remainingToday() { return Math.max(0, dailyCap() - earnedToday()); }
 
   /**
    * Whole minutes left before another quiz can be started; 0 when ready.
@@ -496,11 +490,14 @@ App.shop = (function () {
     const base = RULES.grades[grade] || 0;
     const scored = Math.round(base * diffMult * repeatFactor);
     const bonus = scored > 0 && firstToday() ? RULES.firstOfDayBonus : 0;
-    const wanted = scored + bonus;
+    // A bought boost multiplies the payout. It is applied last, and to the
+    // bonus as well, so "everything you earn doubles" is literally true.
+    const mult = multiplier();
+    const wanted = Math.round((scored + bonus) * mult);
     const total = Math.min(wanted, remainingToday());
     return {
       grade: grade || null, base, difficulty, diffMult,
-      repeats, repeatFactor, scored, bonus, wanted, total,
+      repeats, repeatFactor, scored, bonus, mult, wanted, total,
       capped: total < wanted
     };
   }
@@ -586,7 +583,7 @@ App.shop = (function () {
       // earning path where the reason (which grade, on what) is the only way
       // to tell two identical amounts apart.
       if (q.total > 0) {
-        note(t, q.total, `Quiz — grade ${quiz.grade} · ${topic}`);
+        note(t, q.total, `Quiz — grade ${quiz.grade} · ${topic}`, q.mult);
         // Only a PAID quiz burns the topic — see topicRepeats().
         const key = topicKey(topic);
         const tally = paidTopics();
@@ -706,39 +703,6 @@ App.shop = (function () {
   }
 
   /**
-   * Credit tokens for work the app itself observed.
-   *
-   * No quiz, no cap and no cooldown, because there is no claim to check: the
-   * assignment closed, the cards were turned over, the pages were read. The
-   * guards that matter for these live at each call site instead — see the two
-   * overrides at the bottom of this file.
-   *
-   * @param {number} n      base amount, before any boost
-   * @param {string} reason shown in the ledger — say what earned it
-   * @param {object} [opts] `{ silent: true }` to skip the toast
-   * @returns {number} what was actually credited
-   */
-  function award(n, reason, opts) {
-    const base = Math.max(0, Math.round(Number(n) || 0));
-    if (!base) return 0;
-    const mult = multiplier();
-    const total = Math.round(base * mult);
-
-    S.commit(() => {
-      const t = wallet();
-      t.balance = Math.max(0, Math.round(t.balance + total));
-      t.earned = Math.round((t.earned || 0) + total);
-      note(t, total, reason, mult);
-      t.boosts = (t.boosts || []).filter((b) => b && b.until > Date.now());
-    });
-
-    if (!(opts && opts.silent) && App.ui) {
-      App.ui.toast(`+${total} tokens`, reason + (mult > 1 ? ` · ${mult}× boost` : ""), "ok");
-    }
-    return total;
-  }
-
-  /**
    * Bring a wallet written in the old denomination up to this one.
    *
    * Prices went up 25× in the same change that added the tiers. A balance
@@ -841,96 +805,33 @@ App.shop = (function () {
     return changed;
   }
 
-  /* ================================================== paying for real work
+  /* ============================================ what the rest of the app sees
 
-     Everything below wires award() to work the app already records. Each hook
-     carries its own anti-farm rule, because these are the routes a student
-     can repeat at will:
+     Read-only, all of it. There is deliberately no `awardTokens` here any
+     more: the shop used to hand every other module a way to pay, and the
+     modules used it — a finished assignment, a streak day, a reviewed deck, a
+     reading session, a ticked habit, a reached goal. Each was defensible on
+     its own and together they were most of the economy, earned by pressing
+     buttons in an app rather than by knowing anything.
 
-       • an assignment pays ONCE, ever — `tokensPaid` on the record — so
-         done → reopen → done is not a two-click faucet;
-       • a habit pays for today's box only, once (views/goals.js);
-       • a goal pays once, on the sweep below.                                */
+     Tokens are minted in exactly one place now: record(), above, for a quiz
+     the server marked.                                                       */
 
-  S.tokenBalance = balance;
-  S.awardTokens = award;
+  // One line, because one thing outside this module needs it: the focus
+  // timer asks whether an alarm voice was bought before it offers it.
   S.ownsShopItem = owns;
-  S.tokenLedger = ledger;
-  S.tokenMultiplier = multiplier;
-  S.shopRates = RATES;
-
-  const baseUpdate = S.update;
-  S.update = function (coll, id, patch) {
-    const before = coll === "assignments" ? (S.byId(coll, id) || {}).status : null;
-    const rec = baseUpdate(coll, id, patch);
-    if (coll === "assignments" && rec && before !== "done" && rec.status === "done" && !rec.tokensPaid) {
-      rec.tokensPaid = true;
-      const early = rec.due && U.today() <= rec.due;
-      award(RATES.assignmentDone + (early ? RATES.assignmentEarly : 0),
-        early ? `Finished “${rec.title}” before it was due` : `Finished “${rec.title}”`);
-    }
-    return rec;
-  };
-
-  // The daily streak pays on the same touch that advances it. touchStreak is
-  // itself an override installed by store2.js, so this wraps that one.
-  const baseTouch = S.touchStreak;
-  S.touchStreak = function () {
-    const before = S.db.streak.last;
-    baseTouch();
-    // Only a streak that CONTINUES pays. The touch that creates one fires on
-    // first open, before the student has done anything at all, and an economy
-    // that pays for launching the app is exactly the kind of number this
-    // module exists to avoid — a fresh install starts at zero.
-    if (before && S.db.streak.last !== before) {
-      const week = S.db.streak.count > 0 && S.db.streak.count % 7 === 0;
-      award(RATES.streakDay + (week ? RATES.streakWeekBonus : 0),
-        week ? `${S.db.streak.count}-day streak — week bonus` : "Daily streak", { silent: !week });
-    }
-  };
-
-  /**
-   * A goal's progress is derived (GPA, study minutes, service hours…), so
-   * there is no single mutation to hang a payout on. This sweeps after any
-   * store change instead and pays once per goal, flagged on the record.
-   *
-   * `sweeping` guards the obvious loop: award() commits, a commit emits, and
-   * an emit lands back here.
-   */
-  let sweeping = false;
-  function sweepGoalPayouts() {
-    if (sweeping || !S.db || !Array.isArray(S.db.goals)) return;
-    sweeping = true;
-    try {
-      const done = S.db.goals.filter((g) => {
-        if (!g || g.tokensPaid || !g.target) return false;
-        const p = S.goalProgress(g);
-        return p && p.current >= g.target;
-      });
-      if (done.length) {
-        S.commit((db) => {
-          done.forEach((g) => {
-            const rec = db.goals.find((x) => x.id === g.id);
-            if (rec) rec.tokensPaid = true;
-          });
-        });
-        done.forEach((g) => award(RATES.goalComplete, `Goal reached — ${g.title}`));
-      }
-    } finally { sweeping = false; }
-  }
-  S.subscribe(sweepGoalPayouts);
 
   // Wallets written before the tiers existed are worth the same after them.
   redenominate();
 
   return {
-    RULES, RATES, TIERS, SCALE, CATALOG, FREE_ACCENTS, FREE_ALARMS, SLOT,
+    RULES, TIERS, SCALE, CATALOG, FREE_ACCENTS, FREE_ALARMS, SLOT,
     wallet, balance, item, items, kinds, kindLabel, owns, ownedCount, equipped, isEquipped,
     tiers, tierOf, byTier, slotValue,
-    affordableCount, nextUp, quizzes, earnedToday, remainingToday, cooldownLeft, firstToday,
+    affordableCount, nextUp, quizzes, earnedToday, dailyCap, remainingToday, cooldownLeft, firstToday,
     topicKey, topicRepeats, quote, canStart, record, deleteQuiz,
     buy, equip, unequip, sanitize,
-    award, ledger, multiplier, activeBoost, redenominate, sweepGoalPayouts,
+    ledger, multiplier, activeBoost, redenominate,
     held, spendHeld, skipCooldown
   };
 })();

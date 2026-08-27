@@ -568,56 +568,73 @@ console.log("\nshop: four tiers, and prices that mean something");
      }) === 4);
 }
 
-console.log("\nshop: work the app measured pays without a quiz");
+console.log("\nshop: nothing but a quiz pays");
 {
   const measured = await page.evaluate(() => {
     const U = App.utils, S = App.store;
     S.commit((db) => { db.wallet.balance = 0; db.wallet.boosts = []; });
     const start = App.shop.balance();
-    const quizDayBefore = App.shop.earnedToday();
 
-    // An assignment pays once, ever — done, reopened, done again is not a
-    // two-click faucet.
+    // Both of these used to pay through a hook the shop installed on the
+    // store itself, so they are checked here rather than through the views.
     const a = S.insert("assignments", { title: "Once only", classId: null, due: U.today(), status: "todo", points: 10 });
     S.update("assignments", a.id, { status: "done" });
-    const afterFirst = App.shop.balance();
-    S.update("assignments", a.id, { status: "todo" });
-    S.update("assignments", a.id, { status: "done" });
-    const afterSecond = App.shop.balance();
+    const afterAssignment = App.shop.balance();
 
-    // A boost multiplies what the app pays, and only while it is live.
-    S.commit((db) => { db.wallet.balance = 5000; });
-    App.shop.buy("boost:double");
-    const mult = App.shop.multiplier();
-    const before = App.shop.balance();
-    const paid = App.store.awardTokens(100, "test payout", { silent: true });
+    const was = S.db.streak.last;
+    S.commit((db) => { db.streak.last = U.dateKey(U.addDays(new Date(), -1)); });
+    S.touchStreak();
+    const afterStreak = App.shop.balance();
+    S.commit((db) => { db.streak.last = was; });
 
     return {
-      start, afterFirst, afterSecond, paid, mult,
-      gained: App.shop.balance() - before,
-      ledger: App.shop.ledger(5).map((e) => e.reason),
-      // The daily cap counts quiz earnings only; none of the above was one,
-      // so this must be exactly what it was before they were paid.
-      quizDayBefore, quizDayAfter: App.shop.earnedToday(),
-      // F160 retired the per-minute focus payout. A rate card that still
-      // carries it means somebody put the "start a timer and walk away"
-      // strategy back.
-      focusRates: Object.keys(App.shop.RATES).filter((k) => /focus/i.test(k))
+      start, afterAssignment, afterStreak,
+      // The shop no longer hands the rest of the app a way to pay at all.
+      hasAward: typeof S.awardTokens === "function" || typeof App.shop.award === "function",
+      hasRates: !!App.shop.RATES
     };
   });
-  ok("finishing an assignment pays", measured.afterFirst > measured.start, String(measured.afterFirst));
-  ok("but only once, however often it's reopened",
-     measured.afterSecond === measured.afterFirst, String(measured.afterSecond));
-  ok("a boost is live once bought", measured.mult === 2, String(measured.mult));
-  ok("and doubles what the app pays", measured.gained === 200, String(measured.gained));
-  ok("every payment says why in the ledger",
-     measured.ledger.some((r) => /Finished/.test(r)) && measured.ledger.some((r) => /test payout/.test(r)),
-     measured.ledger.join(" | "));
-  ok("measured work doesn't eat the quiz cap",
-     measured.quizDayAfter === measured.quizDayBefore,
-     `${measured.quizDayBefore} → ${measured.quizDayAfter}`);
-  ok("the focus timer is not a rate any more", measured.focusRates.length === 0,
-     measured.focusRates.join(", "));
+  ok("finishing an assignment pays nothing", measured.afterAssignment === measured.start,
+     `${measured.start} → ${measured.afterAssignment}`);
+  ok("a streak day pays nothing", measured.afterStreak === measured.start, String(measured.afterStreak));
+  // The regression that matters: a way to mint tokens handed to any other
+  // module is a way around the quiz, whoever calls it and however carefully.
+  ok("no module is handed a way to mint tokens", !measured.hasAward);
+  ok("and there is no rate card left to pay from", !measured.hasRates);
+
+  // The habit, reading and flashcard payouts lived in their own views, so
+  // the only honest check is that the calls are gone from the source.
+  const callers = ["js/views/goals.js", "js/views/reading.js", "js/views/flashcards.js",
+                   "js/views/focus.js", "js/shop.js"]
+    .filter((f) => /awardTokens\s*\(/.test(readFileSync(f, "utf8")));
+  ok("and no view still calls one", callers.length === 0, callers.join(", "));
+}
+
+console.log("\nshop: a boost multiplies the quiz and lifts the day's ceiling with it");
+{
+  await goEarn();
+  await clearCooldown();
+  await clearDay();
+  await scriptAI("work", "A");
+  const state = await page.evaluate(() => {
+    App.store.commit((db) => { db.wallet.balance = 5000; db.wallet.boosts = []; });
+    const plain = App.shop.dailyCap();
+    App.shop.buy("boost:double");
+    return { plain, mult: App.shop.multiplier(), boostedCap: App.shop.dailyCap(),
+             quote: App.shop.quote("A", { topic: "Boosted topic" }) };
+  });
+  ok("the boost is live once bought", state.mult === 2, String(state.mult));
+  ok("it doubles what a quiz pays", state.quote.wanted === 250, JSON.stringify(state.quote));
+  ok("and doubles the day's ceiling too, or it would only pay faster",
+     state.boostedCap === state.plain * 2, `${state.plain} → ${state.boostedCap}`);
+
+  const before = await page.evaluate(() => App.shop.balance());
+  await takeQuiz("Boosted topic");
+  const after = await page.evaluate(() => App.shop.balance());
+  ok("and the quiz actually pays it", after - before === 250, String(after - before));
+  ok("the ledger says a boost was involved",
+     await page.evaluate(() => (App.shop.ledger(3).find((e) => e.n > 0) || {}).mult) === 2);
+  await page.evaluate(() => App.store.commit((db) => { db.wallet.boosts = []; }));
 }
 
 console.log("\nshop: an alarm voice is bought, worn, and reaches the timer");
