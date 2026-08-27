@@ -246,6 +246,54 @@ ratio in the app is arithmetically unchanged. `tests/shop.mjs` re-derives both
 from `css/theme.css`, and `App.shop.sanitize()` takes off any cosmetic a
 restored backup names but this wallet never bought.
 
+**The topic quiz replaces the photo (F160).** F158 established what the
+earning route actually was: not the photo, the quiz written about it. The
+photo was doing none of the work and charging for all of it — it needed a
+camera and paper in front of you, it sent a picture of a student's homework
+through an image model, it cost the expensive per-image quota, and it refused
+every student whose revision happened on a screen or in their head.
+
+So the photo is gone and the quiz is the whole feature. The student names the
+topic they studied, picks a difficulty, and `POST /assistant/study-topic`
+decides whether that is quizzable school material — "the causes of the French
+Revolution" yes, "my cat" no — and writes five multiple-choice questions about
+it. `POST /assistant/study-quiz` marks them, unchanged from F158: the answer
+key still never reaches the browser, the ticket is still signed and still
+marked exactly once. Full marks pays 100, most of them 50, half 25; under half
+pays nothing.
+
+Letting the student choose the topic opens the one hole the photo did not
+have, and it is the obvious one: name the unit you know best, answer five easy
+questions, wait out the cooldown, repeat. Three rules close it.
+
+- **A topic pays full once a day, half the second time, and nothing after
+  that.** The tally is per topic, matched loosely so punctuation and casing
+  aren't a loophole, and it lives on the wallet rather than being derived from
+  the quiz log — a tally a student can reset by deleting rows is not a tally.
+  Failed attempts don't count against it: reading it again and passing should
+  pay properly.
+- **Difficulty moves the payout** (×0.75, ×1, ×1.25), so "easy" is not the
+  rational setting, and picking hard is a decision with an upside.
+- **The minutes are measured, not claimed** — the wall time between the
+  questions appearing and the answers going back. That is the only reason they
+  are allowed into the study log at all.
+
+The focus timer stopped paying tokens in the same change. Paying by the minute
+for a running timer made the shop's best strategy "start a block and walk
+away", which is the exact opposite of what a study app should reward. Finished
+assignments, streak days, flashcard reviews, reading sessions, habits and
+goals still pay: the app watched all of those happen.
+
+The three consumables carried over and still fit — the 50/50 narrows a
+question, the cooldown skip starts the next quiz now, and the retake buys a
+fresh set of questions on a topic you just failed. What changed is that a
+retake is no longer patching over a blurry photo; it is a second run at
+material you have gone back to read.
+
+Photos already taken are not deleted, and the retention sweep that ages them
+out of IndexedDB stays for exactly that reason — a student who used the old
+route keeps their gallery until it expires, and nothing new is written to it.
+
 **Outside-school activities (F156).** The Activities screen assumed every
 extracurricular belonged to the school: its adult was picked from the staff
 list, its location was a room number, and the timetable drew it only on a day

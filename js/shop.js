@@ -1,35 +1,41 @@
 /* ==========================================================================
-   shop.js — F155 study tokens: earning them from the work the app can see
-   AND from a photo of the work it can't, and the four-tier catalogue they buy.
+   shop.js — F155/F160 study tokens: earning them from the work the app can
+   see AND from a quiz on a topic you choose, and the four-tier catalogue
+   they buy.
 
    The honest framing, which the UI repeats rather than hides: nothing here
-   can prove a student studied. A photo of a page of notes is evidence a
-   person chose to show, on their own device, to their own copy of the app.
-   What this module *can* do is stop the economy being farmed by the laziest
-   routes — the same photo submitted twice, a screenshot of nothing, twelve
-   submissions in one minute, an unbounded claim of hours — so that the
-   number on the screen still means something to the person looking at it.
+   can prove a student studied. What this module *can* do is ask about the
+   thing they say they studied, and pay for the answers. A quiz written after
+   the topic is named, marked on the server, is not proof of an evening's
+   work — but it is not nothing either, and it cannot be farmed by a person
+   who did not read the material.
 
-   The guards on a photo, all local:
-     • a photo is required, and it is fingerprinted (64-bit average hash)
-       before anything is credited. A near-identical photo is refused, and
-       the fingerprint outlives the photo — deleting a proof never re-arms it.
-     • an almost featureless image (a wall, a blank screen, a solid colour)
-       carries no detail to hash and is refused for that reason.
-     • minutes are bounded per submission, tokens are bounded per submission,
-       and the day's earnings are capped.
-     • submissions have a cooldown, so a stack of photos can't be dumped in
-       one sitting for a day's worth of tokens.
+   Earning used to run through a photo of the work. The photo was always the
+   weakest part of it: it needed a camera and paper, it sent a picture of a
+   student's homework to an image model, and it proved nothing on its own —
+   the quiz written about it did all the work. So the photo is gone, and the
+   quiz is the whole route. The student names a topic, picks a difficulty,
+   and answers five questions about it.
+
+   The guards on a quiz:
+     • the questions and the answer key are written server-side, and the key
+       never reaches the browser (netlify/functions/assistant.js);
+     • one grade per quiz — a ticket cannot be marked twice, so answering,
+       reading which ones were wrong and re-submitting is not a route;
+     • a topic pays full once a day, half the second time, and nothing after
+       that, so grinding one easy topic all evening does not pay;
+     • harder questions pay more, so the easy setting is not the rational
+       choice;
+     • quizzes have a cooldown, and the day's earnings are capped.
 
    The second earning route needs none of those guards, because it isn't a
-   claim: a focus block the timer measured, an assignment marked done, a
-   streak day, a deck reviewed, pages read, a habit ticked, a goal reached.
-   The app already recorded all of it. Those pay through award() below, are
-   written to the wallet ledger with a reason, and are NOT capped — a cap
-   belongs on what can be claimed, not on what has been observed. Their own
-   anti-farm rules are narrower and live at the point of payment: an
-   assignment pays once ever however often it is reopened, and a focus block
-   pays for the minutes actually spent.
+   claim: an assignment marked done, a streak day, a deck reviewed, pages
+   read, a habit ticked, a goal reached. The app already recorded all of it.
+   Those pay through award() below, are written to the wallet ledger with a
+   reason, and are NOT capped — a cap belongs on what can be claimed, not on
+   what has been observed. Their own anti-farm rules are narrower and live at
+   the point of payment: an assignment pays once ever however often it is
+   reopened.
 
    Four tiers, cheapest first:
 
@@ -38,9 +44,9 @@
      Ultra    500–750    weeks of consistency
      Elite    800–1000   the long haul
 
-   Nothing here talks to a server, and nothing here costs money. Tokens, the
-   catalogue, and what has been bought all live in the same local store as
-   the rest of the app.
+   Nothing here talks to a server except the quiz, nothing here costs money.
+   Tokens, the catalogue, and what has been bought all live in the same local
+   store as the rest of the app.
    ========================================================================== */
 
 App.shop = (function () {
@@ -64,52 +70,52 @@ App.shop = (function () {
   const SCALE = 25;
 
   /**
-   * What a graded photo pays (F158).
+   * What a graded quiz pays (F160).
    *
-   * A photo used to be worth the number of minutes the student typed next to
-   * it, which is to say: whatever they wanted. Now the model writes a short
-   * quiz about the page and the score decides the payout, so `grades` is the
-   * whole earning table and claimed time is not part of it at all.
+   * A quiz used to be written about a photo, and before that a photo was
+   * worth whatever number of minutes the student typed next to it. Now the
+   * student names the topic, the model writes the questions, and the score
+   * decides the payout — so `grades` is the whole earning table and claimed
+   * time is not part of it at all.
    *
-   * An A is deliberately pinned to `maxPerProof` — full marks on real work is
-   * exactly what "the most one photo can pay" should mean. B is half, C a
-   * quarter, and anything below half pays nothing while still logging the
-   * study time.
+   * An A at medium difficulty is deliberately pinned to `maxPerQuiz` — full
+   * marks on a real topic is exactly what "the most one quiz can pay" should
+   * mean. B is half, C a quarter, and anything below half pays nothing while
+   * still logging the minutes actually spent answering.
    *
-   * netlify/functions/assistant.js carries this same table and IS the payer;
-   * these numbers are for the "what pays what" hint in the form. The client
-   * is the side with a motive, so the server's answer wins on disagreement.
+   * netlify/functions/assistant.js carries the same grade bands and the same
+   * difficulty multipliers, and IS the grader; these numbers are for the
+   * "what pays what" hint in the form. The client is the side with a motive,
+   * so the server's answer wins on disagreement.
    */
   const RULES = {
     grades: { A: 100, B: 50, C: 25 },
-    minMinutes: 5,            // the unverified path still needs a floor to log
-    maxMinutes: 240,          // and a ceiling, however long a claim says
-    maxPerProof: 100,         // an A, and the most any one photo can pay
+    // Harder questions pay more, because the alternative is an economy whose
+    // rational move is five easy questions about the same thing forever.
+    difficulty: { easy: 0.75, medium: 1, hard: 1.25 },
+    difficultyOrder: ["easy", "medium", "hard"],
+    maxPerQuiz: 100,          // an A at medium, and the most a normal quiz pays
     firstOfDayBonus: 25,      // showing up at all is the habit worth rewarding
-    // Roughly three pieces of verified work. Was 200 when a photo paid for
-    // claimed minutes; verified work is worth more than unverified work was.
-    dailyCap: 250,            // ceiling on everything a PHOTO earns in one day
-    cooldownMin: 10,          // minutes between submissions
-    hashDistance: 5,          // ≤ this many differing bits = "the same photo"
-    minDetail: 4,             // std-dev of the 8×8 grayscale; below this is blank
-    maxPhotoDim: 1280,        // stored photos are downscaled to this on the long edge
-    jpegQuality: 0.82,
-    // Fingerprints kept for replay protection. Each is ~40 bytes, so this is
-    // tens of kilobytes in a store that holds megabytes — and it is the one
-    // number here with a real expiry attached: once a fingerprint rolls off
-    // the end, that photo could be submitted again. A thousand covers well
-    // over a year of daily use before the oldest one is at risk.
-    seenLimit: 1000
+    // Roughly three quizzes. The cap is on what a student can CLAIM to have
+    // studied, and a quiz is still a claim — a well-answered one, but a claim.
+    dailyCap: 250,            // ceiling on everything QUIZZES earn in one day
+    cooldownMin: 10,          // minutes between quizzes
+    // What the same topic pays, by how many quizzes on it have already been
+    // paid for today: full, then half, then nothing. Studying one unit twice
+    // in an evening is real; studying it six times for tokens is not.
+    repeatFactors: [1, 0.5, 0],
+    maxTopicLen: 80,          // the server clamps to this too
+    minMinutes: 1,            // under a minute of answering isn't a study session
+    maxMinutes: 240,          // and a tab left open overnight isn't four hours
+    historyLimit: 200         // quizzes kept in the log, newest first
   };
 
   /**
    * What the work the app can measure pays. These are not claims, so they are
-   * not capped and need no photo — the app watched the timer run, saw the
-   * assignment close, counted the cards.
+   * not capped and need no quiz — the app saw the assignment close, counted
+   * the cards, watched the streak tick over.
    */
   const RATES = {
-    focusPerMin: 3,          // per minute actually spent in a focus block
-    focusBlockBonus: 20,     // for letting a block run to the end
     assignmentDone: 45,      // first time an assignment is completed, ever
     assignmentEarly: 25,     // extra, when it's done on or before the due date
     streakDay: 50,           // once a day, on the streak touch
@@ -166,11 +172,11 @@ App.shop = (function () {
       apply: () => { hold("fifty", 5); } },
     { id: "boost:skip",      kind: "boost", tier: "common", value: "skip", name: "Cooldown skip", price: 150,
       consumable: true, max: 3,
-      blurb: "Photograph the next thing straight away instead of waiting ten minutes.",
+      blurb: "Start the next quiz straight away instead of waiting ten minutes.",
       apply: () => { hold("skip", 3); } },
     { id: "boost:retake",    kind: "boost", tier: "common", value: "retake", name: "Quiz retake", price: 175,
       consumable: true, max: 3,
-      blurb: "One more attempt at a quiz you failed, so a blurry photo of real work isn't a wasted session.",
+      blurb: "A fresh set of questions on a topic you just failed, so one bad quiz isn't a wasted evening.",
       apply: () => { hold("retake", 3); } },
     { id: "boost:freeze",    kind: "boost", tier: "common", value: "freeze", name: "Streak freeze", price: 200,
       consumable: true,
@@ -270,7 +276,7 @@ App.shop = (function () {
     // ensureV3 creates this, but a view can render during an import that
     // replaced the database wholesale, so this never assumes.
     if (!db.wallet || typeof db.wallet !== "object") {
-      db.wallet = { balance: 0, earned: 0, spent: 0, owned: [], daily: {}, seen: [], lastProofAt: 0 };
+      db.wallet = { balance: 0, earned: 0, spent: 0, owned: [], daily: {}, topics: {}, lastQuizAt: 0 };
     }
     const t = db.wallet;
     if (typeof t.balance !== "number" || !isFinite(t.balance)) t.balance = 0;
@@ -359,8 +365,9 @@ App.shop = (function () {
     return next ? { item: next, shortBy: next.price - bal } : null;
   }
 
-  function proofs() {
-    const list = S.db.studyProofs;
+  /** Every quiz answered, newest last. The earning log and the gallery. */
+  function quizzes() {
+    const list = S.db.studyQuizzes;
     return Array.isArray(list) ? list : [];
   }
 
@@ -372,7 +379,7 @@ App.shop = (function () {
   function remainingToday() { return Math.max(0, RULES.dailyCap - earnedToday()); }
 
   /**
-   * Whole minutes left before another proof can be submitted; 0 when ready.
+   * Whole minutes left before another quiz can be started; 0 when ready.
    *
    * The wait is capped at the cooldown itself rather than trusted from the
    * stored timestamp: that value syncs between a student's own devices, and a
@@ -380,7 +387,11 @@ App.shop = (function () {
    * a day. Skew shortens the wait at worst — it can't lengthen it.
    */
   function cooldownLeft() {
-    const last = Number(wallet().lastProofAt) || 0;
+    const t = wallet();
+    // lastProofAt is what wallets written before F160 called this. Reading
+    // both means a student who just earned on the old photo route doesn't
+    // get a free quiz the moment they reload into the new one.
+    const last = Number(t.lastQuizAt || t.lastProofAt) || 0;
     if (!last) return 0;
     const window = RULES.cooldownMin * 60000;
     const left = Math.min(last + window - Date.now(), window);
@@ -396,302 +407,219 @@ App.shop = (function () {
    * written in one commit so a double-click can't spend two.
    */
   function skipCooldown() {
-    if (cooldownLeft() <= 0) return { ok: false, error: "There's nothing to skip — you can photograph now." };
+    if (cooldownLeft() <= 0) return { ok: false, error: "There's nothing to skip — you can start a quiz now." };
     if (held("skip") < 1) return { ok: false, error: "You don't have a cooldown skip. The shop sells them." };
     S.commit(() => {
       const t = wallet();
       holdings().skip = held("skip") - 1;
+      t.lastQuizAt = 0;
       t.lastProofAt = 0;
       note(t, 0, "Used a cooldown skip");
     });
     return { ok: true };
   }
 
+  /**
+   * Is this the first quiz of the day — the one that carries the bonus?
+   *
+   * Read off the wallet rather than off the quiz log, because the log can be
+   * tidied: a student deleting this morning's quiz should not get the
+   * first-of-the-day bonus a second time this afternoon.
+   */
   function firstToday() {
-    return !proofs().some((p) => p.date === U.today());
+    return wallet().lastQuizDay !== U.today();
+  }
+
+  /* --------------------------------------------------------- topic repeats
+
+     A topic is free to choose, which is the whole point of it and also the
+     obvious way to farm: name the one unit you know best, answer five easy
+     questions about it, wait out the cooldown, do it again. So the same
+     topic pays full once a day, half the second time and nothing after that.
+
+     Matching is deliberately loose — case, spacing and punctuation are not
+     what makes two topics the same, and "The French Revolution" typed twice
+     with a stray comma is one topic by any honest reading.                  */
+
+  function topicKey(topic) {
+    return String(topic || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   /**
-   * What a submission of `minutes` would pay right now, and why.
+   * Today's tally of paid quizzes per topic, kept on the wallet.
    *
-   * Rendered live in the form as the student types, so the number they get
-   * is never a surprise and the cap is never a silent subtraction.
+   * On the wallet and not derived from the quiz log for one reason: the log
+   * is a list a student can delete from, and a tally that a delete resets is
+   * not a tally. It is emptied on the first read of a new day, so it never
+   * grows past one day's topics.
    */
-  function quote(grade) {
-    const base = RULES.grades[grade] || 0;
-    const bonus = base > 0 && firstToday() ? RULES.firstOfDayBonus : 0;
-    const wanted = base + bonus;
-    const total = Math.min(wanted, remainingToday());
-    return { grade: grade || null, base, bonus, wanted, total, capped: total < wanted };
-  }
-
-  /* ====================================================== photo fingerprint
-
-     A 64-bit average hash: downscale to 8×8, grayscale, one bit per cell for
-     "brighter than this image's mean". It is deliberately not cryptographic —
-     the point is that a re-crop, a re-compress or a slightly different angle
-     on the SAME page still collides, which is exactly the farming route worth
-     closing. The std-dev of those 64 cells doubles as a detail measure: a
-     photo of a blank wall has almost none.                                    */
-
-  function fingerprint(img) {
-    const N = 8;
-    const canvas = document.createElement("canvas");
-    canvas.width = N; canvas.height = N;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(img, 0, 0, N, N);
-    const d = ctx.getImageData(0, 0, N, N).data;
-
-    const gray = [];
-    for (let i = 0; i < d.length; i += 4) {
-      gray.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-    }
-    const mean = gray.reduce((a, b) => a + b, 0) / gray.length;
-    const detail = Math.sqrt(gray.reduce((a, b) => a + (b - mean) * (b - mean), 0) / gray.length);
-
-    let hash = "";
-    for (let i = 0; i < gray.length; i += 4) {
-      let nib = 0;
-      for (let j = 0; j < 4; j++) if (gray[i + j] > mean) nib |= 1 << (3 - j);
-      hash += nib.toString(16);
-    }
-    return { hash, detail };
-  }
-
-  const BITS = [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4];
-
-  /** Differing bits between two 16-nibble fingerprints; 64 when not comparable. */
-  function distance(a, b) {
-    if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return 64;
-    let n = 0;
-    for (let i = 0; i < a.length; i++) {
-      const x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
-      if (isNaN(x)) return 64;
-      n += BITS[x];
-    }
-    return n;
-  }
-
-  /**
-   * Has this photo (or one visually indistinguishable from it) been paid for
-   * before? Checks the fingerprint ledger, not the proof list — a deleted
-   * proof takes its photo with it but leaves its fingerprint behind, so
-   * delete-and-resubmit is not a way to earn twice.
-   */
-  function seenBefore(hash) {
-    return wallet().seen.some((s) => distance(s.h || s, hash) <= RULES.hashDistance);
-  }
-
-  /* ------------------------------------------------------- quiz attempts
-
-     `seen` means "this photo has been paid for". That is not the same as
-     "this photo has had its chance", and the difference is a hole: fail the
-     quiz, close the dialog without saving, photograph the same page again,
-     and the model writes a fresh set of questions. Nothing was spent, so
-     nothing stopped it — and four options a question means guessing gets
-     there eventually.
-
-     So a second, separate ledger: a photo that has been *given* a quiz.
-     Kept apart from `seen` rather than folded into it, because the two
-     answer different questions and submit() depends on the old one meaning
-     exactly what it always meant.                                          */
-
-  function tried() {
+  function paidTopics() {
     const t = wallet();
-    if (!Array.isArray(t.tried)) t.tried = [];
-    return t.tried;
-  }
-
-  /** Has this photo already been given a quiz? */
-  function triedBefore(hash) {
-    return tried().some((x) => distance(x.h || x, hash) <= RULES.hashDistance);
-  }
-
-  /** Record that it has. Called when the questions go on screen, not when they're answered. */
-  function markTried(hash) {
-    if (!hash || triedBefore(hash)) return;
-    S.commit(() => {
-      const list = tried();
-      list.unshift({ h: hash, at: Date.now() });
-      if (list.length > RULES.seenLimit) list.length = RULES.seenLimit;
-    });
-  }
-
-  /* ------------------------------------------------------- image decoding */
-
-  function loadImage(file) {
-    return new Promise((resolve, reject) => {
-      if (!file) return reject(new Error("Choose a photo of the work you did."));
-      if (file.type && !/^image\//.test(file.type)) {
-        return reject(new Error("That file isn't an image — a photo or a screenshot works."));
-      }
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error("That image couldn't be read. Try a JPEG or PNG."));
-      };
-      img.src = url;
-    });
-  }
-
-  /** Downscale to a sane long edge and re-encode, so a 12 MP photo isn't stored raw. */
-  function shrink(img) {
-    let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
-    if (!w || !h) return Promise.reject(new Error("That image has no dimensions the browser can read."));
-    const max = RULES.maxPhotoDim;
-    if (w > max || h > max) {
-      const scale = max / Math.max(w, h);
-      w = Math.max(1, Math.round(w * scale));
-      h = Math.max(1, Math.round(h * scale));
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = w; canvas.height = h;
-    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-    return new Promise((resolve, reject) => {
-      const done = (blob) => blob
-        ? resolve({ blob, width: w, height: h })
-        : reject(new Error("The photo couldn't be re-encoded on this device."));
-      if (canvas.toBlob) canvas.toBlob(done, "image/jpeg", RULES.jpegQuality);
-      else done(null);
-    });
-  }
-
-  /* ========================================================= earning proof */
-
-  /**
-   * Inspect a photo without saving anything — the preview step in the form.
-   * Resolves { hash, detail, duplicate, blank, width, height, blob }.
-   */
-  function inspect(file) {
-    return loadImage(file).then((img) => {
-      const fp = fingerprint(img);
-      return shrink(img).then((small) => Object.assign({}, fp, small, {
-        blank: fp.detail < RULES.minDetail,
-        duplicate: seenBefore(fp.hash)
-      }));
-    });
+    if (!t.topics || typeof t.topics !== "object" || Array.isArray(t.topics)) t.topics = {};
+    if (t.topicsDay !== U.today()) { t.topics = {}; t.topicsDay = U.today(); }
+    return t.topics;
   }
 
   /**
-   * Record one study proof and pay for it.
+   * How many quizzes on this topic have already been PAID for today.
    *
-   * Rejects (with a message meant to be shown as-is) rather than silently
-   * paying nothing, except at the daily cap: there the proof is still worth
-   * recording as study time, so it saves and pays 0, and the caller says so.
+   * Failed attempts deliberately don't count: a student who got a C on the
+   * mitochondria and went back to read it again should be paid properly for
+   * the second attempt, and the cooldown already bounds how often they can.
    */
-  function submit(opts) {
-    const o = opts || {};
-    // The server's graded result, or null when the quiz couldn't be run at
-    // all. Null is the only route to a zero payout that still saves — see
-    // the unverified path below.
-    const v = o.verdict || null;
-    const minutes = U.clamp(
-      Math.round(Number(v ? v.estimatedMinutes : o.minutes) || 0), 0, RULES.maxMinutes);
+  function topicRepeats(topic) {
+    const key = topicKey(topic);
+    if (!key) return 0;
+    const n = Number(paidTopics()[key]);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
 
-    if (minutes < RULES.minMinutes) {
-      return Promise.reject(new Error(`Log at least ${RULES.minMinutes} minutes — anything shorter isn't worth recording.`));
-    }
+  /**
+   * What a quiz would pay right now, and why.
+   *
+   * Rendered live in the form before the questions are answered and again on
+   * the result, so the number is never a surprise and neither the cap nor the
+   * repeat rule is ever a silent subtraction.
+   */
+  function quote(grade, opts) {
+    const o = opts || {};
+    const difficulty = RULES.difficulty[o.difficulty] ? o.difficulty : "medium";
+    const diffMult = RULES.difficulty[difficulty];
+    const repeats = topicRepeats(o.topic);
+    const factors = RULES.repeatFactors;
+    const repeatFactor = factors[Math.min(repeats, factors.length - 1)];
+
+    const base = RULES.grades[grade] || 0;
+    const scored = Math.round(base * diffMult * repeatFactor);
+    const bonus = scored > 0 && firstToday() ? RULES.firstOfDayBonus : 0;
+    const wanted = scored + bonus;
+    const total = Math.min(wanted, remainingToday());
+    return {
+      grade: grade || null, base, difficulty, diffMult,
+      repeats, repeatFactor, scored, bonus, wanted, total,
+      capped: total < wanted
+    };
+  }
+
+  /* ========================================================= earning a quiz */
+
+  /**
+   * Can a quiz be started right now?
+   *
+   * The cooldown is the only thing that stops one: the daily cap does not,
+   * because a quiz over the cap is still worth answering and still worth
+   * logging as study time — it just pays nothing, and the form says so.
+   */
+  function canStart() {
     const wait = cooldownLeft();
     if (wait > 0) {
-      return Promise.reject(new Error(`Next photo in ${wait} minute${wait === 1 ? "" : "s"}. Study happens between submissions, not during them.`));
+      return { ok: false, error: `Next quiz in ${wait} minute${wait === 1 ? "" : "s"}. Study happens between quizzes, not during them.` };
     }
-
-    return inspect(o.file).then((info) => {
-      if (info.blank) {
-        throw new Error("That photo is almost entirely one flat colour — photograph the actual work, not a wall or a blank screen.");
-      }
-      if (info.duplicate) {
-        throw new Error("You've already earned tokens for this photo. Take a new one of what you did this time.");
-      }
-
-      // A ticket is issued for one photo. Without this check a student could
-      // pass the quiz on a page of real work and then attach the receipt to
-      // a screenshot of something else.
-      if (v && v.hash && v.hash !== info.hash) {
-        throw new Error("That quiz was for a different photo. Take a new one and try again.");
-      }
-
-      const q = v ? quote(v.grade) : { grade: null, base: 0, bonus: 0, wanted: 0, total: 0, capped: false };
-      const photoId = U.uid("pf");
-
-      return App.idb.put(photoId, info.blob).then(() => {
-        // Decoding and storing a photo takes long enough that a second
-        // submission started in the meantime would have passed the same
-        // checks against the same wallet. Re-check what the first one would
-        // have changed, now that it has, and drop the orphaned blob rather
-        // than paying twice for one sitting.
-        if (cooldownLeft() > 0 || seenBefore(info.hash)) {
-          App.idb.del(photoId).catch(() => {});
-          throw new Error("That photo has just been logged — check the gallery below.");
-        }
-
-        const sessionId = U.uid("ss");
-        const proof = {
-          id: U.uid("pr"), at: Date.now(), date: U.today(),
-          classId: o.classId || null, minutes, note: String(o.note || "").slice(0, 240),
-          photoId, hash: info.hash, width: info.width, height: info.height,
-          tokens: q.total, sessionId,
-          // What the quiz said, kept on the proof so the gallery can show why
-          // a session paid what it did — including when it paid nothing.
-          grade: v ? v.grade : null,
-          correct: v ? v.correct : null,
-          total: v ? v.total : null,
-          subject: v ? String(v.subject || "").slice(0, 60) : "",
-          verified: !!v
-        };
-
-        S.commit((db) => {
-          const t = wallet();
-          if (!Array.isArray(db.studyProofs)) db.studyProofs = [];
-          db.studyProofs.push(proof);
-          // The proof is study that happened, so it belongs in the same log
-          // the focus timer writes to — the heatmap, the weekly total and
-          // the study goal all read that collection and would otherwise
-          // ignore every hour spent away from the timer.
-          db.studySessions.push({
-            id: sessionId, classId: proof.classId, date: proof.date,
-            minutes, kind: "proof", proofId: proof.id
-          });
-          t.balance += q.total;
-          t.earned += q.total;
-          t.daily[proof.date] = (t.daily[proof.date] || 0) + q.total;
-          // The ledger is the receipt for a balance that moves. A graded
-          // photo is the one earning path where the reason (which grade, on
-          // what) is the only way to tell two identical amounts apart.
-          if (q.total > 0) {
-            note(t, q.total, `Study photo${v && v.grade ? " — grade " + v.grade : ""}` +
-              (proof.subject ? ` · ${proof.subject}` : ""));
-          }
-          t.lastProofAt = proof.at;
-          t.seen.unshift({ h: info.hash, at: proof.at });
-          if (t.seen.length > RULES.seenLimit) t.seen.length = RULES.seenLimit;
-          // Keep the daily ledger from growing without bound; only the
-          // current day is ever read.
-          const days = Object.keys(t.daily).sort();
-          while (days.length > 60) delete t.daily[days.shift()];
-        });
-
-        return { proof, awarded: q.total, capped: q.capped, quote: q, verified: !!v };
-      });
-    });
+    return { ok: true };
   }
 
   /**
-   * Delete a proof: the photo and the study session go, the tokens already
-   * earned stay, and the fingerprint stays. Keeping the tokens is the honest
-   * trade — they were earned when the work was done, and removing them would
-   * punish someone for tidying up their own gallery. Keeping the fingerprint
-   * is what stops that tidying being a way to get paid twice.
+   * Record one answered quiz and pay for it.
+   *
+   * Synchronous, because nothing here leaves the device: the grading already
+   * happened on the server and what arrives is the result. `opts.result` is
+   * that response — grade, score, and the topic and difficulty read back off
+   * the signed ticket rather than from anything the client typed.
    */
-  function deleteProof(id) {
-    const p = proofs().find((x) => x.id === id);
-    if (!p) return false;
-    if (p.photoId) App.idb.del(p.photoId).catch(() => {});
+  function record(opts) {
+    const o = opts || {};
+    const g = o.result || {};
+    const topic = String(g.topic || o.topic || "").replace(/\s+/g, " ").trim().slice(0, RULES.maxTopicLen);
+    if (!topic) throw new Error("That quiz has no topic on it — start a new one.");
+
+    const difficulty = RULES.difficulty[g.difficulty] ? g.difficulty
+      : RULES.difficulty[o.difficulty] ? o.difficulty : "medium";
+    // Minutes are MEASURED — the time between the questions going on screen
+    // and the answers coming back — not claimed. That is the only reason
+    // they are allowed anywhere near the study log.
+    const minutes = U.clamp(Math.round(Number(o.minutes) || 0), 0, RULES.maxMinutes);
+    const q = quote(g.grade, { topic, difficulty });
+
+    const quiz = {
+      id: U.uid("qz"), at: Date.now(), date: U.today(),
+      classId: o.classId || null,
+      topic,
+      subject: String(g.subject || "").slice(0, 60),
+      difficulty,
+      correct: Number(g.correct) || 0,
+      total: Number(g.total) || 0,
+      grade: g.grade || "—",
+      tokens: q.total,
+      repeats: q.repeats,
+      minutes,
+      note: String(o.note || "").slice(0, 240),
+      sessionId: minutes >= RULES.minMinutes ? U.uid("ss") : null
+    };
+
     S.commit((db) => {
-      db.studyProofs = db.studyProofs.filter((x) => x.id !== id);
-      db.studySessions = db.studySessions.filter((s) => s.id !== p.sessionId && s.proofId !== p.id);
+      const t = wallet();
+      if (!Array.isArray(db.studyQuizzes)) db.studyQuizzes = [];
+      db.studyQuizzes.push(quiz);
+      // Keep the log a log rather than an archive; the wallet ledger and the
+      // study sessions are the long-lived records.
+      while (db.studyQuizzes.length > RULES.historyLimit) db.studyQuizzes.shift();
+
+      // Answering a quiz is study, so it belongs in the same collection the
+      // rest of the app reads for the heatmap, the weekly total and the study
+      // goal — but only the minutes actually spent on it, and only when that
+      // is a real number of minutes.
+      if (quiz.sessionId) {
+        db.studySessions.push({
+          id: quiz.sessionId, classId: quiz.classId, date: quiz.date,
+          minutes, kind: "quiz", quizId: quiz.id
+        });
+      }
+
+      t.balance += q.total;
+      t.earned += q.total;
+      t.daily[quiz.date] = (t.daily[quiz.date] || 0) + q.total;
+      // The ledger is the receipt for a balance that moves. A quiz is the one
+      // earning path where the reason (which grade, on what) is the only way
+      // to tell two identical amounts apart.
+      if (q.total > 0) {
+        note(t, q.total, `Quiz — grade ${quiz.grade} · ${topic}`);
+        // Only a PAID quiz burns the topic — see topicRepeats().
+        const key = topicKey(topic);
+        const tally = paidTopics();
+        if (key) tally[key] = (Number(tally[key]) || 0) + 1;
+      }
+      t.lastQuizAt = quiz.at;
+      t.lastQuizDay = quiz.date;    // what firstToday() reads
+      t.lastProofAt = quiz.at;      // kept in step for a wallet synced to an older build
+      // Keep the daily ledger from growing without bound; only the current
+      // day is ever read.
+      const days = Object.keys(t.daily).sort();
+      while (days.length > 60) delete t.daily[days.shift()];
+    });
+
+    return { quiz, awarded: q.total, capped: q.capped, quote: q };
+  }
+
+  /**
+   * Delete a quiz from the log: the record and its study session go, the
+   * tokens already earned stay. Keeping the tokens is the honest trade — they
+   * were earned when the questions were answered, and removing them would
+   * punish someone for tidying up their own history.
+   *
+   * What deleting does NOT do is re-arm the topic or the first-of-the-day
+   * bonus: both are counted on the wallet, not derived from this list, so
+   * tidying up is never a way to be paid full price twice for one topic.
+   */
+  function deleteQuiz(id) {
+    const q = quizzes().find((x) => x.id === id);
+    if (!q) return false;
+    S.commit((db) => {
+      db.studyQuizzes = db.studyQuizzes.filter((x) => x.id !== id);
+      db.studySessions = db.studySessions.filter((s2) => s2.id !== q.sessionId && s2.quizId !== q.id);
     });
     return true;
   }
@@ -701,8 +629,8 @@ App.shop = (function () {
   /**
    * Append one line to the wallet's receipt.
    *
-   * The balance moves on its own now — a focus block ends, an assignment
-   * closes, a streak ticks over — and a number that changes while you are
+   * The balance moves on its own now — an assignment closes, a streak ticks
+   * over, a deck is reviewed — and a number that changes while you are
    * looking somewhere else has to be able to say why.
    */
   function note(t, n, reason, mult) {
@@ -780,9 +708,9 @@ App.shop = (function () {
   /**
    * Credit tokens for work the app itself observed.
    *
-   * No photo, no cap and no cooldown, because there is no claim to check: the
-   * timer ran, the assignment closed, the cards were turned over. The guards
-   * that matter for these live at each call site instead — see the two
+   * No quiz, no cap and no cooldown, because there is no claim to check: the
+   * assignment closed, the cards were turned over, the pages were read. The
+   * guards that matter for these live at each call site instead — see the two
    * overrides at the bottom of this file.
    *
    * @param {number} n      base amount, before any boost
@@ -921,8 +849,6 @@ App.shop = (function () {
 
        • an assignment pays ONCE, ever — `tokensPaid` on the record — so
          done → reopen → done is not a two-click faucet;
-       • a focus block pays for the minutes actually spent (views/focus.js),
-         so Start-then-Skip earns what it deserves and no more;
        • a habit pays for today's box only, once (views/goals.js);
        • a goal pays once, on the sweep below.                                */
 
@@ -1001,10 +927,10 @@ App.shop = (function () {
     RULES, RATES, TIERS, SCALE, CATALOG, FREE_ACCENTS, FREE_ALARMS, SLOT,
     wallet, balance, item, items, kinds, kindLabel, owns, ownedCount, equipped, isEquipped,
     tiers, tierOf, byTier, slotValue,
-    affordableCount, nextUp, proofs, earnedToday, remainingToday, cooldownLeft, firstToday,
-    quote, fingerprint, distance, seenBefore, inspect, submit, deleteProof,
+    affordableCount, nextUp, quizzes, earnedToday, remainingToday, cooldownLeft, firstToday,
+    topicKey, topicRepeats, quote, canStart, record, deleteQuiz,
     buy, equip, unequip, sanitize,
     award, ledger, multiplier, activeBoost, redenominate, sweepGoalPayouts,
-    held, spendHeld, skipCooldown, triedBefore, markTried
+    held, spendHeld, skipCooldown
   };
 })();

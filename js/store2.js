@@ -54,7 +54,8 @@
       graduationReqs: [], apiTokens: [], webhooks: [], focusWindows: [],
       guardianNotes: [], checkIns: [], emergencyContacts: [], notifications: [],
       assistantChat: [],  // [{role: "user"|"assistant", text, at}] — the private assistant's thread
-      studyProofs: [],   // photos of work done, each one a token payout (js/shop.js)
+      studyQuizzes: [],  // quizzes answered for tokens, newest last (js/shop.js)
+      studyProofs: [],   // legacy: photos of work, the pre-F160 token route
       feedComments: {}   // { feedItemId: [{id, byName, text, at}] }
     };
     // A stored value of the wrong *kind* is as bad as a missing one — an
@@ -102,20 +103,29 @@
 
     // The study-token wallet (F155). Named `wallet`, not `tokens`: this app
     // already has session tokens and `apiTokens`, and those are credentials.
-    // `seen` is the photo-fingerprint ledger behind the no-paying-twice rule,
-    // and it deliberately outlives the proofs themselves — see js/shop.js.
+    // `topics` is today's tally of paid quizzes per topic, which is what makes
+    // the repeat rule survive a student deleting their quiz log — see
+    // js/shop.js.
     need(db, "wallet", { balance: 0, earned: 0, spent: 0, owned: [], daily: {},
-                         seen: [], lastProofAt: 0, ledger: [], boosts: [], scale: 0 });
+                         topics: {}, topicsDay: "", lastQuizAt: 0, lastQuizDay: "",
+                         ledger: [], boosts: [], scale: 0 });
     if (db.wallet && typeof db.wallet === "object") {
       need(db.wallet, "balance", 0);
       need(db.wallet, "earned", 0);
       need(db.wallet, "spent", 0);
       need(db.wallet, "owned", []);
       need(db.wallet, "daily", {});
-      need(db.wallet, "seen", []);
-      // F158. Photos that have been given a quiz — distinct from `seen`,
-      // which is photos that have been paid for. See js/shop.js.
-      if (!Array.isArray(db.wallet.tried)) { db.wallet.tried = []; dirty = true; }
+      // F160. Today's paid quizzes per topic, and the day that tally belongs
+      // to. `lastQuizDay` is what the first-quiz-of-the-day bonus reads.
+      if (!db.wallet.topics || typeof db.wallet.topics !== "object"
+          || Array.isArray(db.wallet.topics)) {
+        db.wallet.topics = {}; dirty = true;
+      }
+      need(db.wallet, "topicsDay", "");
+      need(db.wallet, "lastQuizAt", 0);
+      need(db.wallet, "lastQuizDay", "");
+      // Pre-F160 wallets timed the cooldown on the photo route. Kept so a
+      // student mid-cooldown when the app updated stays in it.
       need(db.wallet, "lastProofAt", 0);
       // F158. `bought` is the per-item purchase tally; `owned` records the
       // fact of ownership once, because it syncs and a repeatable item was
@@ -131,8 +141,8 @@
         db.wallet.consumables = {}; dirty = true;
       }
       // `ledger` is the receipt for everything earned and spent — the shop
-      // pays for tracked work as well as photographed work now, and a balance
-      // that moves on its own needs to say why. `boosts` holds timed earning
+      // pays for tracked work as well as answered quizzes, and a balance that
+      // moves on its own needs to say why. `boosts` holds timed earning
       // multipliers. `scale` records which denomination this wallet is in;
       // see REDENOMINATION in js/shop.js.
       if (!Array.isArray(db.wallet.ledger)) { db.wallet.ledger = []; dirty = true; }
@@ -1015,12 +1025,19 @@
       db.studySessions = db.studySessions.filter((s2) => s2.date >= studyCut);
       n += before1 - db.studySessions.length;
 
-      // A study photo is the heaviest thing this app writes — a year of daily
-      // proofs is hundreds of megabytes of IndexedDB — so the same retention
-      // window that drops old study sessions drops the photos behind them.
-      // The fingerprint ledger is deliberately NOT swept: it is what keeps an
-      // old photo from being re-submitted for a second payout, and it has its
-      // own cap (RULES.seenLimit) measured in kilobytes, not megabytes.
+      // Answered quizzes age out on the same window as the sessions they
+      // wrote, so the log doesn't outlive the study it records.
+      if (Array.isArray(db.studyQuizzes)) {
+        const beforeQ = db.studyQuizzes.length;
+        db.studyQuizzes = db.studyQuizzes.filter((q) => q && q.date >= studyCut);
+        n += beforeQ - db.studyQuizzes.length;
+      }
+
+      // Study photos are the pre-F160 earning route: nothing writes them any
+      // more, but a student who used it still has the blobs, and they are the
+      // heaviest thing this app ever wrote — a year of daily proofs is
+      // hundreds of megabytes of IndexedDB. So the sweep stays, and the same
+      // retention window that drops old study sessions drops them.
       if (Array.isArray(db.studyProofs)) {
         const keep = [];
         db.studyProofs.forEach((p) => {

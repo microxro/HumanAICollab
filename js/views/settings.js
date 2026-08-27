@@ -68,7 +68,7 @@ App.views.settings = (function () {
       ["Events", d.events.length], ["Notes", d.notes.length],
       ["Flashcards", U.sum(d.decks, (x) => x.cards.length)],
       ["Study sessions", d.studySessions.length],
-      ["Study photos", (d.studyProofs || []).length],
+      ["Quizzes answered", (d.studyQuizzes || []).length],
       ["Books", d.reading.length], ["Applications", d.collegeApps.length]
     ];
   }
