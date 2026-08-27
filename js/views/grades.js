@@ -659,7 +659,7 @@ App.views.grades = (function () {
 
       <div class="card mb-16">
         <div class="card-head"><h3>By class</h3><span class="sub">Weighted by grading category</span></div>
-        <div class="table-wrap"><table class="table">
+        ${classes.length ? `<div class="table-wrap"><table class="table">
           <thead><tr>
             <th>Class</th><th>Teacher</th><th class="right">Graded</th>
             <th class="right">Average</th><th class="right">Letter</th><th class="right">GPA pts</th><th></th>
@@ -687,7 +687,8 @@ App.views.grades = (function () {
               </td>
             </tr>`;
           }).join("")}</tbody>
-        </table></div>
+        </table></div>`
+        : UI.emptyState("classes", "No classes yet", "Add a class to see its average, letter grade, and GPA points here.")}
       </div>
 
       <div class="card">

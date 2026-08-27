@@ -406,7 +406,20 @@
 .legend-swatch { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
 
 /* heatmap */
-.heatmap { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr); gap: 3px; }
+/* The week columns are implicit tracks, and an implicit `auto` track absorbs
+   free space — so in a card wider than the four weeks it holds, the columns
+   spread across it and the grid read as scattered dots rather than the
+   GitHub-style block it is. Pinning the track to the cell width keeps the
+   block compact, and gives .scroll-x a real width to scroll once a longer
+   range is passed in. */
+.heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 1fr);
+  grid-auto-columns: 13px;
+  justify-content: start;
+  gap: 3px;
+}
 .heat-cell {
   width: 13px; height: 13px;
   border-radius: 3px;
