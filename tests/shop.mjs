@@ -843,6 +843,38 @@ console.log("\nshop: failing the quiz logs the work and pays nothing");
   ok("and that it was checked", last.verified === true);
 }
 
+console.log("\nshop: walking away from a failed quiz is not a free retry");
+{
+  await goEarn();
+  await clearCooldown();
+  await page.evaluate(() => App.store.commit((db) => {
+    db.wallet.consumables = {};
+    db.wallet.tried = [];
+  }));
+  await scriptAI("work", "F");
+  const photo = noisePhoto(61);
+  await submitPhoto(photo, 30, "walkaway.png");
+
+  // Fail, then close the dialog without saving — so nothing reaches `seen`,
+  // which is what used to make this free.
+  ok("the failure screen is up", await modalOpen());
+  await closeModal();
+  const w = await wallet();
+  ok("nothing was saved", w.proofs === (await wallet()).proofs);
+
+  await clearCooldown();
+  await scriptAI("work", "A");
+  const callsBefore = await page.evaluate(() => window.__ai.verifyCalls);
+  await submitPhoto(photo, 30, "walkaway.png");
+
+  ok("the same photo is refused a second set of questions",
+     /already had its questions/i.test(await modalError()));
+  ok("and the model was never asked",
+     await page.evaluate(() => window.__ai.verifyCalls) === callsBefore);
+  ok("no quiz opened", await page.locator(".quiz-q").count() === 0);
+  await closeModal();
+}
+
 console.log("\nshop: a retake buys a fresh quiz on the same photo");
 {
   await goEarn();
@@ -850,6 +882,7 @@ console.log("\nshop: a retake buys a fresh quiz on the same photo");
   await page.evaluate(() => App.store.commit((db) => {
     db.wallet.consumables = { retake: 1 };
     db.wallet.daily = {};
+    db.wallet.tried = [];
   }));
   await scriptAI("work", "F");
   await submitPhoto(noisePhoto(88), 30, "retake.png");

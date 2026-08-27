@@ -167,6 +167,7 @@ number don't work, and the app says why out loud when it refuses one.
 | Photographing real work without doing it | Pays nothing. The questions come from the content of *that page* — the numbers, terms and steps visible in it — so a page you never read is a page you can't answer about. |
 | Reading the answers out of the network tab | Not there. The key is held server-side behind a signed ticket, and the marking happens there too. |
 | Answering wrong, seeing which ones were wrong, and trying again | Refused. A ticket is marked exactly once. A retake from the shop buys a *fresh* set of questions, not a second go at the same ones. |
+| Failing, closing the dialog, and photographing the same page again | Refused. A photo is marked the moment its questions appear, not when they're answered — walking away doesn't un-ask them. |
 | A stack of photos submitted in one sitting | Refused after the first. There is a 10-minute cooldown between submissions. |
 | Claiming nine hours for one photo | There is nothing to claim. Self-reported time doesn't pay any more; the score does, and the session length is the model's own estimate of the work in the photo. |
 | Grinding all day | Capped at 250 tokens a day *from photos*. Past the cap a photo still saves and still logs as study time — it just doesn't pay. |

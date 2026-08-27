@@ -220,7 +220,18 @@ App.views.shop = (function () {
           if (info.duplicate) {
             throw new Error("You've already earned tokens for this photo. Take a new one of what you did this time.");
           }
-          return App.assistant.verifyStudyPhoto(f, info.hash);
+          // One quiz per photo. Without this, failing and closing the dialog
+          // costs nothing and the next submission of the same page gets a
+          // fresh set of questions — which is guessing with unlimited tries.
+          if (SH.triedBefore(info.hash)) {
+            throw new Error("This photo has already had its questions. Take a new photo of what you did, or spend a retake.");
+          }
+          return App.assistant.verifyStudyPhoto(f, info.hash).then((verdict) => {
+            // Marked when the questions are about to go on screen, not when
+            // they're answered: closing the dialog is not a way to un-ask them.
+            if (verdict && verdict.schoolwork === true) SH.markTried(info.hash);
+            return verdict;
+          });
         }))
           .then((verdict) => {
             if (!verdict || verdict.schoolwork !== true) {

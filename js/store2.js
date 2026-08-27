@@ -113,6 +113,9 @@
       need(db.wallet, "owned", []);
       need(db.wallet, "daily", {});
       need(db.wallet, "seen", []);
+      // F158. Photos that have been given a quiz — distinct from `seen`,
+      // which is photos that have been paid for. See js/shop.js.
+      if (!Array.isArray(db.wallet.tried)) { db.wallet.tried = []; dirty = true; }
       need(db.wallet, "lastProofAt", 0);
       // F158. `bought` is the per-item purchase tally; `owned` records the
       // fact of ownership once, because it syncs and a repeatable item was

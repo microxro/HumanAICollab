@@ -206,6 +206,14 @@ Three details the design turns on:
   unexpired cooldown are refusals the device can make on its own; none of them
   should cost an API call or make somebody answer four questions before being
   told no.
+- **A photo gets one quiz, and it is marked when the questions appear.** The
+  fingerprint ledger means "this photo has been paid for", which is not the
+  same as "this photo has had its chance" — and the gap between those two was
+  a hole: fail, close the dialog without saving, photograph the same page
+  again, and the model writes a fresh set of questions with nothing spent. So
+  there is a second ledger for photos that have been *given* a quiz, kept
+  separate from the first because they answer different questions. Spending a
+  retake is the sanctioned way past it.
 
 Self-reported minutes are gone from the payout entirely. The study session
 still needs a duration, so it takes the model's own estimate of the visible

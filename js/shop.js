@@ -482,6 +482,41 @@ App.shop = (function () {
     return wallet().seen.some((s) => distance(s.h || s, hash) <= RULES.hashDistance);
   }
 
+  /* ------------------------------------------------------- quiz attempts
+
+     `seen` means "this photo has been paid for". That is not the same as
+     "this photo has had its chance", and the difference is a hole: fail the
+     quiz, close the dialog without saving, photograph the same page again,
+     and the model writes a fresh set of questions. Nothing was spent, so
+     nothing stopped it — and four options a question means guessing gets
+     there eventually.
+
+     So a second, separate ledger: a photo that has been *given* a quiz.
+     Kept apart from `seen` rather than folded into it, because the two
+     answer different questions and submit() depends on the old one meaning
+     exactly what it always meant.                                          */
+
+  function tried() {
+    const t = wallet();
+    if (!Array.isArray(t.tried)) t.tried = [];
+    return t.tried;
+  }
+
+  /** Has this photo already been given a quiz? */
+  function triedBefore(hash) {
+    return tried().some((x) => distance(x.h || x, hash) <= RULES.hashDistance);
+  }
+
+  /** Record that it has. Called when the questions go on screen, not when they're answered. */
+  function markTried(hash) {
+    if (!hash || triedBefore(hash)) return;
+    S.commit(() => {
+      const list = tried();
+      list.unshift({ h: hash, at: Date.now() });
+      if (list.length > RULES.seenLimit) list.length = RULES.seenLimit;
+    });
+  }
+
   /* ------------------------------------------------------- image decoding */
 
   function loadImage(file) {
@@ -970,6 +1005,6 @@ App.shop = (function () {
     quote, fingerprint, distance, seenBefore, inspect, submit, deleteProof,
     buy, equip, unequip, sanitize,
     award, ledger, multiplier, activeBoost, redenominate, sweepGoalPayouts,
-    held, spendHeld, skipCooldown
+    held, spendHeld, skipCooldown, triedBefore, markTried
   };
 })();
