@@ -113,7 +113,23 @@
       need(db.wallet, "owned", []);
       need(db.wallet, "daily", {});
       need(db.wallet, "seen", []);
+      // F158. Photos that have been given a quiz — distinct from `seen`,
+      // which is photos that have been paid for. See js/shop.js.
+      if (!Array.isArray(db.wallet.tried)) { db.wallet.tried = []; dirty = true; }
       need(db.wallet, "lastProofAt", 0);
+      // F158. `bought` is the per-item purchase tally; `owned` records the
+      // fact of ownership once, because it syncs and a repeatable item was
+      // appending a row per purchase.
+      if (!db.wallet.bought || typeof db.wallet.bought !== "object"
+          || Array.isArray(db.wallet.bought)) {
+        db.wallet.bought = {}; dirty = true;
+      }
+      // Consumables that wait in the wallet for their moment (a retake,
+      // a cooldown skip, a 50/50) rather than firing when bought.
+      if (!db.wallet.consumables || typeof db.wallet.consumables !== "object"
+          || Array.isArray(db.wallet.consumables)) {
+        db.wallet.consumables = {}; dirty = true;
+      }
       // `ledger` is the receipt for everything earned and spent — the shop
       // pays for tracked work as well as photographed work now, and a balance
       // that moves on its own needs to say why. `boosts` holds timed earning
