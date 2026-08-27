@@ -56,6 +56,87 @@ environment doesn't have". That was wrong: neither needs anything external.
 Both are now built — see below. The same list also omitted F097 entirely,
 which is why its own totals came to 99 of 100.
 
+**A student on their own.** Focus windows, check-ins and notes were all built
+as things a *linked guardian* does to a student: only a parent account could
+propose a quiet period, only a parent could leave a note, and the cards that
+displayed them rendered nothing at all when nobody was linked. That is the
+wrong default — most students have no parent account, and a feature nobody can
+reach until a second person signs up is not a feature they have.
+
+All three are now self-served as well as guardian-served, entirely locally:
+`startSelfFocusWindow`, `addSelfNote` and `addSelfCheckIn` need no account, no
+link code and no server, and the same cards render both kinds side by side
+(`by: "self"` is the only difference in the record). The Parent portal, opened
+by a student, now says plainly that they do not need a parent account and
+lists what is already theirs, instead of showing them a sign-in prompt for an
+account type they will never have. The signup hint and the Parent-access card
+in Settings say the same thing. One real bug fell out of this: the collection
+holds two record shapes — recurring windows keyed on weekday, one-off windows
+keyed on timestamps — and `activeFocusWindow()` read `w.days.includes(...)`
+unguarded, so a one-off window threw.
+
+**Classes outside the bell schedule.** A class used to be defined by the
+period it occupies, and `classesOnDate()` dropped any class whose `periodId`
+resolved to nothing — so an extracurricular that assigns homework (a robotics
+team, a Saturday academy, a dual-enrollment course) could not be entered at
+all without inventing a fake period for it. Classes now carry either a period
+or their own `start`/`end`, resolved through one selector, `S.classPeriod()`,
+that every reader goes through: the agenda, the ICS feed, contact cards, the
+week's class-minute total. Off-schedule classes match on the weekday in both
+weekly and rotating modes — a Tuesday club is on Tuesday whether the school
+calls it a Day A or a Day B — and they occupy no period, so peer free-period
+matching skips them rather than colliding on a phantom slot.
+
+**The focus alarm actually rings.** The old `ping()` built a fresh
+`AudioContext` at the moment the timer hit zero. Every current browser starts
+one suspended unless it is created or resumed inside a user gesture, and "the
+timer ran out" is not a gesture — so the oscillator played into a suspended
+graph and nothing came out. `js/sound.js` holds one context for the whole app,
+opened on the first real pointer or key event (and again on the timer's own
+Start button), resumed before every play, with an `<audio>` WAV fallback,
+`navigator.vibrate` alongside, and a repeated multi-note pattern rather than a
+single 0.6-second sine nobody hears from across a room. Quiet hours now lower
+the volume instead of removing the sound, because silence at 22:00 is
+indistinguishable from a broken timer; a setting restores the old behaviour.
+The fourth segment reads **Custom** rather than "Custom 25m" — the length
+moved to its tooltip.
+
+**Tiers on the study shop.** This branch arrived with a second, parallel token
+shop — built against a base that predated F155, and therefore unaware that one
+already existed. Merging the two was the interesting part of the work, and the
+resolution is that F155's shop is the one that survives: it has the photo
+proofs, the fingerprint ledger, the contrast-validated skins and the settings-
+backed equipping, and none of that was worth rebuilding. What the second shop
+actually contributed — the thing that was asked for — is folded into it:
+
+  - **Four tiers.** Common (150–200), Rare (300–450), Ultra (500–750), Elite
+    (800–1000), with every item carrying its tier and the suite asserting that
+    each price sits inside its own band. The Shop tab groups by tier rather
+    than by kind, because the tier is what a price *means* to a student.
+  - **A second earning route.** Tokens now also come from work the app already
+    measured: focus minutes (3 each, +20 for finishing the block), a completed
+    assignment (45, +25 if it wasn't late), a streak day (50, +150 every
+    seventh), flashcards, reading, habits, goals. These carry no photo, no
+    cooldown and no daily cap, because there is no claim to check — the guards
+    that matter for them are narrower and sit at the point of payment: an
+    assignment pays once ever however often it is reopened, and a focus block
+    pays for the minutes actually spent.
+  - **Inflated denomination.** Prices and rates were multiplied by 25 together,
+    which changes no ratio and no attainability but puts the top tier at a
+    number worth showing. A wallet written before the change is redenominated
+    by the same factor exactly once, flagged on the wallet, so no balance
+    silently lost 96% of its purchasing power.
+  - **More to buy.** Six alarm voices (the timer's, so a purchase changes what
+    a finished block sounds like), four consumables (streak freezes and 2×/3×
+    earning boosts), a Valedictorian nameplate and a prismatic Elite ring —
+    the last built in the same masked-band idiom as F155's aurora ring, so it
+    can't cover the initials the avatar sized for 4.5:1.
+
+One behaviour changed on the way through: the daily streak used to pay on the
+touch that *creates* a streak, which fires on first open — an economy paying
+for launching the app. It now pays only when a streak continues, and a fresh
+install starts at zero.
+
 **Feedback (F154).** A Feedback tab in Settings: pick what it's about, write
 the message, and send it to humanai736@gmail.com. It composes a `mailto:` and
 hands it to whatever mail app the device already has rather than posting to

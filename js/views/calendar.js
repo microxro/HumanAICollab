@@ -395,7 +395,8 @@ App.views.calendar = (function () {
               return `<div class="week-ev" style="top:${top}px;height:${h}px;left:${left};width:${width};right:auto;
                            background:${U.esc(it.color)};color:${fg}"
                            title="${U.esc(it.title)} · ${U.fmtTime(it.start)}–${U.fmtTime(it.end)}"
-                           ${it.kind === "event" ? `data-ev="${it.id}"` : it.kind === "class" ? `data-class="${it.id}"` : ""}>
+                           ${it.kind === "event" ? `data-ev="${it.id}"`
+                             : (it.kind === "class" || it.kind === "extra") ? `data-class="${it.id}"` : ""}>
                 <div class="truncate bold">${U.esc(it.title)}</div>
                 ${h > 34 && cols === 1 ? `<div class="truncate" style="opacity:.85;font-size:.62rem">${U.fmtTime(it.start)} · ${U.esc(it.location || "")}</div>` : ""}
               </div>`;

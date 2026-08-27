@@ -36,6 +36,7 @@ const SHELL = [
   "./js/ics.js",
   "./js/idb.js",
   "./js/notify.js",
+  "./js/sound.js",
   "./js/geo.js",
   "./js/sync.js",
   "./js/planner.js",

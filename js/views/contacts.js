@@ -109,7 +109,7 @@ App.views.contacts = (function () {
         ${classes.length ? `<h4 class="mb-8">Your classes with ${U.esc(t.name.split(" ")[0])}</h4>
           <div class="list" style="border:1px solid var(--border);border-radius:var(--radius)">
           ${classes.map((c) => {
-            const p = S.period(c.periodId);
+            const p = S.classPeriod(c);
             const pct = S.classGrade(c.id);
             return `<div class="list-item">
               <i class="dot-badge" style="background:${U.esc(c.color)}"></i>

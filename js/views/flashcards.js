@@ -27,6 +27,14 @@ App.views.flashcards = (function () {
   function clozeRevealed(text) { return U.esc(text).replace(/\{\{(.*?)\}\}/g, '<span class="cloze-answer">$1</span>'); }
 
   function endSession(sessionId, right, wrong, kind) {
+    // Tokens are paid once for the whole session rather than per card: a
+    // 30-card deck would otherwise push 30 near-identical rows into the
+    // wallet ledger and 30 toasts across the screen.
+    const reviewed = right + wrong;
+    if (reviewed > 0) {
+      S.awardTokens(reviewed * App.shop.RATES.flashcardCard,
+        `Reviewed ${reviewed} card${reviewed === 1 ? "" : "s"}`);
+    }
     UI.modal({
       title: "Rate this session",
       sub: `${right} right · ${wrong} to review — F033`,

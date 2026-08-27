@@ -1,11 +1,15 @@
 /* ==========================================================================
-   views/shop.js — earn study tokens from a photo of your work, spend them on
-   how StudyHold looks.
+   views/shop.js — earn study tokens from the work StudyHold measured and from
+   a photo of the work it couldn't, then spend them across four tiers.
 
    Two tabs on one screen, because they are two halves of the same loop: what
    you did, and what it bought. The economy itself (what a photo is worth, why
    a photo was refused, what is for sale) lives in js/shop.js — this file is
    the screen.
+
+   The Shop tab is grouped by TIER rather than by kind: the tier is what a
+   price means to a student ("is this an evening or a fortnight?"), and the
+   kind is already legible from the card itself.
    ========================================================================== */
 
 App.views.shop = (function () {
@@ -290,6 +294,14 @@ App.views.shop = (function () {
         ${UI.avatar(S.profile.name || "You", S.profile.color)}
       </div>`;
     }
+    if (it.kind === "alarm") {
+      return `<div class="shop-swatch shop-glyph" aria-hidden="true">🔔</div>`;
+    }
+    if (it.kind === "boost") {
+      return `<div class="shop-swatch shop-glyph" aria-hidden="true">${it.value === "freeze" || it.value === "vault" ? "🧊" : "✖️"}</div>`;
+    }
+    // Everything left is a colour pair; an item without one would throw here,
+    // which is why the two kinds above return before reaching it.
     return `<div class="shop-swatch">
       <span style="background:${U.esc(it.preview.a)}"></span>
       <span style="background:${U.esc(it.preview.b)}"></span>
@@ -300,26 +312,40 @@ App.views.shop = (function () {
     const owned = SH.owns(it.id);
     const worn = SH.isEquipped(it.id);
     const afford = SH.balance() >= it.price;
+    const count = SH.ownedCount(it.id);
 
-    const action = !owned
+    // A consumable is used the moment it's bought, so it never reads as owned
+    // or worn — buying a second streak freeze is the whole point of it.
+    const action = it.consumable
       ? `<button class="btn btn-sm btn-primary" data-buy="${it.id}" ${afford ? "" : "disabled"}>
            ${afford ? `Buy · ${it.price}` : `${it.price} tokens`}
          </button>`
-      : worn
-        ? `<button class="btn btn-sm" data-unequip="${it.kind}">Take off</button>`
-        : `<button class="btn btn-sm btn-primary" data-equip="${it.id}">Wear</button>`;
+      : !owned
+        ? `<button class="btn btn-sm btn-primary" data-buy="${it.id}" ${afford ? "" : "disabled"}>
+             ${afford ? `Buy · ${it.price}` : `${it.price} tokens`}
+           </button>`
+        : worn
+          ? `<button class="btn btn-sm" data-unequip="${it.kind}">Take off</button>`
+          : `<button class="btn btn-sm btn-primary" data-equip="${it.id}">Wear</button>`;
 
-    return `<div class="shop-item${worn ? " worn" : owned ? " owned" : ""}">
+    const badge = it.consumable
+      ? (count ? `<span class="badge ok">Used ×${count}</span>` : tokenPill(it.price))
+      : worn ? `<span class="badge brand">Wearing</span>`
+      : owned ? `<span class="badge ok">Owned</span>` : tokenPill(it.price);
+
+    return `<div class="shop-item tier-${U.esc(it.tier)}${worn ? " worn" : owned && !it.consumable ? " owned" : ""}">
       ${preview(it)}
       <div>
         <div class="row between gap-6">
           <span class="small bold">${U.esc(it.name)}</span>
-          ${worn ? `<span class="badge brand">Wearing</span>`
-            : owned ? `<span class="badge ok">Owned</span>` : tokenPill(it.price)}
+          ${badge}
         </div>
         <div class="tiny dim mt-4">${U.esc(it.blurb)}</div>
       </div>
-      <div class="shop-foot">${action}</div>
+      <div class="shop-foot">
+        ${action}
+        ${it.kind === "alarm" ? `<button class="btn btn-sm" data-hear="${U.esc(it.value)}">▶ Hear it</button>` : ""}
+      </div>
     </div>`;
   }
 
@@ -327,6 +353,8 @@ App.views.shop = (function () {
     const list = U.sortBy(SH.proofs(), (p) => p.at, true);
     const st = statusLine();
     const rules = SH.RULES;
+    const rates = SH.RATES;
+    const boost = SH.activeBoost();
     const week = U.sum(SH.proofs().filter((p) => p.date >= U.dateKey(U.addDays(new Date(), -6))), (p) => p.minutes);
 
     return `<div class="grid g-main">
@@ -339,14 +367,29 @@ App.views.shop = (function () {
           <button class="btn btn-primary btn-lg btn-block" data-add-proof>📷 Add a study photo</button>
 
           <div>
-            <h4 class="mb-8">How it pays</h4>
+            <h4 class="mb-8">How a photo pays</h4>
             <ul class="earn-rules">
-              <li>One token per ${rules.minutesPerToken} minutes you claim, up to ${rules.maxPerProof} for a single photo.</li>
-              <li>+${rules.firstOfDayBonus} for the first photo of the day. ${rules.dailyCap} tokens is the daily ceiling.</li>
+              <li>${Math.round(rules.tokensPerMinute * 15)} tokens per 15 minutes you claim, up to ${rules.maxPerProof} for a single photo.</li>
+              <li>+${rules.firstOfDayBonus} for the first photo of the day. ${rules.dailyCap} tokens is the daily ceiling <em>for photos</em>.</li>
               <li>${rules.cooldownMin} minutes between photos.</li>
               <li>The same photo never pays twice — every one is fingerprinted before it counts,
                   and deleting it doesn't reset that.</li>
               <li>Every photo also lands in your study log, so it counts toward the heatmap and your weekly goal.</li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="mb-8">…and what pays without one</h4>
+            <p class="tiny dim mt-0 mb-8">No photo, no cap, no cooldown: the app watched these happen,
+              so there is no claim to check.</p>
+            <ul class="earn-rules">
+              <li><strong>${rates.focusPerMin} per minute</strong> of a focus block, +${rates.focusBlockBonus} for letting it
+                  run to the end — ${rates.focusPerMin * 25 + rates.focusBlockBonus} for a finished 25-minute block.</li>
+              <li><strong>${rates.assignmentDone}</strong> for finishing an assignment, +${rates.assignmentEarly} if it wasn't late.
+                  Paid once per assignment, however often it's reopened.</li>
+              <li><strong>${rates.streakDay} a day</strong> for keeping your streak, +${rates.streakWeekBonus} every seventh day.</li>
+              <li><strong>${rates.flashcardCard} per card</strong> reviewed, <strong>${rates.readingSession}</strong> per reading session,
+                  <strong>${rates.habitCheck}</strong> per habit ticked, <strong>${rates.goalComplete}</strong> for reaching a goal.</li>
             </ul>
           </div>
 
@@ -376,8 +419,24 @@ App.views.shop = (function () {
             <span class="small dim">Tokens spent</span>
             <span class="bold nums">${Math.max(0, Math.floor(SH.wallet().spent))}</span>
           </div>
+          ${boost ? `<div class="row between">
+            <span class="small dim">Boost</span>
+            <span class="badge solid">${boost.mult}× until ${U.esc(new Date(boost.until).toLocaleString())}</span>
+          </div>` : ""}
         </div>
       </div>
+    </div>
+
+    <div class="card mt-16">
+      <div class="card-head"><h3>Where your tokens came from</h3>
+        <span class="sub">Most recent first</span></div>
+      ${SH.ledger(15).length
+        ? `<div class="list">${SH.ledger(15).map((e) => `<div class="list-item">
+            <span class="grow"><div class="title">${U.esc(e.reason)}</div>
+              <div class="meta">${U.esc(new Date(e.at).toLocaleString())}${e.mult ? ` · ${e.mult}× boost` : ""}</div></span>
+            <span class="badge ${e.n > 0 ? "ok" : ""}">${e.n > 0 ? "+" : ""}${e.n}</span>
+          </div>`).join("")}</div>`
+        : `<div class="card-body"><p class="dim small">Nothing yet — finish a focus block, or add a photo above.</p></div>`}
     </div>
 
     <div class="card mt-16">
@@ -391,13 +450,19 @@ App.views.shop = (function () {
   }
 
   function shopTab() {
-    return SH.kinds().map((kind) => {
-      const list = SH.items(kind);
-      const ownedCount = list.filter((i) => SH.owns(i.id)).length;
-      return `<div class="card mb-16">
+    return SH.tiers().map((tier) => {
+      const list = SH.byTier(tier.key);
+      const got = list.filter((i) => SH.owns(i.id)).length;
+      const prices = list.map((i) => i.price);
+      return `<div class="card mb-16 tier-card tier-${U.esc(tier.key)}">
         <div class="card-head">
-          <h3>${U.esc(SH.kindLabel(kind))}</h3>
-          <span class="sub">${ownedCount} of ${list.length} unlocked</span>
+          <div>
+            <h3 class="tier-head tier-${U.esc(tier.key)}">
+              <span aria-hidden="true">${tier.glyph}</span> ${U.esc(tier.label)}
+            </h3>
+            <div class="tiny dim">${U.esc(tier.blurb)} · ${Math.min.apply(null, prices)}–${Math.max.apply(null, prices)} tokens</div>
+          </div>
+          <span class="sub">${got} of ${list.length} unlocked</span>
         </div>
         <div class="card-body"><div class="shop-grid">${list.map(itemCard).join("")}</div></div>
       </div>`;
@@ -407,6 +472,7 @@ App.views.shop = (function () {
   function render() {
     const bal = SH.balance();
     const w = SH.wallet();
+    const next = SH.nextUp();
 
     return `<div class="page-inner">
       <div class="page-head">
@@ -442,8 +508,10 @@ App.views.shop = (function () {
         <div class="stat">
           <div class="stat-ico" aria-hidden="true">✨</div>
           <div class="stat-label">Unlocked</div>
-          <div class="stat-value nums">${w.owned.length}</div>
-          <div class="stat-foot">of ${SH.CATALOG.length} items</div>
+          <div class="stat-value nums">${new Set(w.owned).size}</div>
+          <div class="stat-foot">${next
+            ? `of ${SH.CATALOG.length} · next: ${U.esc(next.item.name)}, ${next.shortBy} to go`
+            : `of ${SH.CATALOG.length} items`}</div>
         </div>
       </div>
 
@@ -469,6 +537,11 @@ App.views.shop = (function () {
     U.on(root, "click", "[data-equip]", (_e, el) => {
       const it = SH.item(el.dataset.equip);
       if (SH.equip(el.dataset.equip)) UI.toast(`${it.name} on`, "", "ok");
+    });
+    U.on(root, "click", "[data-hear]", (_e, el) => {
+      // The click is itself the gesture that opens the audio session, so a
+      // preview is audible even on a page that hasn't played anything yet.
+      App.sound.preview(el.dataset.hear);
     });
     U.on(root, "click", "[data-unequip]", (_e, el) => {
       const kind = el.dataset.unequip;

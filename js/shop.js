@@ -1,6 +1,6 @@
 /* ==========================================================================
-   shop.js — F155 study tokens: earning them from a photo of real work, and
-   the catalogue of cosmetics they buy.
+   shop.js — F155 study tokens: earning them from the work the app can see
+   AND from a photo of the work it can't, and the four-tier catalogue they buy.
 
    The honest framing, which the UI repeats rather than hides: nothing here
    can prove a student studied. A photo of a page of notes is evidence a
@@ -10,7 +10,7 @@
    submissions in one minute, an unbounded claim of hours — so that the
    number on the screen still means something to the person looking at it.
 
-   The guards, all local:
+   The guards on a photo, all local:
      • a photo is required, and it is fingerprinted (64-bit average hash)
        before anything is credited. A near-identical photo is refused, and
        the fingerprint outlives the photo — deleting a proof never re-arms it.
@@ -21,8 +21,26 @@
      • submissions have a cooldown, so a stack of photos can't be dumped in
        one sitting for a day's worth of tokens.
 
-   Nothing here talks to a server. Tokens, the catalogue, and what has been
-   bought all live in the same local store as the rest of the app.
+   The second earning route needs none of those guards, because it isn't a
+   claim: a focus block the timer measured, an assignment marked done, a
+   streak day, a deck reviewed, pages read, a habit ticked, a goal reached.
+   The app already recorded all of it. Those pay through award() below, are
+   written to the wallet ledger with a reason, and are NOT capped — a cap
+   belongs on what can be claimed, not on what has been observed. Their own
+   anti-farm rules are narrower and live at the point of payment: an
+   assignment pays once ever however often it is reopened, and a focus block
+   pays for the minutes actually spent.
+
+   Four tiers, cheapest first:
+
+     Common   150–200    an evening
+     Rare     300–450    a good week
+     Ultra    500–750    weeks of consistency
+     Elite    800–1000   the long haul
+
+   Nothing here talks to a server, and nothing here costs money. Tokens, the
+   catalogue, and what has been bought all live in the same local store as
+   the rest of the app.
    ========================================================================== */
 
 App.shop = (function () {
@@ -30,17 +48,32 @@ App.shop = (function () {
 
   /* ================================================================ rules */
 
+  /**
+   * The denomination everything below is priced in.
+   *
+   * Tokens used to run 1 per 15 minutes, with items at 6–34 and a cap of 8 a
+   * day. That is a fine economy right up until you want a top tier that reads
+   * as an achievement — "34" does not, and neither does asking someone to
+   * save four days for a nameplate. Everything (prices, rates, caps) is 25×
+   * what it was, which changes no ratio and no attainability, and puts the
+   * Elite tier at a number worth showing: 1000.
+   *
+   * A wallet written before the change is redenominated once, in sync with
+   * the prices, so nobody's balance loses value overnight — see redenominate().
+   */
+  const SCALE = 25;
+
   const RULES = {
-    minutesPerToken: 15,   // 15 minutes of claimed study = 1 token
-    minMinutes: 5,         // below this there is nothing worth photographing
-    maxMinutes: 240,       // one submission cannot claim more than four hours
-    maxPerProof: 4,        // …and cannot pay more than four tokens
-    firstOfDayBonus: 1,    // showing up at all is the habit worth rewarding
-    dailyCap: 8,           // ceiling on everything earned in one calendar day
-    cooldownMin: 10,       // minutes between submissions
-    hashDistance: 5,       // ≤ this many differing bits = "the same photo"
-    minDetail: 4,          // std-dev of the 8×8 grayscale; below this is blank
-    maxPhotoDim: 1280,     // stored photos are downscaled to this on the long edge
+    tokensPerMinute: 5 / 3,   // 15 claimed minutes = 25 tokens
+    minMinutes: 5,            // below this there is nothing worth photographing
+    maxMinutes: 240,          // one submission cannot claim more than four hours
+    maxPerProof: 100,         // …and cannot pay more than 100 tokens
+    firstOfDayBonus: 25,      // showing up at all is the habit worth rewarding
+    dailyCap: 200,            // ceiling on everything a PHOTO earns in one day
+    cooldownMin: 10,          // minutes between submissions
+    hashDistance: 5,          // ≤ this many differing bits = "the same photo"
+    minDetail: 4,             // std-dev of the 8×8 grayscale; below this is blank
+    maxPhotoDim: 1280,        // stored photos are downscaled to this on the long edge
     jpegQuality: 0.82,
     // Fingerprints kept for replay protection. Each is ~40 bytes, so this is
     // tens of kilobytes in a store that holds megabytes — and it is the one
@@ -48,6 +81,36 @@ App.shop = (function () {
     // the end, that photo could be submitted again. A thousand covers well
     // over a year of daily use before the oldest one is at risk.
     seenLimit: 1000
+  };
+
+  /**
+   * What the work the app can measure pays. These are not claims, so they are
+   * not capped and need no photo — the app watched the timer run, saw the
+   * assignment close, counted the cards.
+   */
+  const RATES = {
+    focusPerMin: 3,          // per minute actually spent in a focus block
+    focusBlockBonus: 20,     // for letting a block run to the end
+    assignmentDone: 45,      // first time an assignment is completed, ever
+    assignmentEarly: 25,     // extra, when it's done on or before the due date
+    streakDay: 50,           // once a day, on the streak touch
+    streakWeekBonus: 150,    // every 7th day
+    flashcardCard: 3,        // per card reviewed, paid once per session
+    readingSession: 30,      // per logged reading session
+    goalComplete: 200,       // hitting a goal target, once per goal
+    habitCheck: 15           // ticking today's habit box
+  };
+
+  /** Tier bands, in tokens. An item's tier is checked against these. */
+  const TIERS = {
+    common: { key: "common", label: "Common Tier", order: 1, glyph: "◆", max: 200,
+              blurb: "An evening's work each." },
+    rare:   { key: "rare",   label: "Rare Tier",   order: 2, glyph: "◆◆", max: 450,
+              blurb: "A good week." },
+    ultra:  { key: "ultra",  label: "Ultra Tier",  order: 3, glyph: "◆◆◆", max: 750,
+              blurb: "Weeks of consistency, not one good day." },
+    elite:  { key: "elite",  label: "Elite Tier",  order: 4, glyph: "★", max: 1000,
+              blurb: "The long haul. Four figures, and it shows." }
   };
 
   /* ============================================================ catalogue
@@ -65,58 +128,105 @@ App.shop = (function () {
      is an evening, an accent is most of a week, a skin is a fortnight.        */
 
   const CATALOG = [
-    /* ------------------------------------------------------------ titles */
-    { id: "title:nightowl",  kind: "title", value: "Night Owl 🦉",  name: "Night Owl", price: 6,
+    /* --------------------------------------------------------- Common tier */
+    { id: "title:nightowl",  kind: "title", tier: "common", value: "Night Owl 🦉",  name: "Night Owl", price: 150,
       blurb: "A nameplate under your name in the sidebar." },
-    { id: "title:earlybird", kind: "title", value: "Early Bird 🌅", name: "Early Bird", price: 6,
+    { id: "title:earlybird", kind: "title", tier: "common", value: "Early Bird 🌅", name: "Early Bird", price: 150,
       blurb: "For the people who study before first period." },
-    { id: "title:bookworm",  kind: "title", value: "Bookworm 📚",   name: "Bookworm", price: 8,
+    { id: "alarm:marimba",   kind: "alarm", tier: "common", value: "marimba", name: "Marimba alarm", price: 150,
+      blurb: "A soft three-note marimba when a focus block ends." },
+    { id: "alarm:arcade",    kind: "alarm", tier: "common", value: "arcade", name: "Arcade alarm", price: 175,
+      blurb: "A short 8-bit victory blip when time's up." },
+    { id: "title:bookworm",  kind: "title", tier: "common", value: "Bookworm 📚",   name: "Bookworm", price: 200,
       blurb: "Worn by whoever finishes the reading list." },
-    { id: "title:mathlete",  kind: "title", value: "Mathlete 📐",   name: "Mathlete", price: 8,
+    { id: "title:mathlete",  kind: "title", tier: "common", value: "Mathlete 📐",   name: "Mathlete", price: 200,
       blurb: "Earned one problem set at a time." },
+    { id: "boost:freeze",    kind: "boost", tier: "common", value: "freeze", name: "Streak freeze", price: 200,
+      consumable: true,
+      blurb: "Banks one streak freeze, so a missed day bridges instead of resetting.",
+      apply: (db) => { db.streak.freezes = Math.min(9, (db.streak.freezes || 0) + 1); } },
 
-    /* ------------------------------------------------------------- rings */
-    { id: "ring:gold",   kind: "ring", value: "gold",   name: "Gold ring", price: 12,
+    /* ----------------------------------------------------------- Rare tier */
+    { id: "ring:gold",   kind: "ring", tier: "rare", value: "gold",   name: "Gold ring", price: 300,
       blurb: "A gold ring around your avatar.", preview: { a: "#d4a017", b: "#f2c94c" } },
-    { id: "ring:neon",   kind: "ring", value: "neon",   name: "Neon glow", price: 14,
+    { id: "alarm:zen",   kind: "alarm", tier: "rare", value: "zen", name: "Zen bowl alarm", price: 300,
+      blurb: "A long singing-bowl tone — the least startling way to end a block." },
+    { id: "ring:neon",   kind: "ring", tier: "rare", value: "neon",   name: "Neon glow", price: 350,
       blurb: "A glow in whatever accent colour you're wearing.", preview: { a: "#6366f1", b: "#a78bfa" } },
-    { id: "ring:aurora", kind: "ring", value: "aurora", name: "Aurora ring", price: 16,
+    { id: "alarm:lofi",  kind: "alarm", tier: "rare", value: "lofi", name: "Lo-fi tape alarm", price: 350,
+      blurb: "A descending lo-fi chord when time's up." },
+    { id: "ring:aurora", kind: "ring", tier: "rare", value: "aurora", name: "Aurora ring", price: 400,
       blurb: "A rotating gradient — the loudest thing in the shop.", preview: { a: "#22d3ee", b: "#f472b6" } },
-
-    /* ----------------------------------------------------------- accents */
-    { id: "accent:violet",   kind: "accent", value: "violet",   name: "Violet", price: 18,
+    { id: "boost:double", kind: "boost", tier: "rare", value: "double", name: "Double tokens · 24h", price: 400,
+      consumable: true,
+      blurb: "Everything the app pays you doubles for the next 24 hours.",
+      apply: (db) => { addBoost(db, 2, 24); } },
+    { id: "accent:violet",   kind: "accent", tier: "rare", value: "violet",   name: "Violet", price: 450,
       blurb: "Buttons, links and charts in deep violet.", preview: { a: "#6d28d9", b: "#c4b5fd" } },
-    { id: "accent:forest",   kind: "accent", value: "forest",   name: "Forest", price: 18,
+    { id: "accent:forest",   kind: "accent", tier: "rare", value: "forest",   name: "Forest", price: 450,
       blurb: "A deep green accent, distinct from the teal one.", preview: { a: "#136b33", b: "#86efac" } },
-    { id: "accent:ocean",    kind: "accent", value: "ocean",    name: "Ocean", price: 22,
+
+    /* ---------------------------------------------------------- Ultra tier */
+    { id: "alarm:sunrise",   kind: "alarm", tier: "ultra", value: "sunrise", name: "Sunrise alarm", price: 500,
+      blurb: "A rising four-note figure — hard to sleep through." },
+    { id: "accent:ocean",    kind: "accent", tier: "ultra", value: "ocean",    name: "Ocean", price: 550,
       blurb: "Cool cyan-blue, all the way through the charts.", preview: { a: "#0c6780", b: "#67e8f9" } },
-    { id: "accent:graphite", kind: "accent", value: "graphite", name: "Graphite", price: 22,
+    { id: "accent:graphite", kind: "accent", tier: "ultra", value: "graphite", name: "Graphite", price: 550,
       blurb: "No colour at all. For people who want the data to be the only colour.",
       preview: { a: "#414a5c", b: "#b6bdca" } },
-
-    /* ------------------------------------------------------------- skins */
-    { id: "skin:parchment", kind: "skin", value: "parchment", name: "Parchment", price: 28,
+    { id: "skin:parchment",  kind: "skin", tier: "ultra", value: "parchment", name: "Parchment", price: 700,
       blurb: "Warm paper surfaces, in both light and dark mode.", preview: { a: "#fff1e7", b: "#231706" } },
-    { id: "skin:glacier",   kind: "skin", value: "glacier",   name: "Glacier", price: 32,
+    { id: "boost:triple",    kind: "boost", tier: "ultra", value: "triple", name: "Triple tokens · 48h", price: 750,
+      consumable: true,
+      blurb: "Everything the app pays you triples for the next 48 hours.",
+      apply: (db) => { addBoost(db, 3, 48); } },
+
+    /* ---------------------------------------------------------- Elite tier */
+    { id: "skin:glacier",   kind: "skin", tier: "elite", value: "glacier",   name: "Glacier", price: 800,
       blurb: "Cold blue surfaces — light frost, or deep water at night.", preview: { a: "#eef3fe", b: "#051b2d" } },
-    { id: "skin:orchid",    kind: "skin", value: "orchid",    name: "Orchid", price: 34,
-      blurb: "Lilac by day, deep plum by night.", preview: { a: "#f2f2fe", b: "#230f39" } }
+    { id: "boost:vault",    kind: "boost", tier: "elite", value: "vault", name: "Streak vault", price: 800,
+      consumable: true,
+      blurb: "Three streak freezes at once — a whole bad week survivable.",
+      apply: (db) => { db.streak.freezes = Math.min(9, (db.streak.freezes || 0) + 3); } },
+    { id: "skin:orchid",    kind: "skin", tier: "elite", value: "orchid",    name: "Orchid", price: 850,
+      blurb: "Lilac by day, deep plum by night.", preview: { a: "#f2f2fe", b: "#230f39" } },
+    { id: "alarm:fanfare",  kind: "alarm", tier: "elite", value: "fanfare", name: "Champion fanfare", price: 900,
+      blurb: "A full fanfare when a block ends. Wear headphones." },
+    { id: "ring:prismatic", kind: "ring", tier: "elite", value: "prismatic", name: "Prismatic ring", price: 1000,
+      blurb: "A rainbow that cycles through every accent in the app. The rarest ring there is.",
+      preview: { a: "#e11d48", b: "#2563eb" } },
+    { id: "title:valedictorian", kind: "title", tier: "elite", value: "Valedictorian 🏆", name: "Valedictorian", price: 1000,
+      blurb: "The top nameplate in the shop. There is nothing above it." }
   ];
 
   // Which setting each kind lives in, and what "nothing equipped" looks like.
   // Equipping writes to settings rather than to a second copy inside the
   // wallet: settings is what applyShellPrefs() already reads, exports, and
   // syncs, and two sources of truth for "what am I wearing" is one too many.
+  //
+  // `under` is for a setting that isn't at the top level — the alarm voice
+  // belongs to the timer's own settings block, and moving it out to sit
+  // beside the cosmetics would split the timer's configuration in two.
   const SLOT = {
     accent: { key: "accent", none: "indigo" },
     skin:   { key: "skin", none: "none" },
     ring:   { key: "avatarRing", none: "none" },
-    title:  { key: "nameplate", none: "" }
+    title:  { key: "nameplate", none: "" },
+    alarm:  { key: "alarm", under: "pomodoro", none: "chime" }
   };
 
   const KIND_LABEL = {
-    title: "Nameplates", ring: "Avatar rings", accent: "Accent colours", skin: "Skins"
+    title: "Nameplates", ring: "Avatar rings", accent: "Accent colours",
+    skin: "Skins", alarm: "Alarm sounds", boost: "Boosts"
   };
+
+  // Alarm voices that ship with the app, the same way four accents do. The
+  // list itself belongs to js/sound.js, which owns the voices; this mirrors
+  // it only for the case where that module failed to load.
+  const FREE_ALARMS = ["chime", "bell"];
+  function alarmIsFree(value) {
+    return App.sound && App.sound.isFree ? App.sound.isFree(value) : FREE_ALARMS.indexOf(value) >= 0;
+  }
 
   // Accents that shipped with the app and were never bought. Settings still
   // offers these to everyone; the shop only sells what isn't in this list.
@@ -142,15 +252,46 @@ App.shop = (function () {
   function balance() { return Math.max(0, Math.floor(wallet().balance)); }
   function item(id) { return CATALOG.find((i) => i.id === id) || null; }
   function items(kind) { return kind ? CATALOG.filter((i) => i.kind === kind) : CATALOG.slice(); }
-  function kinds() { return ["title", "ring", "accent", "skin"]; }
+  function kinds() { return ["title", "ring", "accent", "skin", "alarm", "boost"]; }
   function kindLabel(kind) { return KIND_LABEL[kind] || kind; }
   function owns(id) { return wallet().owned.includes(id); }
+  function ownedCount(id) { return wallet().owned.filter((x) => x === id).length; }
 
-  /** The item currently worn in a slot, or null. */
-  function equipped(kind) {
+  /* ------------------------------------------------------------- tiers -- */
+
+  function tiers() { return Object.keys(TIERS).map((k) => TIERS[k]).sort((a, b) => a.order - b.order); }
+  function tierOf(id) { const it = item(id); return it ? TIERS[it.tier] : null; }
+  function byTier(tier) {
+    return CATALOG.filter((i) => i.tier === tier).sort((a, b) => a.price - b.price);
+  }
+
+  /* ------------------------------------------------- reading a worn slot -- */
+
+  // A slot's value is either a top-level setting or one inside a nested block
+  // (the alarm voice lives in settings.pomodoro). Everything that reads or
+  // writes a worn item goes through these two, so the nesting is stated once.
+  function slotValue(kind) {
     const slot = SLOT[kind];
     if (!slot) return null;
-    const value = S.settings[slot.key];
+    const bag = slot.under ? (S.settings[slot.under] || {}) : S.settings;
+    return bag[slot.key];
+  }
+
+  function setSlot(db, kind, value) {
+    const slot = SLOT[kind];
+    if (!slot) return;
+    if (slot.under) {
+      if (!db.settings[slot.under] || typeof db.settings[slot.under] !== "object") db.settings[slot.under] = {};
+      db.settings[slot.under][slot.key] = value;
+    } else {
+      db.settings[slot.key] = value;
+    }
+  }
+
+  /** The item currently worn in a slot, or null. Boosts are used, not worn. */
+  function equipped(kind) {
+    if (!SLOT[kind]) return null;
+    const value = slotValue(kind);
     return CATALOG.find((i) => i.kind === kind && i.value === value) || null;
   }
 
@@ -159,9 +300,20 @@ App.shop = (function () {
     return !!it && equipped(it.kind) === it;
   }
 
-  /** Items you could buy right now — the number on the shop's nav badge. */
+  /**
+   * Items you could buy right now — the number on the shop's nav badge.
+   * A consumable always counts: owning one is not a reason not to buy another.
+   */
   function affordableCount() {
-    return CATALOG.filter((i) => !owns(i.id) && i.price <= balance()).length;
+    return CATALOG.filter((i) => (i.consumable || !owns(i.id)) && i.price <= balance()).length;
+  }
+
+  /** The next thing out of reach, and by how much. */
+  function nextUp() {
+    const bal = balance();
+    const next = CATALOG.filter((i) => i.price > bal && (i.consumable || !owns(i.id)))
+      .sort((a, b) => a.price - b.price)[0] || null;
+    return next ? { item: next, shortBy: next.price - bal } : null;
   }
 
   function proofs() {
@@ -205,7 +357,7 @@ App.shop = (function () {
   function quote(minutes) {
     const m = U.clamp(Math.round(Number(minutes) || 0), 0, RULES.maxMinutes);
     const base = m < RULES.minMinutes ? 0
-      : U.clamp(Math.floor(m / RULES.minutesPerToken), 1, RULES.maxPerProof);
+      : U.clamp(Math.floor(m * RULES.tokensPerMinute), 1, RULES.maxPerProof);
     const bonus = base > 0 && firstToday() ? RULES.firstOfDayBonus : 0;
     const wanted = base + bonus;
     const total = Math.min(wanted, remainingToday());
@@ -422,12 +574,110 @@ App.shop = (function () {
     return true;
   }
 
+  /* ============================================ ledger, boosts and earning */
+
+  /**
+   * Append one line to the wallet's receipt.
+   *
+   * The balance moves on its own now — a focus block ends, an assignment
+   * closes, a streak ticks over — and a number that changes while you are
+   * looking somewhere else has to be able to say why.
+   */
+  function note(t, n, reason, mult) {
+    if (!Array.isArray(t.ledger)) t.ledger = [];
+    t.ledger.unshift({ id: U.uid("lg"), n, reason: String(reason || ""), mult: mult > 1 ? mult : undefined, at: Date.now() });
+    if (t.ledger.length > 200) t.ledger.length = 200;   // a receipt, not an archive
+  }
+
+  function ledger(n) { return (wallet().ledger || []).slice(0, n || 25); }
+
+  function addBoost(db, mult, hours) {
+    const t = wallet();
+    t.boosts = (t.boosts || []).filter((b) => b && b.until > Date.now());
+    t.boosts.push({ id: U.uid("bo"), mult, until: Date.now() + hours * 3600 * 1000 });
+  }
+
+  /** The strongest live multiplier, or 1. Expired boosts are swept lazily. */
+  function multiplier() {
+    return (wallet().boosts || [])
+      .filter((b) => b && b.until > Date.now())
+      .reduce((m, b) => Math.max(m, Number(b.mult) || 1), 1);
+  }
+
+  function activeBoost() {
+    return (wallet().boosts || [])
+      .filter((b) => b && b.until > Date.now())
+      .sort((a, b) => b.mult - a.mult)[0] || null;
+  }
+
+  /**
+   * Credit tokens for work the app itself observed.
+   *
+   * No photo, no cap and no cooldown, because there is no claim to check: the
+   * timer ran, the assignment closed, the cards were turned over. The guards
+   * that matter for these live at each call site instead — see the two
+   * overrides at the bottom of this file.
+   *
+   * @param {number} n      base amount, before any boost
+   * @param {string} reason shown in the ledger — say what earned it
+   * @param {object} [opts] `{ silent: true }` to skip the toast
+   * @returns {number} what was actually credited
+   */
+  function award(n, reason, opts) {
+    const base = Math.max(0, Math.round(Number(n) || 0));
+    if (!base) return 0;
+    const mult = multiplier();
+    const total = Math.round(base * mult);
+
+    S.commit(() => {
+      const t = wallet();
+      t.balance = Math.max(0, Math.round(t.balance + total));
+      t.earned = Math.round((t.earned || 0) + total);
+      note(t, total, reason, mult);
+      t.boosts = (t.boosts || []).filter((b) => b && b.until > Date.now());
+    });
+
+    if (!(opts && opts.silent) && App.ui) {
+      App.ui.toast(`+${total} tokens`, reason + (mult > 1 ? ` · ${mult}× boost` : ""), "ok");
+    }
+    return total;
+  }
+
+  /**
+   * Bring a wallet written in the old denomination up to this one.
+   *
+   * Prices went up 25× in the same change that added the tiers. A balance
+   * saved before that would have lost 96% of its purchasing power overnight,
+   * which is not a thing to do to someone who earned it — so the balance,
+   * the totals and the day's cap usage are all multiplied by the same factor,
+   * once, flagged on the wallet so it can never run twice.
+   */
+  function redenominate() {
+    const t = wallet();
+    if (t.scale === SCALE) return false;
+    const from = t.scale || 1;                 // 0/undefined means the original 1× wallet
+    const factor = SCALE / from;
+    if (factor !== 1) {
+      S.commit(() => {
+        t.balance = Math.round(t.balance * factor);
+        t.earned = Math.round((t.earned || 0) * factor);
+        t.spent = Math.round((t.spent || 0) * factor);
+        Object.keys(t.daily || {}).forEach((d) => { t.daily[d] = Math.round(t.daily[d] * factor); });
+        t.scale = SCALE;
+        if (t.balance > 0) note(t, 0, `Tokens redenominated ×${factor} — prices moved with them`);
+      });
+    } else {
+      S.commit(() => { t.scale = SCALE; });
+    }
+    return factor !== 1;
+  }
+
   /* ======================================================== buying/wearing */
 
   function buy(id) {
     const it = item(id);
     if (!it) return { ok: false, error: "That item isn't in the shop." };
-    if (owns(id)) return { ok: false, error: "You already own that." };
+    if (!it.consumable && owns(id)) return { ok: false, error: "You already own that." };
     if (balance() < it.price) {
       return { ok: false, error: `That costs ${it.price} tokens — you have ${balance()}.` };
     }
@@ -436,7 +686,10 @@ App.shop = (function () {
       t.balance -= it.price;
       t.spent += it.price;
       t.owned.push(id);
-      db.settings[SLOT[it.kind].key] = it.value;   // bought is worn, immediately
+      note(t, -it.price, "Bought " + it.name);
+      // A consumable is spent the moment it's bought; everything else is worn.
+      if (it.consumable) { if (typeof it.apply === "function") it.apply(db); }
+      else setSlot(db, it.kind, it.value);
     });
     App.applyShellPrefs && App.applyShellPrefs();
     return { ok: true, item: it };
@@ -444,8 +697,8 @@ App.shop = (function () {
 
   function equip(id) {
     const it = item(id);
-    if (!it || !owns(id)) return false;
-    S.commit((db) => { db.settings[SLOT[it.kind].key] = it.value; });
+    if (!it || it.consumable || !owns(id)) return false;
+    S.commit((db) => { setSlot(db, it.kind, it.value); });
     App.applyShellPrefs && App.applyShellPrefs();
     return true;
   }
@@ -453,7 +706,7 @@ App.shop = (function () {
   function unequip(kind) {
     const slot = SLOT[kind];
     if (!slot) return false;
-    S.commit((db) => { db.settings[slot.key] = slot.none; });
+    S.commit((db) => { setSlot(db, kind, slot.none); });
     App.applyShellPrefs && App.applyShellPrefs();
     return true;
   }
@@ -468,25 +721,112 @@ App.shop = (function () {
    * on boot and after every preference change.
    */
   function sanitize() {
-    const s = S.settings;
     let changed = false;
     kinds().forEach((kind) => {
       const slot = SLOT[kind];
-      const value = s[slot.key];
+      if (!slot) return;                       // boosts are used, never worn
+      const value = slotValue(kind);
       if (value == null || value === slot.none) return;
       if (kind === "accent" && FREE_ACCENTS.includes(value)) return;
+      if (kind === "alarm" && alarmIsFree(value)) return;
       const it = CATALOG.find((i) => i.kind === kind && i.value === value);
-      if (!it || !owns(it.id)) { s[slot.key] = slot.none; changed = true; }
+      if (!it || !owns(it.id)) { setSlot(S.db, kind, slot.none); changed = true; }
     });
     if (changed) S.saveQuiet();
     return changed;
   }
 
+  /* ================================================== paying for real work
+
+     Everything below wires award() to work the app already records. Each hook
+     carries its own anti-farm rule, because these are the routes a student
+     can repeat at will:
+
+       • an assignment pays ONCE, ever — `tokensPaid` on the record — so
+         done → reopen → done is not a two-click faucet;
+       • a focus block pays for the minutes actually spent (views/focus.js),
+         so Start-then-Skip earns what it deserves and no more;
+       • a habit pays for today's box only, once (views/goals.js);
+       • a goal pays once, on the sweep below.                                */
+
+  S.tokenBalance = balance;
+  S.awardTokens = award;
+  S.ownsShopItem = owns;
+  S.tokenLedger = ledger;
+  S.tokenMultiplier = multiplier;
+  S.shopRates = RATES;
+
+  const baseUpdate = S.update;
+  S.update = function (coll, id, patch) {
+    const before = coll === "assignments" ? (S.byId(coll, id) || {}).status : null;
+    const rec = baseUpdate(coll, id, patch);
+    if (coll === "assignments" && rec && before !== "done" && rec.status === "done" && !rec.tokensPaid) {
+      rec.tokensPaid = true;
+      const early = rec.due && U.today() <= rec.due;
+      award(RATES.assignmentDone + (early ? RATES.assignmentEarly : 0),
+        early ? `Finished “${rec.title}” before it was due` : `Finished “${rec.title}”`);
+    }
+    return rec;
+  };
+
+  // The daily streak pays on the same touch that advances it. touchStreak is
+  // itself an override installed by store2.js, so this wraps that one.
+  const baseTouch = S.touchStreak;
+  S.touchStreak = function () {
+    const before = S.db.streak.last;
+    baseTouch();
+    // Only a streak that CONTINUES pays. The touch that creates one fires on
+    // first open, before the student has done anything at all, and an economy
+    // that pays for launching the app is exactly the kind of number this
+    // module exists to avoid — a fresh install starts at zero.
+    if (before && S.db.streak.last !== before) {
+      const week = S.db.streak.count > 0 && S.db.streak.count % 7 === 0;
+      award(RATES.streakDay + (week ? RATES.streakWeekBonus : 0),
+        week ? `${S.db.streak.count}-day streak — week bonus` : "Daily streak", { silent: !week });
+    }
+  };
+
+  /**
+   * A goal's progress is derived (GPA, study minutes, service hours…), so
+   * there is no single mutation to hang a payout on. This sweeps after any
+   * store change instead and pays once per goal, flagged on the record.
+   *
+   * `sweeping` guards the obvious loop: award() commits, a commit emits, and
+   * an emit lands back here.
+   */
+  let sweeping = false;
+  function sweepGoalPayouts() {
+    if (sweeping || !S.db || !Array.isArray(S.db.goals)) return;
+    sweeping = true;
+    try {
+      const done = S.db.goals.filter((g) => {
+        if (!g || g.tokensPaid || !g.target) return false;
+        const p = S.goalProgress(g);
+        return p && p.current >= g.target;
+      });
+      if (done.length) {
+        S.commit((db) => {
+          done.forEach((g) => {
+            const rec = db.goals.find((x) => x.id === g.id);
+            if (rec) rec.tokensPaid = true;
+          });
+        });
+        done.forEach((g) => award(RATES.goalComplete, `Goal reached — ${g.title}`));
+      }
+    } finally { sweeping = false; }
+  }
+  S.subscribe(sweepGoalPayouts);
+
+  // Wallets written before the tiers existed are worth the same after them.
+  redenominate();
+
   return {
-    RULES, CATALOG, FREE_ACCENTS, SLOT,
-    wallet, balance, item, items, kinds, kindLabel, owns, equipped, isEquipped,
-    affordableCount, proofs, earnedToday, remainingToday, cooldownLeft, firstToday,
+    RULES, RATES, TIERS, SCALE, CATALOG, FREE_ACCENTS, FREE_ALARMS, SLOT,
+    wallet, balance, item, items, kinds, kindLabel, owns, ownedCount, equipped, isEquipped,
+    tiers, tierOf, byTier, slotValue,
+    affordableCount, nextUp, proofs, earnedToday, remainingToday, cooldownLeft, firstToday,
     quote, fingerprint, distance, seenBefore, inspect, submit, deleteProof,
-    buy, equip, unequip, sanitize
+    buy, equip, unequip, sanitize,
+    award, ledger, multiplier, activeBoost, redenominate, sweepGoalPayouts
   };
 })();

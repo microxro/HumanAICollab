@@ -733,25 +733,61 @@ App.store = (function () {
     return true;
   }
 
-  /** Classes meeting on a specific DATE — handles weekly and rotating modes. */
+  /**
+   * When a class actually meets, whichever kind it is.
+   *
+   * A bell class points at a period. An off-schedule class — a club that
+   * assigns homework, a dual-enrollment course, an after-school academy —
+   * carries its own start/end instead, because it doesn't sit in any period
+   * the school rings a bell for. Everything downstream (the agenda, the ICS
+   * feed, contact cards, the week's total class minutes) wants the same
+   * shape from both, so it asks here rather than dereferencing periodId and
+   * dropping whatever comes back null.
+   *
+   * @returns {{id, name, start, end}|null}
+   */
+  function classPeriod(c) {
+    if (!c) return null;
+    if (c.offSchedule) {
+      if (!c.start || !c.end) return null;
+      return { id: "off:" + c.id, name: c.meetingLabel || "Off schedule", start: c.start, end: c.end, offSchedule: true };
+    }
+    return period(c.periodId);
+  }
+
+  /**
+   * Classes meeting on a specific DATE — handles weekly and rotating modes.
+   *
+   * Off-schedule classes are matched on the weekday in BOTH modes: a Tuesday
+   * robotics meeting is on Tuesday whether the school calls it a Day A or a
+   * Day B, and a rotating-schedule student would otherwise never see one.
+   */
   function classesOnDate(iso) {
     const sc = db.settings.schedule;
     const term = currentTerm();
     const pool = termClasses(term && term.id);
+    const bell = pool.filter((c) => !c.offSchedule);
+    const off = pool.filter((c) => c.offSchedule);
+    const dow = U.dowName(iso);
 
-    let matching;
+    let matching = [];
     if (sc.mode === "rotating") {
       const cd = cycleDayFor(iso);
-      if (!cd) return [];
-      matching = pool.filter((c) => (c.patternDays || []).includes(cd));
-    } else {
-      if (!isSchoolDay(iso)) return [];
-      const dow = U.dowName(iso);
-      matching = pool.filter((c) => c.days.includes(dow));
+      if (cd) matching = bell.filter((c) => (c.patternDays || []).includes(cd));
+    } else if (isSchoolDay(iso)) {
+      matching = bell.filter((c) => c.days.includes(dow));
     }
 
+    // A club can meet on a day school is closed (a Saturday competition
+    // practice), so the only gate here is the day of the week and any
+    // season window the class carries.
+    matching = matching.concat(off.filter((c) =>
+      c.days.includes(dow)
+      && (!c.startDate || c.startDate <= iso)
+      && (!c.endDate || c.endDate >= iso)));
+
     return matching
-      .map((c) => ({ cls: c, period: period(c.periodId) }))
+      .map((c) => ({ cls: c, period: classPeriod(c) }))
       .filter((x) => x.period)
       .sort((a, b) => U.toMin(a.period.start) - U.toMin(b.period.start));
   }
@@ -760,7 +796,7 @@ App.store = (function () {
   function classesOn(dowShort) {
     return termClasses()
       .filter((c) => c.days.includes(dowShort))
-      .map((c) => ({ cls: c, period: period(c.periodId) }))
+      .map((c) => ({ cls: c, period: classPeriod(c) }))
       .filter((x) => x.period)
       .sort((a, b) => U.toMin(a.period.start) - U.toMin(b.period.start));
   }
@@ -782,8 +818,8 @@ App.store = (function () {
 
     classesOnDate(iso).forEach(({ cls: c, period: p }) => {
       out.push({
-        kind: "class", id: c.id, title: c.name, color: c.color,
-        start: p.start, end: p.end, location: "Rm " + c.room,
+        kind: c.offSchedule ? "extra" : "class", id: c.id, title: c.name, color: c.color,
+        start: p.start, end: p.end, location: c.room ? "Rm " + c.room : "",
         sub: teacher(c.teacherId) ? teacher(c.teacherId).name : "", room: c.room
       });
     });
@@ -1306,7 +1342,7 @@ App.store = (function () {
     all, byId, insert, update, remove, restore, purgeTrash,
     cls, teacher, period, classColor, className, currentTerm, termClasses,
     cycleDayFor, isSchoolDay, isHoliday, classesOnDate, classesOn, activitiesOn,
-    scheduleFor, liveStatus,
+    scheduleFor, liveStatus, classPeriod,
     openAssignments, dueSoon, overdue, missingWork, assignmentsFor, progressOf, adjustedEstimate,
     withGradeOverride,
     classGrade, categoryBreakdown, neededOnRemaining, simulateAll, saveQuiet,
