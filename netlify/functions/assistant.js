@@ -247,6 +247,10 @@ async function parseImage(req) {
   const imageBase64 = String(b.imageBase64 || "");
   const mimeType = String(b.mimeType || "image/jpeg");
   if (!imageBase64) return fail(400, "No image received.");
+  // Required, not optional. An empty hash would sign a ticket bound to no
+  // particular photo, and "the binding quietly does nothing" is a worse
+  // failure than a 400 — the client always has one, it computed it.
+  if (!hash) return fail(400, "No photo fingerprint received.");
   if (imageBase64.length > MAX_IMAGE_B64_LEN) return fail(413, "That image is too large — try a smaller photo.");
   if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(mimeType)) return fail(400, "Unsupported image type.");
 
@@ -476,6 +480,10 @@ async function parseNoteImage(req) {
   const imageBase64 = String(b.imageBase64 || "");
   const mimeType = String(b.mimeType || "image/jpeg");
   if (!imageBase64) return fail(400, "No image received.");
+  // Required, not optional. An empty hash would sign a ticket bound to no
+  // particular photo, and "the binding quietly does nothing" is a worse
+  // failure than a 400 — the client always has one, it computed it.
+  if (!hash) return fail(400, "No photo fingerprint received.");
   if (imageBase64.length > MAX_IMAGE_B64_LEN) return fail(413, "That image is too large — try a smaller photo.");
   if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(mimeType)) return fail(400, "Unsupported image type.");
 
@@ -889,6 +897,10 @@ async function studyProof(req, user) {
   const hash = String(b.hash || "").slice(0, 64);
 
   if (!imageBase64) return fail(400, "No image received.");
+  // Required, not optional. An empty hash would sign a ticket bound to no
+  // particular photo, and "the binding quietly does nothing" is a worse
+  // failure than a 400 — the client always has one, it computed it.
+  if (!hash) return fail(400, "No photo fingerprint received.");
   if (imageBase64.length > MAX_IMAGE_B64_LEN) return fail(413, "That image is too large — try a smaller photo.");
   if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(mimeType)) return fail(400, "Unsupported image type.");
 

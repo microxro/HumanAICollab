@@ -274,6 +274,12 @@ console.log("\nproof: the image is validated before a call is spent");
     body: { imageBase64: "abc", mimeType: "application/pdf" }, token: student.token
   });
   ok("a non-image type is a 400", wrong.status === 400, String(wrong.status));
+
+  const noHash = await callAi("study-proof", {
+    body: { imageBase64: "abc", mimeType: "image/jpeg" }, token: student.token
+  });
+  ok("a missing fingerprint is a 400, not a ticket bound to nothing",
+     noHash.status === 400, String(noHash.status));
   ok("and neither one reached the model", gem.__calls().length === 0, String(gem.__calls().length));
 }
 
