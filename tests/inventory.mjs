@@ -171,6 +171,15 @@ ok("the quiz is the only way to earn",
    !surface.shop.includes("award") && !surface.shop.includes("RATES")
    && !surface.store.includes("awardTokens"),
    surface.shop.filter((k) => /award|RATES/.test(k)).join(", "));
+ok("F161 chest methods present",
+   ["chests", "unopenedChests", "chestOdds", "grantChest", "openChest", "nextChest"]
+     .every((k) => surface.shop.includes(k)),
+   surface.shop.filter((k) => /chest/i.test(k)).join(", "));
+ok("F161 is documented in the roadmap", /\(F161\)\.\*\*/.test(roadmap));
+// A chest holds an item, and a chest that credited tokens would be the second
+// mint the rule above exists to prevent.
+ok("a chest never touches the balance",
+   !/openChest[\s\S]{0,1200}?t\.balance/.test(shopSrc), "openChest writes to the balance");
 ok("the answer key is not sent to the client",
    !/answerIndex/.test(assistantClientSrc), "answerIndex appears in js/assistant.js");
 ok("F100 client methods present",

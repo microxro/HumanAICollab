@@ -539,6 +539,150 @@ App.views.shop = (function () {
     </div>`;
   }
 
+  /* ------------------------------------------------------- gem chests -- */
+
+  function rarityName(key) {
+    const t = SH.TIERS[key];
+    return t ? t.label.replace(" Tier", "") : key;
+  }
+
+  /** The odds for a week, as percentages, highest tier first. */
+  function oddsLine(week) {
+    const odds = SH.chestOdds(week);
+    return SH.tiers().slice().reverse()
+      .filter((t) => odds.weights[t.key] > 0)
+      .map((t) => `${rarityName(t.key)} ${Math.round((odds.weights[t.key] / odds.total) * 100)}%`)
+      .join(" · ");
+  }
+
+  function chestTile(c) {
+    const t = SH.TIERS[c.rarity] || SH.TIERS.common;
+    return `<button class="chest-tile tier-${U.esc(c.rarity)}" data-open-chest="${U.esc(c.id)}"
+              aria-label="Open your ${U.esc(rarityName(c.rarity))} chest from day ${c.week * 7}">
+      <span class="chest-gem" aria-hidden="true">💎</span>
+      <span class="chest-rarity tier-${U.esc(c.rarity)}">${U.esc(rarityName(c.rarity))}</span>
+      <span class="tiny dim">day ${c.week * 7} · ${U.esc(t.glyph)}</span>
+      <span class="badge brand">Open it</span>
+    </button>`;
+  }
+
+  /**
+   * Reveal what a chest held.
+   *
+   * Two modals rather than one: the first is the box, the second is what was
+   * in it. Opening is the moment worth having, and it should take a
+   * deliberate click rather than happening on the way past.
+   */
+  function chestForm(id) {
+    const c = SH.chests().find((x) => x.id === id);
+    if (!c) return;
+    if (c.opened) return openedChestView(c);
+
+    UI.modal({
+      title: `${rarityName(c.rarity)} chest`,
+      sub: `Earned on day ${c.week * 7} of your streak`,
+      size: "narrow",
+      okLabel: "Open it",
+      body: `
+        <div class="chest-hero tier-${U.esc(c.rarity)}">
+          <span class="chest-gem lg" aria-hidden="true">💎</span>
+          <span class="chest-rarity lg tier-${U.esc(c.rarity)}">${U.esc(rarityName(c.rarity))}</span>
+        </div>
+        <p class="small mt-12">Inside is one <strong>${U.esc(rarityName(c.rarity))}</strong> item —
+          a cosmetic you don't own yet, or a consumable if you own them all. Chests never hold tokens:
+          those come from quizzes, and nothing else.</p>
+        <p class="tiny dim mt-8">Rolled at ${U.esc(oddsLine(c.week))} for week ${c.week}.</p>`,
+      onSubmit() {
+        const res = SH.openChest(id);
+        UI.closeModal();
+        if (!res.ok) { UI.toast("Couldn't open that", res.error, "warn"); return false; }
+        setTimeout(() => revealChest(res.chest, res.item), 60);
+        return false;
+      }
+    });
+  }
+
+  function revealChest(chest, it) {
+    UI.modal({
+      title: it.name,
+      sub: `${rarityName(chest.rarity)} chest · day ${chest.week * 7}`,
+      size: "narrow",
+      body: `
+        <div class="chest-reveal tier-${U.esc(chest.rarity)}">
+          ${preview(it)}
+          <div>
+            <div class="bold">${U.esc(it.name)}</div>
+            <div class="tiny dim mt-4">${U.esc(it.blurb)}</div>
+          </div>
+        </div>
+        <p class="small dim mt-12">${it.consumable
+          ? "Banked in your wallet, ready when you want it."
+          : "You're wearing it now. Take it off any time in the Shop tab — it stays yours."}</p>`,
+      footer: `<button type="button" class="btn btn-primary" data-close>Nice</button>`,
+      // The wallet, the chest list and whatever is now being worn all
+      // changed behind this modal; the page under it is stale until it goes.
+      onDismiss() { App.router.refresh(); }
+    });
+  }
+
+  function openedChestView(c) {
+    const it = c.itemId ? SH.item(c.itemId) : null;
+    UI.modal({
+      title: `${rarityName(c.rarity)} chest`,
+      sub: `Day ${c.week * 7} · opened`,
+      size: "narrow",
+      body: it
+        ? `<div class="chest-reveal tier-${U.esc(c.rarity)}">${preview(it)}
+             <div><div class="bold">${U.esc(it.name)}</div>
+               <div class="tiny dim mt-4">${U.esc(it.blurb)}</div></div>
+           </div>`
+        : `<p class="small dim">This chest's contents aren't in the catalogue any more.</p>`
+    });
+  }
+
+  function chestCard() {
+    const waiting = SH.unopenedChests();
+    const opened = SH.chests().filter((c) => c.opened).slice(0, 4);
+    const next = SH.nextChest();
+    const streak = (S.db.streak && S.db.streak.count) || 0;
+
+    return `<div class="card mb-16">
+      <div class="card-head">
+        <div><h3>Streak chests</h3>
+          <div class="sub">A gem chest every seventh day, and the rarity is rolled</div></div>
+        ${waiting.length
+          ? `<span class="badge brand">${U.plural(waiting.length, "chest")} waiting</span>`
+          : `<span class="sub">${streak}-day streak</span>`}
+      </div>
+      <div class="card-body col gap-12">
+        ${waiting.length
+          ? `<div class="chest-row">${waiting.map(chestTile).join("")}</div>`
+          : `<p class="small dim" style="margin:0">Nothing waiting. Day ${next.week * 7} is the next one —
+             ${U.plural(next.inDays, "day")} away.</p>`}
+
+        <p class="tiny dim" style="margin:0">
+          Week ${next.week} rolls at ${U.esc(oddsLine(next.week))}${SH.chestOdds(next.week).floored
+            ? " — a milestone week, so nothing below Ultra" : ""}.
+          A chest holds an item of its rarity, never tokens.
+        </p>
+
+        ${opened.length ? `<div>
+          <h4 class="mb-8">Already opened</h4>
+          <div class="list">${opened.map((c) => {
+            const it = c.itemId ? SH.item(c.itemId) : null;
+            return `<button class="list-item quiz-row" data-open-chest="${U.esc(c.id)}">
+              <span class="grow">
+                <span class="title">${U.esc(it ? it.name : "Something no longer sold")}</span>
+                <span class="meta">Day ${c.week * 7} · ${U.esc(rarityName(c.rarity))} chest</span>
+              </span>
+              <span class="chest-rarity tier-${U.esc(c.rarity)}">${U.esc(SH.TIERS[c.rarity].glyph)}</span>
+            </button>`;
+          }).join("")}</div>
+        </div>` : ""}
+      </div>
+    </div>`;
+  }
+
   function earnTab() {
     const list = U.sortBy(SH.quizzes(), (q) => q.at, true);
     const st = statusLine();
@@ -547,7 +691,8 @@ App.views.shop = (function () {
     const week = SH.quizzes().filter((q) => q.date >= U.dateKey(U.addDays(new Date(), -6)));
     const passed = SH.quizzes().filter((q) => q.tokens > 0).length;
 
-    return `<div class="grid g-main">
+    return `${chestCard()}
+    <div class="grid g-main">
       <div class="card">
         <div class="card-head">
           <div><h3>Answer for what you studied</h3><div class="sub">You pick the topic, the quiz is written for it — and this is the only way to earn</div></div>
@@ -745,6 +890,7 @@ App.views.shop = (function () {
       App.router.refresh();
     });
     U.on(root, "click", "[data-quiz]", (_e, el) => viewQuiz(el.dataset.quiz));
+    U.on(root, "click", "[data-open-chest]", (_e, el) => chestForm(el.dataset.openChest));
     U.on(root, "click", "[data-buy]", (_e, el) => buyItem(el.dataset.buy));
     U.on(root, "click", "[data-equip]", (_e, el) => {
       const it = SH.item(el.dataset.equip);
@@ -764,5 +910,5 @@ App.views.shop = (function () {
 
   }
 
-  return { render, mount, quizForm, viewQuiz, title: "Study shop" };
+  return { render, mount, quizForm, viewQuiz, chestForm, title: "Study shop" };
 })();

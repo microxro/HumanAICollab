@@ -1041,6 +1041,163 @@ console.log("\nshop: what the model says is text, never markup");
   await closeModal();
 }
 
+console.log("\nshop: every seventh streak day drops a gem chest");
+{
+  await goEarn();
+  const streak = await page.evaluate(() => {
+    const U = App.utils, S = App.store;
+    S.commit((db) => {
+      db.wallet.chests = [];
+      db.wallet.lastChestWeek = 0;
+      db.streak.count = 6;
+      db.streak.last = U.dateKey(U.addDays(new Date(), -1));
+    });
+    S.touchStreak();                                   // day 7
+    const afterSeven = App.shop.chests().length;
+
+    // The same seven days reached again — a reload, another device syncing
+    // today — must not be a second chest.
+    S.commit((db) => { db.streak.last = U.dateKey(U.addDays(new Date(), -1)); });
+    S.touchStreak();
+    const afterEight = App.shop.chests().length;
+
+    S.commit((db) => {
+      db.streak.count = 13;
+      db.streak.last = U.dateKey(U.addDays(new Date(), -1));
+    });
+    S.touchStreak();                                   // day 14
+    const afterFourteen = App.shop.chests().length;
+
+    // A brand-new streak's very first touch is not a milestone.
+    S.commit((db) => { db.wallet.chests = []; db.wallet.lastChestWeek = 0; db.streak.last = null; db.streak.count = 0; });
+    S.touchStreak();
+    const fresh = App.shop.chests().length;
+
+    return { afterSeven, afterEight, afterFourteen, fresh,
+             weeks: App.shop.chests().map((c) => c.week) };
+  });
+  ok("day 7 drops one", streak.afterSeven === 1, String(streak.afterSeven));
+  ok("and the same week can't drop a second", streak.afterEight === 1, String(streak.afterEight));
+  ok("day 14 drops the next one", streak.afterFourteen === 2, String(streak.afterFourteen));
+  ok("a fresh streak's first day drops nothing", streak.fresh === 0, String(streak.fresh));
+}
+
+console.log("\nshop: a chest has a rarity, and the odds are stated rather than hidden");
+{
+  const odds = await page.evaluate(() => ({
+    week1: App.shop.chestOdds(1),
+    week5: App.shop.chestOdds(5),
+    week8: App.shop.chestOdds(8),
+    week9: App.shop.chestOdds(9),
+    // Injected rolls, so the outcome is arithmetic rather than luck: 0 is the
+    // bottom of the range and .999 the top.
+    lowWeek1: App.shop.rollChestRarity(1, () => 0),
+    highWeek1: App.shop.rollChestRarity(1, () => 0.999),
+    lowWeek8: App.shop.rollChestRarity(8, () => 0),
+    highWeek8: App.shop.rollChestRarity(8, () => 0.999)
+  }));
+  ok("a first week can't be Elite", odds.week1.weights.elite === 0, JSON.stringify(odds.week1.weights));
+  ok("and mostly isn't better than Common",
+     odds.week1.weights.common > odds.week1.weights.rare + odds.week1.weights.ultra,
+     JSON.stringify(odds.week1.weights));
+  ok("a later week can be", odds.week5.weights.elite > 0, JSON.stringify(odds.week5.weights));
+  ok("and is likelier to be, the longer it runs",
+     odds.week9.weights.elite > odds.week5.weights.elite,
+     `${odds.week5.weights.elite} → ${odds.week9.weights.elite}`);
+  ok("every eighth week is a milestone with a floor", odds.week8.floored === true);
+  ok("nothing below Ultra can come out of one",
+     odds.week8.weights.common === 0 && odds.week8.weights.rare === 0,
+     JSON.stringify(odds.week8.weights));
+  ok("the lowest roll in week 1 is Common", odds.lowWeek1 === "common", odds.lowWeek1);
+  ok("the highest is Ultra, not Elite", odds.highWeek1 === "ultra", odds.highWeek1);
+  ok("the lowest roll on a milestone is Ultra", odds.lowWeek8 === "ultra", odds.lowWeek8);
+  ok("and the highest is Elite", odds.highWeek8 === "elite", odds.highWeek8);
+}
+
+console.log("\nshop: opening a chest gives an item of its rarity — and never a token");
+{
+  const opened = await page.evaluate(() => {
+    const S = App.store;
+    S.commit((db) => { db.wallet.chests = []; db.wallet.owned = []; db.wallet.balance = 0; db.wallet.consumables = {}; });
+    const chest = App.shop.grantChest(3, { rarity: "rare" });
+    const before = App.shop.balance();
+    const earnedBefore = App.store.db.wallet.earned;
+    const res = App.shop.openChest(chest.id);
+    const rec = App.shop.chests().find((c) => c.id === chest.id);
+    return {
+      granted: chest.rarity,
+      ok: res.ok,
+      item: res.item && { id: res.item.id, tier: res.item.tier },
+      opened: rec.opened, itemId: rec.itemId,
+      owned: App.store.db.wallet.owned.includes(res.item.id),
+      balance: App.shop.balance(), before,
+      earnedBefore, earned: App.store.db.wallet.earned,
+      ledger: App.shop.ledger(2).map((e) => ({ n: e.n, reason: e.reason })),
+      second: App.shop.openChest(chest.id)
+    };
+  });
+  ok("it opens", opened.ok, JSON.stringify(opened));
+  ok("what comes out is of the chest's tier", opened.item.tier === "rare", JSON.stringify(opened.item));
+  ok("and is owned afterwards", opened.owned);
+  ok("the chest remembers what it held", opened.opened === true && opened.itemId === opened.item.id);
+  ok("no tokens were minted", opened.balance === opened.before && opened.balance === 0,
+     `${opened.before} → ${opened.balance}`);
+  ok("not even into the all-time total", opened.earned === opened.earnedBefore,
+     `${opened.earnedBefore} → ${opened.earned}`);
+  ok("the ledger records the item, at zero", opened.ledger[0].n === 0 && /chest/i.test(opened.ledger[0].reason),
+     JSON.stringify(opened.ledger[0]));
+  ok("and it can't be opened twice", !opened.second.ok, JSON.stringify(opened.second));
+}
+
+console.log("\nshop: a chest is never empty, however much you already own");
+{
+  const exhausted = await page.evaluate(() => {
+    const S = App.store;
+    // Own every non-consumable in the Common tier, then ask for a Common one.
+    S.commit((db) => {
+      db.wallet.chests = [];
+      db.wallet.consumables = {};
+      db.wallet.owned = App.shop.byTier("common").filter((i) => !i.consumable).map((i) => i.id);
+    });
+    const chest = App.shop.grantChest(1, { rarity: "common" });
+    const res = App.shop.openChest(chest.id);
+    return { ok: res.ok, item: res.item && { id: res.item.id, tier: res.item.tier, consumable: !!res.item.consumable } };
+  });
+  ok("it still gives something", exhausted.ok && !!exhausted.item, JSON.stringify(exhausted));
+  ok("and what it gives is usable rather than a duplicate",
+     exhausted.item.consumable === true || exhausted.item.tier !== "common",
+     JSON.stringify(exhausted.item));
+}
+
+console.log("\nshop: the chest is on screen, and opening it is a deliberate click");
+{
+  await page.evaluate(() => {
+    App.store.commit((db) => { db.wallet.chests = []; db.wallet.owned = []; db.wallet.consumables = {}; });
+    App.shop.grantChest(2, { rarity: "ultra" });
+  });
+  await goEarn();
+  ok("the waiting chest has a tile", await page.locator("[data-open-chest]").count() >= 1);
+  ok("and the tile says which rarity it is",
+     /Ultra/.test(await page.locator(".chest-tile").first().innerText()));
+  ok("the nav badge counts it",
+     Number(await page.locator('.nav-item[data-view="shop"] .count').first().textContent()) >= 1,
+     await page.locator('.nav-item[data-view="shop"] .count').first().textContent().catch(() => "none"));
+
+  await page.locator("[data-open-chest]").first().click();
+  await page.waitForTimeout(300);
+  ok("clicking opens the chest screen, not the chest", await modalOpen());
+  ok("nothing was granted yet", await page.evaluate(() => App.shop.unopenedChests().length) === 1);
+  ok("the odds are shown before it's opened",
+     /%/.test(await page.locator(".modal-root").innerText()));
+
+  await page.locator('.modal-root button[type="submit"]').click();
+  await page.waitForTimeout(400);
+  ok("now it's open", await page.evaluate(() => App.shop.unopenedChests().length) === 0);
+  ok("and what was inside is on screen",
+     await page.locator(".chest-reveal").count() === 1);
+  await closeModal();
+}
+
 console.log("\nshop: a banked consumable stops being buyable when it's full");
 {
   await page.evaluate(() => App.store.commit((db) => {

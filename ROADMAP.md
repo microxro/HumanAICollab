@@ -311,6 +311,38 @@ Photos already taken are not deleted, and the retention sweep that ages them
 out of IndexedDB stays for exactly that reason — a student who used the old
 route keeps their gallery until it expires, and nothing new is written to it.
 
+**Gem chests on the streak (F161).** Making the quiz the only mint left the
+streak paying nothing at all, and a streak is the one thing in this app that
+cannot be rushed — 49 days is 49 days, whatever a student does with their
+evenings. So every seventh day drops a gem chest, and the chest has a rarity:
+Common, Rare, Ultra or Elite, the same four bands the catalogue is priced in,
+so "an Ultra chest" already means something to anybody who has looked at the
+shop.
+
+A chest holds an **item** of its rarity, never tokens. That is what lets it
+exist beside the single-mint rule: tokens are minted in one function for a
+quiz the server marked, and a chest that paid currency would be a second mint
+wearing a bow. An item is the reward itself rather than a way to buy one.
+
+The rarity is rolled and the odds improve with the streak — a first week is
+70/25/5/0 and cannot be Elite at all; past two months it is 25/35/28/12. Every
+eighth chest is at least Ultra, so a long streak has a floor and not only
+better luck. **The odds are printed on the card**, before the chest is opened,
+because an undisclosed drop rate is the part of a loot box worth being
+suspicious of and there is no reason for one here.
+
+Three details worth stating:
+
+- **A week can only pay once.** The highest week already granted is recorded
+  on the wallet, so a reload, or a second device syncing the same day, cannot
+  turn seven days into two chests.
+- **A chest is never empty.** If the tier's cosmetics are all owned it gives a
+  consumable, and failing that it escalates to another tier — "nothing, you
+  own it all" is the one outcome a reward for 49 days must never have.
+- **Opening is a deliberate click**, on a screen that shows the rarity and the
+  odds first. The reveal is the moment worth having; it should not happen on
+  the way past.
+
 **Outside-school activities (F156).** The Activities screen assumed every
 extracurricular belonged to the school: its adult was picked from the staff
 list, its location was a room number, and the timetable drew it only on a day

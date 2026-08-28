@@ -108,6 +108,7 @@
     // js/shop.js.
     need(db, "wallet", { balance: 0, earned: 0, spent: 0, owned: [], daily: {},
                          topics: {}, topicsDay: "", lastQuizAt: 0, lastQuizDay: "",
+                         chests: [], lastChestWeek: 0,
                          ledger: [], boosts: [], scale: 0 });
     if (db.wallet && typeof db.wallet === "object") {
       need(db.wallet, "balance", 0);
@@ -145,6 +146,11 @@
       // moves on its own needs to say why. `boosts` holds timed earning
       // multipliers. `scale` records which denomination this wallet is in;
       // see REDENOMINATION in js/shop.js.
+      // F161. Gem chests from the 7-day streak milestones, newest first, and
+      // the highest week already granted — which is what stops a reload
+      // handing out a second chest for the same seven days.
+      if (!Array.isArray(db.wallet.chests)) { db.wallet.chests = []; dirty = true; }
+      need(db.wallet, "lastChestWeek", 0);
       if (!Array.isArray(db.wallet.ledger)) { db.wallet.ledger = []; dirty = true; }
       if (!Array.isArray(db.wallet.boosts)) { db.wallet.boosts = []; dirty = true; }
       need(db.wallet, "scale", 0);

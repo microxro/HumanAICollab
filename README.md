@@ -153,6 +153,15 @@ the economy — earned by pressing buttons in an app rather than by knowing
 anything. One route means one rate card, one thing to be good at, and a
 balance that means the same thing however you got there.
 
+**The streak pays in chests instead.** Every seventh day drops a gem chest
+with a rarity — Common, Rare, Ultra or Elite, the same bands the shop is
+priced in — holding one item of that rarity. Never tokens: a chest that paid
+currency would be a second way to mint one. The odds improve the longer the
+streak runs (a first week is 70/25/5/0 and cannot be Elite; past two months
+it is 25/35/28/12), every eighth chest is at least Ultra, and **the odds are
+printed on the card before you open it**. A week can only ever pay once,
+however many times the app is reloaded.
+
 The interesting part is that **nothing here can prove a student studied** —
 answering five questions is evidence you know the material, not evidence of an
 evening's work, and the wallet lives in the browser where anyone determined
@@ -177,6 +186,7 @@ number don't work, and the app says why out loud when it refuses one.
 | Marking an assignment done, reopening it, marking it done again | Pays nothing either way. Finishing work is tracked; it is not currency. |
 | Starting a focus block and walking away | Pays nothing at all. A running timer is not studying, and paying by the minute for one rewarded exactly that. |
 | Finding another route — a streak day, a reviewed deck, a ticked habit | There isn't one. The shop no longer hands any other module a way to pay: tokens are minted in one function, for a quiz the server marked. |
+| Reloading on day 7 for a second chest | Refused. The highest streak week already granted is recorded on the wallet, so seven days pay one chest however many times the app is opened — and a chest holds an item, never tokens. |
 
 Full marks pays 100, most of them 50, half 25; under half pays nothing. That is
 at medium difficulty — easy is ×0.75 and hard ×1.25 — plus 25 for the first

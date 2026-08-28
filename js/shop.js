@@ -731,6 +731,180 @@ App.shop = (function () {
     return factor !== 1;
   }
 
+  /* ======================================================== F161 gem chests
+
+     Every seventh day of a streak drops a gem chest, and the chest has a
+     rarity: Common, Rare, Ultra or Elite — the same four bands the catalogue
+     is priced in, so "an Ultra chest" already means something to anyone who
+     has looked at the shop.
+
+     A chest holds an ITEM of its rarity, never tokens. That is the whole
+     reason it can exist at all: tokens are minted in one place, for a quiz
+     the server marked (see record()), and a chest that paid currency would
+     be a second mint dressed up as a present. An item is a different thing —
+     it is the reward, not a way to buy one.
+
+     The rarity is rolled, and the odds improve the longer the streak runs.
+     A first week is mostly Common and cannot be Elite at all; past two
+     months the odds are weighted the other way. Every eighth chest is at
+     least Ultra, so a long streak has a floor and not just better luck.
+
+     A streak is the one thing in this app that cannot be rushed: 49 days is
+     49 days, whatever a student does with their evenings. That is what makes
+     it safe to reward with items when nothing else here gives anything away.
+     ======================================================================== */
+
+  /**
+   * Rarity weights by streak week. The bands are deliberately coarse — a
+   * student should be able to read "week 9, so Ultra is likely" off the card
+   * without arithmetic.
+   */
+  const CHEST_ODDS = [
+    { upTo: 3,        weights: { common: 70, rare: 25, ultra: 5,  elite: 0 } },
+    { upTo: 7,        weights: { common: 45, rare: 35, ultra: 17, elite: 3 } },
+    { upTo: Infinity, weights: { common: 25, rare: 35, ultra: 28, elite: 12 } }
+  ];
+
+  /** Every Nth chest is at least Ultra, so two months of streak has a floor. */
+  const CHEST_FLOOR_EVERY = 8;
+  const CHEST_FLOOR_TIER = "ultra";
+
+  function chests() {
+    const t = wallet();
+    if (!Array.isArray(t.chests)) t.chests = [];
+    return t.chests;
+  }
+
+  function unopenedChests() { return chests().filter((c) => c && !c.opened); }
+
+  /**
+   * The odds a chest for `week` is rolled against, after the milestone floor
+   * has been applied. Returned rather than kept private because the card that
+   * offers the chest shows them — an unstated drop rate is the part of a loot
+   * box worth being suspicious of, and there is no reason for it here.
+   */
+  function chestOdds(week) {
+    const w = Math.max(1, Math.floor(Number(week) || 1));
+    const band = CHEST_ODDS.find((b) => w <= b.upTo).weights;
+    const floored = w % CHEST_FLOOR_EVERY === 0;
+    const floorOrder = floored ? TIERS[CHEST_FLOOR_TIER].order : 0;
+
+    const weights = {};
+    let total = 0;
+    Object.keys(TIERS).forEach((k) => {
+      const n = TIERS[k].order >= floorOrder ? band[k] : 0;
+      weights[k] = n;
+      total += n;
+    });
+    // A band whose whole range is below the floor would leave nothing to roll
+    // against. None does today; this is here so a future edit to the table
+    // cannot silently produce a chest with no rarity.
+    if (total <= 0) { weights[CHEST_FLOOR_TIER] = 1; total = 1; }
+    return { week: w, weights, total, floored };
+  }
+
+  /** Roll one rarity. `rnd` is injectable so a test can pin the outcome. */
+  function rollChestRarity(week, rnd) {
+    const odds = chestOdds(week);
+    const roll = (typeof rnd === "function" ? rnd() : Math.random()) * odds.total;
+    let seen = 0;
+    const keys = Object.keys(TIERS).sort((a, b) => TIERS[a].order - TIERS[b].order);
+    for (const k of keys) {
+      seen += odds.weights[k];
+      if (roll < seen) return k;
+    }
+    return keys[keys.length - 1];
+  }
+
+  /**
+   * Put a chest in the wallet for `week`.
+   *
+   * Called from the streak touch below, and directly by nothing else. The
+   * week is recorded on the wallet as well as on the chest so a second touch
+   * — a reload, another device syncing the same day — cannot grant twice.
+   */
+  function grantChest(week, opts) {
+    const o = opts || {};
+    const w = Math.max(1, Math.floor(Number(week) || 1));
+    const rarity = TIERS[o.rarity] ? o.rarity : rollChestRarity(w, o.rnd);
+    const chest = { id: U.uid("ch"), at: Date.now(), week: w, rarity, opened: false, itemId: null };
+
+    S.commit(() => {
+      const t = wallet();
+      chests().unshift(chest);
+      if (chests().length > 60) chests().length = 60;
+      t.lastChestWeek = Math.max(Number(t.lastChestWeek) || 0, w);
+      note(t, 0, `${TIERS[rarity].label.replace(" Tier", "")} chest — ${w * 7}-day streak`);
+    });
+    return chest;
+  }
+
+  /**
+   * What a chest of this rarity would give: something not owned first, and a
+   * consumable when the tier is exhausted.
+   *
+   * Escalating through the other tiers matters more than it looks. A student
+   * who has bought the whole Rare tier should still get something from a Rare
+   * chest, and "nothing, you own it all" is the one outcome a reward for 49
+   * days of work must never have.
+   */
+  function chestReward(rarity, rnd) {
+    const pick = (list) => list[Math.floor((typeof rnd === "function" ? rnd() : Math.random()) * list.length)] || null;
+    const order = Object.keys(TIERS).sort((a, b) => TIERS[a].order - TIERS[b].order);
+    const start = TIERS[rarity] ? order.indexOf(rarity) : 0;
+    // The chest's own tier first, then up (a better prize is a fine
+    // consolation), then down.
+    const search = [order[start], ...order.slice(start + 1), ...order.slice(0, start).reverse()];
+
+    for (const tier of search) {
+      const pool = byTier(tier);
+      const fresh = pool.filter((i) => !i.consumable && !owns(i.id));
+      if (fresh.length) return pick(fresh);
+    }
+    for (const tier of search) {
+      const usable = byTier(tier).filter((i) => i.consumable && !(i.max && held(i.value) >= i.max));
+      if (usable.length) return pick(usable);
+    }
+    return null;
+  }
+
+  /**
+   * Open one. The item goes on straight away, exactly as a bought one does,
+   * and the chest keeps what it held so the history reads as a record rather
+   * than a list of anonymous boxes.
+   */
+  function openChest(id, opts) {
+    const chest = chests().find((c) => c.id === id);
+    if (!chest) return { ok: false, error: "That chest isn't in your wallet." };
+    if (chest.opened) return { ok: false, error: "That chest is already open." };
+
+    const it = chestReward(chest.rarity, opts && opts.rnd);
+    if (!it) return { ok: false, error: "There is nothing left in the shop to put in it." };
+
+    S.commit((db) => {
+      const t = wallet();
+      const rec = chests().find((c) => c.id === id);
+      if (rec) { rec.opened = true; rec.openedAt = Date.now(); rec.itemId = it.id; }
+      if (!t.owned.includes(it.id)) t.owned.push(it.id);
+      if (!t.bought || typeof t.bought !== "object" || Array.isArray(t.bought)) t.bought = {};
+      t.bought[it.id] = (Number(t.bought[it.id]) || 0) + 1;
+      // Zero tokens, deliberately: the ledger records what a chest gave, not
+      // a payment, because a chest never pays.
+      note(t, 0, `${TIERS[chest.rarity].label.replace(" Tier", "")} chest — ${it.name}`);
+      if (it.consumable) { if (typeof it.apply === "function") it.apply(db); }
+      else setSlot(db, it.kind, it.value);
+    });
+    App.applyShellPrefs && App.applyShellPrefs();
+    return { ok: true, chest: chests().find((c) => c.id === id) || chest, item: it };
+  }
+
+  /** Days until the next chest, and which week it will be. */
+  function nextChest() {
+    const count = (S.db.streak && S.db.streak.count) || 0;
+    const week = Math.floor(count / 7) + 1;
+    return { week, inDays: week * 7 - count };
+  }
+
   /* ======================================================== buying/wearing */
 
   function buy(id) {
@@ -821,17 +995,50 @@ App.shop = (function () {
   // timer asks whether an alarm voice was bought before it offers it.
   S.ownsShopItem = owns;
 
+  /* ------------------------------------------------- the streak's chest --
+
+     The one hook this module still installs on the rest of the app, and the
+     only thing it does is hand over a box. It cannot mint a token, which is
+     what makes it a different animal from the payouts that used to live
+     here — see the note above.
+
+     touchStreak is itself an override installed by store2.js, so this wraps
+     that one rather than store.js's.                                       */
+
+  const baseTouch = S.touchStreak;
+  S.touchStreak = function () {
+    const before = S.db.streak.last;
+    baseTouch();
+    // Only a streak that CONTINUES earns a chest. The touch that creates one
+    // fires on first open, before the student has done anything at all.
+    if (!before || S.db.streak.last === before) return;
+
+    const count = S.db.streak.count || 0;
+    if (count <= 0 || count % 7 !== 0) return;
+    const week = count / 7;
+    // The same week can be reached twice — a reload, a second device syncing
+    // the same day — and a chest per reload is not a reward.
+    if ((Number(wallet().lastChestWeek) || 0) >= week) return;
+
+    const chest = grantChest(week);
+    if (App.ui) {
+      App.ui.toast(`${TIERS[chest.rarity].glyph} ${TIERS[chest.rarity].label.replace(" Tier", "")} chest`,
+        `${count} days straight. It's waiting in the study shop.`, "ok");
+    }
+  };
+
   // Wallets written before the tiers existed are worth the same after them.
   redenominate();
 
   return {
-    RULES, TIERS, SCALE, CATALOG, FREE_ACCENTS, FREE_ALARMS, SLOT,
+    RULES, TIERS, SCALE, CATALOG, FREE_ACCENTS, FREE_ALARMS, SLOT, CHEST_ODDS,
     wallet, balance, item, items, kinds, kindLabel, owns, ownedCount, equipped, isEquipped,
     tiers, tierOf, byTier, slotValue,
     affordableCount, nextUp, quizzes, earnedToday, dailyCap, remainingToday, cooldownLeft, firstToday,
     topicKey, topicRepeats, quote, canStart, record, deleteQuiz,
     buy, equip, unequip, sanitize,
     ledger, multiplier, activeBoost, redenominate,
+    chests, unopenedChests, chestOdds, rollChestRarity, grantChest, chestReward, openChest, nextChest,
     held, spendHeld, skipCooldown
   };
 })();
