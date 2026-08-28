@@ -30,7 +30,9 @@
       { id: "reading",    label: "Reading",     icon: "▥",
         badge: () => S.db.reading.filter((r) => !r.done).length },
       { id: "shop",       label: "Study shop",  icon: "◆",
-        badge: () => App.shop.affordableCount() }
+        // An unopened chest is the more urgent of the two, and both are the
+        // same kind of thing to the student: something waiting for them.
+        badge: () => App.shop.affordableCount() + App.shop.unopenedChests().length }
     ]},
     { group: "Life", items: [
       { id: "activities", label: "Activities", icon: "◇" },

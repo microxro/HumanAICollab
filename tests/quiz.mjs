@@ -1,21 +1,22 @@
 /* ==========================================================================
-   tests/proof.mjs — F158: the AI gate on study-shop tokens
+   tests/quiz.mjs — F160: the AI gate on study-shop tokens
 
-   Tokens used to be paid for a photo and a self-reported number. This suite
-   is about the two routes that replaced that, and it cares about one
-   question above all others: can a student get paid without doing the work?
+   Tokens used to be paid for a photo and a self-reported number, then for a
+   photo the model wrote a quiz about. This suite is about the two routes that
+   replaced both, and it cares about one question above all others: can a
+   student get paid without doing the work?
 
    So the assertions cluster on the boundary rather than the happy path:
 
-     • a photo the model calls "not schoolwork" yields no ticket at all
-     • the answer key is not in the classify response, in any field
+     • a topic the model says isn't school material yields no ticket at all
+     • the answer key is not in the quiz response, in any field
      • a ticket cannot be forged, replayed past its expiry, moved to another
        account, or swapped for the session token this same server signed
-     • the minutes written to the study log come off the signed ticket, so
-       the request body cannot inflate them
+     • the topic and difficulty credited come off the signed ticket, so the
+       request body cannot rewrite either
      • grading is arithmetic, and the table lives here, not on the client
 
-   Run: node --import ./tests/stub/register.mjs tests/proof.mjs
+   Run: node --import ./tests/stub/register.mjs tests/quiz.mjs
    ========================================================================== */
 
 process.env.SCHOLAR_SECRET = "test-secret-value-at-least-16-chars-long";
@@ -59,21 +60,19 @@ async function callAi(path, { body, token } = {}) {
   return { status: res.status, data };
 }
 
-const IMG = { imageBase64: "aGVsbG8td29ybGQ=", mimeType: "image/jpeg", hash: "0f1e2d3c4b5a6978" };
+const TOPIC = { topic: "Stoichiometry", className: "Chemistry", difficulty: "medium" };
 
 /** A well-formed four-question reply from the model. */
 function goodQuiz(overrides) {
   return Object.assign({
-    schoolwork: true,
-    kind: "worksheet",
+    teachable: true,
     subject: "Chemistry",
-    reason: "A stoichiometry worksheet with six worked problems.",
-    estimatedMinutes: 45,
+    reason: "Five questions on mole ratios and limiting reagents.",
     questions: [
-      { prompt: "Which reagent is limiting in problem 3?", choices: ["O2", "CH4", "CO2", "H2O"], answerIndex: 1 },
-      { prompt: "What mass of product does problem 4 give?", choices: ["4.4 g", "8.8 g", "12.1 g", "16.0 g"], answerIndex: 2 },
-      { prompt: "Which step was skipped in problem 5?", choices: ["Balancing", "Mole ratio", "Molar mass", "Rounding"], answerIndex: 0 },
-      { prompt: "What unit does problem 6 end in?", choices: ["mol", "g", "L", "kPa"], answerIndex: 3 }
+      { prompt: "Which reagent is limiting when 1 mol CH4 meets 1 mol O2?", choices: ["O2", "CH4", "CO2", "H2O"], answerIndex: 1 },
+      { prompt: "What mass of CO2 comes from 0.2 mol of carbon?", choices: ["4.4 g", "8.8 g", "12.1 g", "16.0 g"], answerIndex: 2 },
+      { prompt: "Which step comes first in a mole-ratio problem?", choices: ["Balancing", "Mole ratio", "Molar mass", "Rounding"], answerIndex: 0 },
+      { prompt: "What unit does a molar volume answer end in?", choices: ["mol", "g", "L", "kPa"], answerIndex: 3 }
     ]
   }, overrides || {});
 }
@@ -92,48 +91,52 @@ let student, other;
   })).data;
 }
 
-/* ====================================================== not schoolwork ==== */
-console.log("\nproof: a photo of something else earns nothing");
+/* ==================================================== not school material ==== */
+console.log("\nquiz: a topic school doesn't teach earns nothing");
 {
   gem.__reset();
   gem.__queue({
-    schoolwork: false, kind: "other", subject: "", estimatedMinutes: 0, questions: [],
-    reason: "This is a screenshot of a games library."
+    teachable: false, subject: "", questions: [],
+    reason: "That's a video game, not something a school teaches."
   });
-  const r = await callAi("study-proof", { body: IMG, token: student.token });
+  const r = await callAi("study-topic", {
+    body: { topic: "Fortnite build fights" }, token: student.token
+  });
 
   ok("the call succeeds — a refusal is an outcome, not an error", r.status === 200, String(r.status));
-  ok("it says the photo isn't schoolwork", r.data.schoolwork === false, JSON.stringify(r.data));
+  ok("it says the topic can't be quizzed", r.data.ok === false, JSON.stringify(r.data));
   ok("no ticket is issued", !r.data.ticket, String(r.data.ticket));
   ok("no questions come back", !r.data.questions || r.data.questions.length === 0);
-  ok("the student is told what it saw", /games library/i.test(r.data.reason || ""), r.data.reason);
+  ok("the student is told why", /video game/i.test(r.data.reason || ""), r.data.reason);
 }
 
-console.log("\nproof: schoolwork too blurry to ask about also earns nothing");
+console.log("\nquiz: a topic too thin to ask about also earns nothing");
 {
   gem.__reset();
   // The model says yes, but the questions are unusable: this must not fall
-  // back to paying for the photo alone.
+  // back to paying for naming a topic.
   gem.__queue(goodQuiz({ questions: [{ prompt: "?", choices: ["a", "a", "b", "c"], answerIndex: 0 }] }));
-  const r = await callAi("study-proof", { body: IMG, token: student.token });
+  const r = await callAi("study-topic", { body: TOPIC, token: student.token });
 
   ok("no ticket for a quiz that couldn't be built", !r.data.ticket, JSON.stringify(r.data));
-  ok("and it says why, without blaming the student", /readable|clearer/i.test(r.data.reason || ""), r.data.reason);
+  ok("and it says why, without blaming the student",
+     /broad|thin/i.test(r.data.reason || ""), r.data.reason);
 }
 
 /* ========================================================== the answers ==== */
-console.log("\nproof: the answer key never reaches the browser");
+console.log("\nquiz: the answer key never reaches the browser");
 let ticket;
 {
   gem.__reset();
   gem.__queue(goodQuiz());
-  const r = await callAi("study-proof", { body: IMG, token: student.token });
+  const r = await callAi("study-topic", { body: TOPIC, token: student.token });
   ticket = r.data.ticket;
 
-  ok("a real photo gets a quiz", (r.data.questions || []).length === 4, JSON.stringify(r.data.questions));
+  ok("a real topic gets a quiz", (r.data.questions || []).length === 4, JSON.stringify(r.data.questions));
   ok("and a ticket", typeof ticket === "string" && ticket.length > 0);
   ok("each question keeps its four choices",
      r.data.questions.every((q) => q.choices.length === 4));
+  ok("the topic comes back as it was asked", r.data.topic === TOPIC.topic, r.data.topic);
 
   // The whole response, flattened. Not "questions[i].answerIndex is absent" —
   // any field anywhere carrying the key would defeat the point.
@@ -143,23 +146,24 @@ let ticket;
      flat.indexOf('"key"') === -1 && flat.indexOf('"answers"') === -1, flat.slice(0, 200));
 
   // The ticket is base64url(payload).base64url(sig) — readable to anyone who
-  // looks. That is fine for the fingerprint and the minutes; it is NOT fine
-  // if it means the key is legible too, so this asserts what it actually is.
+  // looks. That is fine for the topic and the difficulty; it is NOT fine if it
+  // means the key is legible too, so this asserts what it actually is.
   const payload = JSON.parse(Buffer.from(ticket.split(".")[0], "base64url").toString());
   ok("the ticket does carry the key (that is what signing is for)", Array.isArray(payload.key));
   ok("bound to this account", payload.sub === student.user.id);
-  ok("bound to this photo", payload.h === IMG.hash);
+  ok("bound to this topic", payload.t === TOPIC.topic);
+  ok("and to the difficulty it was written at", payload.d === "medium", String(payload.d));
   ok("and marked as a quiz ticket, not a session", payload.k === "sq");
 }
 
 /* ============================================================= grading ==== */
-console.log("\nproof: the score decides the payout, and the server decides the score");
+console.log("\nquiz: the score decides the payout, and the server decides the score");
 {
-  // A ticket is single-use now, so each of these gets a fresh one.
+  // A ticket is single-use, so each of these gets a fresh one.
   const freshTicket = async () => {
     gem.__reset();
     gem.__queue(goodQuiz());
-    return (await callAi("study-proof", { body: IMG, token: student.token })).data.ticket;
+    return (await callAi("study-topic", { body: TOPIC, token: student.token })).data.ticket;
   };
   const grade = async (answers) =>
     (await callAi("study-quiz", { body: { ticket: await freshTicket(), answers }, token: student.token })).data;
@@ -188,11 +192,11 @@ console.log("\nproof: the score decides the payout, and the server decides the s
 }
 
 /* ============================================================== replay ==== */
-console.log("\nproof: a ticket is marked once, so the quiz can't be brute-forced");
+console.log("\nquiz: a ticket is marked once, so the quiz can't be brute-forced");
 {
   gem.__reset();
   gem.__queue(goodQuiz());
-  const t = (await callAi("study-proof", { body: IMG, token: student.token })).data.ticket;
+  const t = (await callAi("study-topic", { body: TOPIC, token: student.token })).data.ticket;
 
   // Attempt one: get it wrong on purpose, and read which ones were wrong —
   // that feedback is useful to a student and lethal without this rule.
@@ -204,22 +208,38 @@ console.log("\nproof: a ticket is marked once, so the quiz can't be brute-forced
   const second = await callAi("study-quiz", { body: { ticket: t, answers: GOOD_KEY }, token: student.token });
   ok("the same ticket cannot be graded twice", second.status === 409, String(second.status));
   ok("so knowing the wrong answers buys nothing", second.data.tokens === undefined, JSON.stringify(second.data));
-  ok("and the student is told what to do instead", /retake|new photo/i.test(second.data.error || ""), second.data.error);
+  ok("and the student is told what to do instead", /retake|new one/i.test(second.data.error || ""), second.data.error);
 }
 
-console.log("\nproof: the minutes come off the ticket, not the request");
+console.log("\nquiz: the topic and difficulty come off the ticket, not the request");
 {
   gem.__reset();
   gem.__queue(goodQuiz());
-  const t = (await callAi("study-proof", { body: IMG, token: student.token })).data.ticket;
+  const t = (await callAi("study-topic", {
+    body: { topic: "Mole ratios", difficulty: "easy" }, token: student.token
+  })).data.ticket;
   const r = await callAi("study-quiz", {
-    body: { ticket: t, answers: GOOD_KEY, estimatedMinutes: 9999 }, token: student.token
+    body: { ticket: t, answers: GOOD_KEY, topic: "Something else", difficulty: "hard" },
+    token: student.token
   });
-  ok("the model's own estimate is what comes back", r.data.estimatedMinutes === 45, String(r.data.estimatedMinutes));
+  ok("the topic credited is the one quizzed", r.data.topic === "Mole ratios", r.data.topic);
+  ok("and so is the difficulty", r.data.difficulty === "easy", String(r.data.difficulty));
+  ok("with the multiplier the server owns", r.data.multiplier === 0.75, String(r.data.multiplier));
+}
+
+console.log("\nquiz: an unknown difficulty falls back rather than inventing a rate");
+{
+  gem.__reset();
+  gem.__queue(goodQuiz());
+  const r = await callAi("study-topic", {
+    body: { topic: "Photosynthesis", difficulty: "impossible" }, token: student.token
+  });
+  ok("the quiz is still written", r.data.ok === true, JSON.stringify(r.data).slice(0, 120));
+  ok("at medium", r.data.difficulty === "medium", String(r.data.difficulty));
 }
 
 /* ============================================================= tickets ==== */
-console.log("\nproof: a ticket can't be forged, moved, or outlived");
+console.log("\nquiz: a ticket can't be forged, moved, or outlived");
 {
   const bad = await callAi("study-quiz", {
     body: { ticket: ticket.slice(0, -4) + "AAAA", answers: GOOD_KEY }, token: student.token
@@ -240,7 +260,7 @@ console.log("\nproof: a ticket can't be forged, moved, or outlived");
   ok("a session token is not a quiz ticket", asSession.status === 400, String(asSession.status));
 
   const stale = await signToken({
-    k: "sq", sub: student.user.id, h: IMG.hash, key: GOOD_KEY, est: 45, qexp: Date.now() - 1000
+    k: "sq", sub: student.user.id, t: TOPIC.topic, d: "medium", key: GOOD_KEY, qexp: Date.now() - 1000
   });
   const late = await callAi("study-quiz", { body: { ticket: stale, answers: GOOD_KEY }, token: student.token });
   ok("an expired quiz is refused", late.status === 400, String(late.status));
@@ -248,7 +268,7 @@ console.log("\nproof: a ticket can't be forged, moved, or outlived");
   // A validly signed ticket claiming a payout directly, rather than a key to
   // be graded against.
   const greedy = await signToken({
-    k: "sq", sub: student.user.id, h: IMG.hash, key: [], tokens: 99, est: 45, qexp: Date.now() + 60000
+    k: "sq", sub: student.user.id, t: TOPIC.topic, d: "hard", key: [], tokens: 99, qexp: Date.now() + 60000
   });
   const g = await callAi("study-quiz", { body: { ticket: greedy, answers: [] }, token: student.token });
   ok("a ticket cannot name its own payout",
@@ -256,31 +276,36 @@ console.log("\nproof: a ticket can't be forged, moved, or outlived");
 }
 
 /* ================================================================ auth ==== */
-console.log("\nproof: both routes need an account");
+console.log("\nquiz: both routes need an account");
 {
-  const p = await callAi("study-proof", { body: IMG });
-  ok("classify refuses an anonymous caller", p.status === 401, String(p.status));
+  const p = await callAi("study-topic", { body: TOPIC });
+  ok("writing a quiz refuses an anonymous caller", p.status === 401, String(p.status));
   const q = await callAi("study-quiz", { body: { ticket, answers: GOOD_KEY } });
   ok("so does grading", q.status === 401, String(q.status));
 }
 
-console.log("\nproof: the image is validated before a call is spent");
+console.log("\nquiz: the topic is validated before a call is spent");
 {
   gem.__reset();
-  const empty = await callAi("study-proof", { body: { mimeType: "image/jpeg" }, token: student.token });
-  ok("no image is a 400", empty.status === 400, String(empty.status));
+  const empty = await callAi("study-topic", { body: {}, token: student.token });
+  ok("no topic is a 400", empty.status === 400, String(empty.status));
 
-  const wrong = await callAi("study-proof", {
-    body: { imageBase64: "abc", mimeType: "application/pdf" }, token: student.token
-  });
-  ok("a non-image type is a 400", wrong.status === 400, String(wrong.status));
+  const tiny = await callAi("study-topic", { body: { topic: "hi" }, token: student.token });
+  ok("a two-character topic is a 400, not a quiz about a guess",
+     tiny.status === 400, String(tiny.status));
 
-  const noHash = await callAi("study-proof", {
-    body: { imageBase64: "abc", mimeType: "image/jpeg" }, token: student.token
-  });
-  ok("a missing fingerprint is a 400, not a ticket bound to nothing",
-     noHash.status === 400, String(noHash.status));
   ok("and neither one reached the model", gem.__calls().length === 0, String(gem.__calls().length));
+}
+
+console.log("\nquiz: a very long topic is clamped, never passed through whole");
+{
+  gem.__reset();
+  gem.__queue(goodQuiz());
+  const long = "Revision ".repeat(40);
+  const r = await callAi("study-topic", { body: { topic: long }, token: student.token });
+  ok("the quiz is still written", r.data.ok === true, JSON.stringify(r.data).slice(0, 120));
+  ok("with the topic cut to the documented ceiling",
+     r.data.topic.length <= 80, String(r.data.topic.length));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

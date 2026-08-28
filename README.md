@@ -112,7 +112,7 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 - **Flashcards** — Leitner spaced repetition, plus **multiple-choice and type-the-answer quiz modes** with forgiving answer matching.
 - **Notes** — **Markdown** editor with live preview, and **one-click note → flashcard deck** extraction from "term — definition" lines.
 - **Reading** — books and chapter assignments with pages-per-day pacing and behind/ahead detection.
-- **Study shop** — earn **study tokens** two ways: from the work StudyHold measured for itself (focus minutes, finished assignments, streak days, flashcard reviews, reading, habits, goals) and from a photo of the work it couldn't see, which is read and then quizzed before it pays. Spend them across four tiers — **Common, Rare, Ultra and Elite**, the top of which runs to 1000 tokens — on accent colours, surface skins, an avatar ring, a nameplate under your name, the focus timer's alarm voice, streak freezes and timed earning multipliers. The photos never leave the device, the economy is built so the obvious shortcuts don't pay (see below), nothing costs money, and no feature that was free moved behind it.
+- **Study shop** — earn **study tokens** exactly one way: by **answering a quiz on a topic you choose**. You name what you studied, pick a difficulty, the model writes five questions about it, and the score decides the payout. Nothing else pays — not a finished assignment, not a streak day, not the focus timer. Spend them across four tiers — **Common, Rare, Ultra and Elite**, the top of which runs to 1000 tokens — on accent colours, surface skins, an avatar ring, a nameplate under your name, the focus timer's alarm voice, streak freezes and timed earning multipliers. Only the topic ever leaves the device, the economy is built so the obvious shortcuts don't pay (see below), nothing costs money, and no feature that was free moved behind it.
 
 ### Life
 - **Activities** — practices, clubs, and volunteering with hour logging. Optionally date-bounded (a season that starts and ends on real dates, not just "Fall"). **"Add with AI"** *(needs `GEMINI_API_KEY`)* turns a plain-English description ("swimming 6-6:45pm weekdays, Sept 5 to Oct 25") or a photo of a schedule or bell-times page into editable drafts — nothing saves until you review and confirm each one.
@@ -141,54 +141,73 @@ A student account stands on its own. Classes, homework, grades, schedule, extrac
 
 ## Study tokens, and what stops them being free
 
-Tokens arrive two ways. Most of them come from work StudyHold measured itself
-— a focus block the timer ran, an assignment marked done, a streak day, a deck
-reviewed, pages read, a habit ticked, a goal reached — and those need no photo,
-no cap and no cooldown, because there is no claim to check. The second route is
-for the work the app can't see: photograph the page you worked, **answer a few
-questions about it**, get tokens. Spend either on accents, skins, avatar rings,
-nameplates, alarm voices, streak freezes and earning multipliers, across four
-tiers.
+Tokens arrive exactly one way: **name the topic you studied, pick a
+difficulty, and answer five questions about it**. Spend them on accents,
+skins, avatar rings, nameplates, alarm voices, streak freezes and earning
+multipliers, across four tiers.
 
-The interesting part is that **nothing here can prove a student studied** — a photo
-is evidence a person chose to show, on their own device, and the wallet lives in
-the browser where anyone determined enough can edit it. Pretending otherwise
-would be the dishonest version of this feature.
+An assignment marked done, a streak day, a deck reviewed, pages read, a habit
+ticked, a goal reached and a focus block finished all used to pay as well.
+None of them do now. Each was defensible alone, and together they were most of
+the economy — earned by pressing buttons in an app rather than by knowing
+anything. One route means one rate card, one thing to be good at, and a
+balance that means the same thing however you got there.
+
+**The streak pays in chests instead.** Every seventh day drops a gem chest
+with a rarity — Common, Rare, Ultra or Elite, the same bands the shop is
+priced in — holding one item of that rarity. Never tokens: a chest that paid
+currency would be a second way to mint one. The odds improve the longer the
+streak runs (a first week is 70/25/5/0 and cannot be Elite; past two months
+it is 25/35/28/12), every eighth chest is at least Ultra, and **the odds are
+printed on the card before you open it**. A week can only ever pay once,
+however many times the app is reloaded.
+
+The interesting part is that **nothing here can prove a student studied** —
+answering five questions is evidence you know the material, not evidence of an
+evening's work, and the wallet lives in the browser where anyone determined
+enough can edit it. Pretending otherwise would be the dishonest version of this
+feature.
 
 So the guarantee is narrower and actually true: the obvious ways to farm the
 number don't work, and the app says why out loud when it refuses one.
 
 | What someone tries | What happens |
 |---|---|
-| Submitting the same photo again | Refused. Every photo is fingerprinted with a 64-bit average hash before it counts, so a re-crop or a re-compress of the same page still collides. |
-| Deleting the proof and re-submitting it | Still refused. The fingerprint ledger outlives the photo it came from — deleting a proof frees the storage, not the payout. |
-| A photo of a wall, a desk, or a blank screen | Refused. An image with almost no detail carries nothing to fingerprint, and is named as the reason. |
-| A screenshot of a game, a feed, or anything that isn't schoolwork | Refused. The photo is read before it is paid, and the refusal says what it actually saw. |
-| Photographing real work without doing it | Pays nothing. The questions come from the content of *that page* — the numbers, terms and steps visible in it — so a page you never read is a page you can't answer about. |
+| Naming a topic that isn't school material | Refused. The model decides whether a topic is quizzable before it writes anything, and the refusal says why. |
+| Naming a topic without studying it | Pays nothing. The questions are written after the topic is named and are about the substance of it — the dates, terms, steps and numbers — so a topic you never read is a topic you can't answer about. |
 | Reading the answers out of the network tab | Not there. The key is held server-side behind a signed ticket, and the marking happens there too. |
 | Answering wrong, seeing which ones were wrong, and trying again | Refused. A ticket is marked exactly once. A retake from the shop buys a *fresh* set of questions, not a second go at the same ones. |
-| Failing, closing the dialog, and photographing the same page again | Refused. A photo is marked the moment its questions appear, not when they're answered — walking away doesn't un-ask them. |
-| A stack of photos submitted in one sitting | Refused after the first. There is a 10-minute cooldown between submissions. |
-| Claiming nine hours for one photo | There is nothing to claim. Self-reported time doesn't pay any more; the score does, and the session length is the model's own estimate of the work in the photo. |
-| Grinding all day | Capped at 250 tokens a day *from photos*. Past the cap a photo still saves and still logs as study time — it just doesn't pay. |
-| Marking an assignment done, reopening it, marking it done again | Paid once, ever. The record carries the flag. |
-| Starting a focus block and skipping it | Pays for the minutes actually spent, and skips the completion bonus. |
+| Grinding the one topic you know best | Pays less each time: full the first time that day, half the second, nothing after that. A different topic always pays full. |
+| Picking "easy" every time | Pays 0.75×, where hard pays 1.25×. Easy is a choice with a price. |
+| Deleting the quiz log to reset the repeat rule | Refused. The day's per-topic tally and the first-of-the-day flag live on the wallet, not in the log a student can delete. |
+| A stack of quizzes in one sitting | Refused after the first. There is a 10-minute cooldown between quizzes. |
+| Claiming nine hours for one quiz | There is nothing to claim. The only minutes recorded are the wall time between the questions appearing and the answers going back. |
+| Grinding all day | Capped at 250 tokens a day *from quizzes*. Past the cap a quiz still saves — it just doesn't pay. |
+| Marking an assignment done, reopening it, marking it done again | Pays nothing either way. Finishing work is tracked; it is not currency. |
+| Starting a focus block and walking away | Pays nothing at all. A running timer is not studying, and paying by the minute for one rewarded exactly that. |
+| Finding another route — a streak day, a reviewed deck, a ticked habit | There isn't one. The shop no longer hands any other module a way to pay: tokens are minted in one function, for a quiz the server marked. |
+| Reloading on day 7 for a second chest | Refused. The highest streak week already granted is recorded on the wallet, so seven days pay one chest however many times the app is opened — and a chest holds an item, never tokens. |
 
-Full marks on the questions pays 100, most of them 50, half 25; under half pays
-nothing and still logs the time. Plus 25 for the first photo of the day. When
-the AI can't be reached — offline, signed out, no API key — there is no quiz and
-therefore no payout: the photo saves as study time and earns zero, because an
-unverified route to tokens is the hole this closes.
+Full marks pays 100, most of them 50, half 25; under half pays nothing. That is
+at medium difficulty — easy is ×0.75 and hard ×1.25 — plus 25 for the first
+quiz of the day. When the AI can't be reached — offline, signed out, no API key
+— there is no quiz and therefore no payout, because an unverified route to
+tokens is the hole this closes.
 
-Every photo also writes a real study session, so proof-of-work time shows up in
-the study heatmap, the weekly total and any study goal, exactly like a
-completed focus block does.
+A quiz that took real minutes to answer also writes a study session, so the
+time shows up in the study heatmap, the weekly total and any study goal,
+exactly like a completed focus block does.
+
+A bought **boost** is the one thing that moves those numbers: it multiplies
+what a quiz pays *and* raises the day's ceiling with it, because a multiplier
+under a fixed cap doesn't double a day's earnings — it just reaches the same
+ceiling sooner, which is not what the item says on the card.
 
 Three of the Common-tier items exist for the quiz rather than for looks, and
 they wait in the wallet until you choose to spend one: a **50/50** takes two
-options off a question you're stuck on, a **cooldown skip** lets you photograph
-the next thing straight away, and a **retake** buys a fresh set of questions
-about a photo you just failed. None of them raise the daily cap.
+options off a question you're stuck on, a **cooldown skip** starts the next
+quiz straight away, and a **retake** buys a fresh set of questions on a topic
+you just failed. None of them raise the daily cap.
 
 The four tiers are **Common** (150–200), **Rare** (300–450), **Ultra**
 (500–750) and **Elite** (800–1000). Prices and earn rates were multiplied by 25
@@ -197,18 +216,20 @@ attainability — and any wallet written before that is redenominated by the sam
 factor, once, so nobody's balance lost value overnight.
 
 **And what the guards can't do**, said plainly rather than left to be
-discovered: they can't tell whose work is in the photo, whether it was done
-today, or whether the 40 minutes claimed for it were 40 minutes. The device
-clock belongs to whoever holds the device. This is a habit tracker a student
-keeps honest for their own benefit — a number to beat, not a grade, and not
-something to hand a teacher as evidence. The one thing worth noting: the
-fingerprint ledger syncs with the rest of the account, so a photo already
-spent on a phone can't be spent again on a laptop.
+discovered: they can't tell whether the person answering is the person who
+studied, whether a friend is reading the answers over their shoulder, or
+whether the topic was revised today or last term. The device clock belongs to
+whoever holds the device. This is a habit tracker a student keeps honest for
+their own benefit — a number to beat, not a grade, and not something to hand a
+teacher as evidence. The one thing worth noting: the wallet syncs with the rest
+of the account, so a topic already paid for on a phone is already paid for on
+the laptop.
 
-Photos live in IndexedDB alongside class attachments and cover images — the
-same local store, never uploaded, never reviewed by anyone. The whole economy
-(`js/shop.js`) runs in the browser; there is no server involved and no score
-shared with anyone.
+The only thing that leaves the device is the topic you type, and only so
+questions can be written about it. The rest of the economy (`js/shop.js`) runs
+in the browser; no score is shared with anyone. Study photos from the older
+route stay in IndexedDB until the retention window drops them, and nothing new
+is written there.
 
 **The cosmetics keep the app readable.** Every purchasable accent's text colour
 clears 4.5:1 on all four surfaces in both themes. Every skin is a *re-tint at
@@ -259,7 +280,7 @@ js/
   notify.js             Reminder scheduler
   geo.js                Geolocation, geofencing, live status
   sound.js              The focus alarm: one gesture-unlocked audio session
-  shop.js               Token economy, the four-tier catalogue, photo proofs
+  shop.js               Token economy, the four-tier catalogue, topic quizzes
   sync.js               Account, cloud sync, groups, parent link client
   planner.js            Auto-scheduler, estimate calibration, overload detection
   app.js                Router, nav, command palette, shortcuts, boot

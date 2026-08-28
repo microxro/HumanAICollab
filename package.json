@@ -25,7 +25,7 @@
     "test:urlguard": "node tests/urlguard.mjs",
     "test:authwall": "node --import ./tests/stub/register.mjs tests/authwall.mjs",
     "test:shop": "node tests/shop.mjs",
-    "test:proof": "node --import ./tests/stub/register.mjs tests/proof.mjs",
+    "test:quiz": "node --import ./tests/stub/register.mjs tests/quiz.mjs",
     "test:activities": "node --import ./tests/stub/register.mjs tests/activities.mjs",
     "test:portal": "node tests/portal.mjs"
   },

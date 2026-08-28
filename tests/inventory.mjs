@@ -143,17 +143,43 @@ ok("F156 client methods present",
      .every((k) => surface.sync.includes(k)),
    surface.sync.filter((k) => /Suggest/i.test(k)).join(", "));
 ok("F156 is documented in the roadmap", /\*\*Outside-school activities \(F156\)\.\*\*/.test(roadmap));
-ok("F158 client methods present",
-   ["verifyStudyPhoto", "gradeStudyQuiz"].every((k) => surface.assistant.includes(k)),
-   surface.assistant.filter((k) => /Study/i.test(k)).join(", "));
-ok("F158 shop methods present",
-   ["held", "spendHeld", "skipCooldown"].every((k) => surface.shop.includes(k)),
+ok("F160 client methods present",
+   ["makeTopicQuiz", "gradeStudyQuiz"].every((k) => surface.assistant.includes(k)),
+   surface.assistant.filter((k) => /Quiz|Topic/i.test(k)).join(", "));
+ok("F160 shop methods present",
+   ["quizzes", "record", "canStart", "topicRepeats", "held", "spendHeld", "skipCooldown"]
+     .every((k) => surface.shop.includes(k)),
    surface.shop.join(", "));
 ok("F158 is documented in the roadmap", /\(F158\)\.\*\*/.test(roadmap));
+ok("F160 is documented in the roadmap", /\(F160\)\.\*\*/.test(roadmap));
 // The regression this whole feature exists to prevent: claimed minutes must
 // not be a rate any more. A `tokensPerMinute` back in RULES means somebody
 // reinstated the lever.
 ok("claimed minutes are not a rate", !/tokensPerMinute/.test(shopSrc), "tokensPerMinute is back in js/shop.js");
+// F160 retired the photo route and the focus-timer payout. Either coming back
+// is a regression, not a feature: one sent schoolwork to an image model, the
+// other paid by the minute for a timer nobody had to be sitting at.
+ok("the photo earning route is gone",
+   !/function fingerprint/.test(shopSrc) && !/verifyStudyPhoto/.test(assistantClientSrc),
+   "photo proof code is back");
+ok("the focus timer no longer pays tokens",
+   !/focusPerMin/.test(shopSrc) && !/focusPerMin/.test(readFileSync("js/views/focus.js", "utf8")),
+   "focusPerMin is back");
+// The quiz is the only mint. A rate card, an award() or an awardTokens on the
+// store is a second one, whoever calls it.
+ok("the quiz is the only way to earn",
+   !surface.shop.includes("award") && !surface.shop.includes("RATES")
+   && !surface.store.includes("awardTokens"),
+   surface.shop.filter((k) => /award|RATES/.test(k)).join(", "));
+ok("F161 chest methods present",
+   ["chests", "unopenedChests", "chestOdds", "grantChest", "openChest", "nextChest"]
+     .every((k) => surface.shop.includes(k)),
+   surface.shop.filter((k) => /chest/i.test(k)).join(", "));
+ok("F161 is documented in the roadmap", /\(F161\)\.\*\*/.test(roadmap));
+// A chest holds an item, and a chest that credited tokens would be the second
+// mint the rule above exists to prevent.
+ok("a chest never touches the balance",
+   !/openChest[\s\S]{0,1200}?t\.balance/.test(shopSrc), "openChest writes to the balance");
 ok("the answer key is not sent to the client",
    !/answerIndex/.test(assistantClientSrc), "answerIndex appears in js/assistant.js");
 ok("F100 client methods present",
