@@ -580,6 +580,14 @@ console.log("\nshop: nothing but a quiz pays");
     const a = S.insert("assignments", { title: "Once only", classId: null, due: U.today(), status: "todo", points: 10 });
     S.update("assignments", a.id, { status: "done" });
     const afterAssignment = App.shop.balance();
+    // Reopening and re-closing is the farm the old rate card had to guard
+    // against with a paid-once flag. Nothing to guard now — but a payout put
+    // back would show up here first, and cheaply.
+    for (let i = 0; i < 5; i++) {
+      S.update("assignments", a.id, { status: "todo" });
+      S.update("assignments", a.id, { status: "done" });
+    }
+    const afterFarming = App.shop.balance();
 
     const was = S.db.streak.last;
     S.commit((db) => { db.streak.last = U.dateKey(U.addDays(new Date(), -1)); });
@@ -588,7 +596,7 @@ console.log("\nshop: nothing but a quiz pays");
     S.commit((db) => { db.streak.last = was; });
 
     return {
-      start, afterAssignment, afterStreak,
+      start, afterAssignment, afterFarming, afterStreak,
       // The shop no longer hands the rest of the app a way to pay at all.
       hasAward: typeof S.awardTokens === "function" || typeof App.shop.award === "function",
       hasRates: !!App.shop.RATES
@@ -596,6 +604,8 @@ console.log("\nshop: nothing but a quiz pays");
   });
   ok("finishing an assignment pays nothing", measured.afterAssignment === measured.start,
      `${measured.start} → ${measured.afterAssignment}`);
+  ok("and reopening it five times pays nothing five times", measured.afterFarming === measured.start,
+     `${measured.start} → ${measured.afterFarming}`);
   ok("a streak day pays nothing", measured.afterStreak === measured.start, String(measured.afterStreak));
   // The regression that matters: a way to mint tokens handed to any other
   // module is a way around the quiz, whoever calls it and however carefully.
@@ -608,6 +618,65 @@ console.log("\nshop: nothing but a quiz pays");
                    "js/views/focus.js", "js/shop.js"]
     .filter((f) => /awardTokens\s*\(/.test(readFileSync(f, "utf8")));
   ok("and no view still calls one", callers.length === 0, callers.join(", "));
+}
+
+console.log("\nshop: the checkbox a student actually clicks pays nothing either");
+{
+  // The block above goes through S.update, which every completion path funnels
+  // into. That is the right place to assert the rule, but it is not where a
+  // payout would be added back — the tempting spot is the click handler, next
+  // to the "Done ✅" toast. So click the real controls too.
+  const measured = await page.evaluate(async () => {
+    const S = App.store, U = App.utils, Shop = App.shop;
+    S.commit((db) => { db.wallet.balance = 0; db.wallet.boosts = []; });
+    const snap = () => ({ tokens: Shop.balance(), earned: Shop.wallet().earned || 0,
+                          ledger: (Shop.wallet().ledger || []).length, chests: Shop.chests().length });
+    const mk = (title) => S.insert("assignments", {
+      title, classId: null, due: U.today(), status: "todo", points: 100,
+      earned: null, graded: false, priority: "med", estMinutes: 30, subtasks: [], notes: ""
+    }).id;
+    const clickIn = async (view, sel) => {
+      App.router.go(view);
+      await new Promise((r) => setTimeout(r, 400));
+      const el = document.querySelector(sel);
+      if (el) el.click();
+      await new Promise((r) => setTimeout(r, 400));
+      return !!el;
+    };
+
+    const a1 = mk("Tick me — homework list"), a2 = mk("Tick me — dashboard");
+    const a3 = mk("Grade me to full marks");
+    const before = snap();
+    const rowFound = await clickIn("homework", `[data-toggle="${a1}"]`);
+    const dashFound = await clickIn("dashboard", `[data-toggle-hw="${a2}"]`);
+    // Full marks is the one completion that looks like it was earned.
+    S.update("assignments", a3, { earned: 100, points: 100, graded: true, status: "done" });
+    const out = {
+      rowFound, dashFound,
+      allDone: [a1, a2, a3].every((id) => (S.byId("assignments", id) || {}).status === "done"),
+      before, after: snap()
+    };
+    // Hand the next block a clean screen. The dashboard row opens the
+    // assignment detail on click and the checkbox sits inside it, so ticking
+    // one raises a modal; the "Done ✅" toasts linger over the tab strip too.
+    if (App.ui.closeModal) App.ui.closeModal();
+    document.querySelectorAll(".toast-host .toast").forEach((t) => t.remove());
+    App.router.go("shop");
+    await new Promise((r) => setTimeout(r, 300));
+    return out;
+  });
+  ok("the homework checkbox is there to click", measured.rowFound);
+  ok("so is the dashboard one", measured.dashFound);
+  ok("all three assignments end up done", measured.allDone);
+  ok("the balance did not move", measured.after.tokens === measured.before.tokens,
+     `${measured.before.tokens} → ${measured.after.tokens}`);
+  ok("nor the all-time earned total", measured.after.earned === measured.before.earned,
+     `${measured.before.earned} → ${measured.after.earned}`);
+  // A payout with no receipt would be worse than the payout.
+  ok("and nothing was written to the ledger", measured.after.ledger === measured.before.ledger,
+     `${measured.before.ledger} → ${measured.after.ledger}`);
+  ok("and no chest fell out of it", measured.after.chests === measured.before.chests,
+     `${measured.before.chests} → ${measured.after.chests}`);
 }
 
 console.log("\nshop: a boost multiplies the quiz and lifts the day's ceiling with it");

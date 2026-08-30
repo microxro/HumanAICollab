@@ -113,14 +113,17 @@ actually contributed — the thing that was asked for — is folded into it:
     (800–1000), with every item carrying its tier and the suite asserting that
     each price sits inside its own band. The Shop tab groups by tier rather
     than by kind, because the tier is what a price *means* to a student.
-  - **A second earning route.** Tokens now also come from work the app already
-    measured: focus minutes (3 each, +20 for finishing the block), a completed
-    assignment (45, +25 if it wasn't late), a streak day (50, +150 every
-    seventh), flashcards, reading, habits, goals. These carry no photo, no
-    cooldown and no daily cap, because there is no claim to check — the guards
-    that matter for them are narrower and sit at the point of payment: an
-    assignment pays once ever however often it is reopened, and a focus block
-    pays for the minutes actually spent.
+  - **A second earning route — folded in here, and since removed.** Tokens
+    also came from work the app already measured: focus minutes (3 each, +20
+    for finishing the block), a completed assignment (45, +25 if it wasn't
+    late), a streak day (50, +150 every seventh), flashcards, reading, habits
+    and goals. None of it pays any more, and this bullet is kept only so the
+    decision has a before. What those routes measured was app usage rather
+    than knowledge — a completed assignment is a checkbox the student ticks,
+    which is why it needed a paid-once flag to stop a reopen-and-reclose farm,
+    and a guard against farming a payout is a good sign the payout was wrong.
+    See **The quiz is now the only mint** below for what replaced them, and
+    **Gem chests on the streak (F161)** for what the streak pays instead.
   - **Inflated denomination.** Prices and rates were multiplied by 25 together,
     which changes no ratio and no attainability but puts the top tier at a
     number worth showing. A wallet written before the change is redenominated
