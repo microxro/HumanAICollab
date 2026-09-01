@@ -1,0 +1,146 @@
+/* ==========================================================================
+   tour.css — U52: the guided tour overlay
+
+   Three layers, all fixed:
+     .tour-veil  dims the app; js/tour.js punches a hole in it with a
+                 clip-path polygon so the element being described stays lit
+     .tour-spot  the ring drawn around that hole
+     .tour-card  the pointer card, positioned by js/tour.js
+
+   The root itself takes the pointer events — one blocker over everything,
+   rather than each layer swallowing its own — so the app behind the tour is
+   read-only however the hole is shaped.
+   ========================================================================== */
+
+.tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 120;          /* above the command palette (110), below toasts (200) */
+  pointer-events: auto;  /* the app is read-only while the tour is driving */
+}
+
+.tour-veil {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 11, 20, .55);
+  pointer-events: none;
+  animation: fade .16s var(--ease);
+}
+
+/* Blur only where nothing is spotlit: a backdrop-filter applies to the whole
+   element, hole included, which would leave the highlighted control smeared. */
+.tour-root:not(.has-spot) .tour-veil { backdrop-filter: blur(2px); }
+
+.tour-spot {
+  position: absolute;
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 3px var(--brand-400) inset;
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+  pointer-events: none;
+  transition: left .2s var(--ease), top .2s var(--ease),
+              width .2s var(--ease), height .2s var(--ease);
+}
+
+.tour-card {
+  position: fixed;
+  width: min(380px, calc(100vw - 24px));
+  /* A short window, or U11's larger type, must not push the Next button off
+     the bottom of the screen: the card caps at the viewport and the prose
+     inside it scrolls, so the controls are always reachable. */
+  max-height: calc(100vh - 24px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  overflow: hidden;
+  animation: pop .18s var(--ease);
+}
+.tour-card:focus { outline: none; }
+
+.tour-bar {
+  height: 3px;
+  background: var(--surface-3);
+  flex-shrink: 0;
+}
+.tour-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--brand-500);
+  transition: width .22s var(--ease);
+}
+
+.tour-x {
+  position: absolute;
+  top: 10px; right: 10px;
+  width: 28px; height: 28px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.tour-card-body {
+  padding: 16px 18px 4px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.tour-count {
+  font-weight: 650;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  font-size: .68rem;
+}
+
+.tour-title {
+  margin: 4px 0 8px;
+  font-size: 1.02rem;
+  padding-right: 26px;   /* clear of the ✕ */
+}
+
+.tour-text {
+  font-size: .85rem;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.tour-text strong { color: var(--text); font-weight: 650; }
+
+.tour-tip {
+  margin-top: 10px;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+}
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 14px 14px;
+  flex-shrink: 0;
+}
+.tour-foot .grow { flex: 1; }
+
+/* A phone has no room for a card beside anything, so it becomes a sheet at
+   the bottom — js/tour.js stops offsetting it and only sets the two edges. */
+.tour-root.is-sheet .tour-card {
+  width: calc(100vw - 24px);
+  max-width: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot, .tour-bar-fill { transition: none; }
+  .tour-card, .tour-veil { animation: none; }
+}
+
+/* U12 — high contrast keeps the ring visible against a spotlit control that
+   is itself brand-coloured. */
+[data-contrast="high"] .tour-spot {
+  outline-width: 3px;
+  outline-color: var(--text);
+}

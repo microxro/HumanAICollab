@@ -653,4 +653,5 @@ AI path uses and the manual form now exposes too.
 | `U49` | **First-run setup** | Walk a new student through classes, bell schedule, and one assignment instead of a wall of demo data. | M |  |
 | `U50` | **Contextual help** | Explain what a weighted category or a Leitner box is, at the moment it first appears. | M |  |
 | `U51` | **Three clicks to anything** | Make a view's sections addressable, so a tabbed screen stops costing four taps on a phone. Measured by `tests/depth.mjs`. | S | ✅ |
+| `U52` | **Guided tour on open** | Walk a first-time visitor through the app itself — one screen per step, spotlit in place — because U49 fills the data in but never says what any of the other twenty-two screens are for. Skippable from every step, and one dismissal is permanent. Measured by `tests/tour.mjs`. | M | ✅ |
 

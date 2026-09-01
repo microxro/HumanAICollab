@@ -124,7 +124,9 @@ await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForFunction(() => window.App && App.store && App.store.db, null, { timeout: 15000 });
 await page.waitForTimeout(400);
-const welcome = await page.$(".modal [data-close]");
+// U52 — a fresh install now opens the guided tour; older builds opened the
+// setup wizard. Dismiss whichever first-run overlay is up.
+const welcome = await page.$("[data-tour-skip], .modal [data-close]");
 if (welcome) { await welcome.click(); await page.waitForTimeout(250); }
 await page.evaluate(() => {
   if (App.store.loadDemo) App.store.loadDemo();

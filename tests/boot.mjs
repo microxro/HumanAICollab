@@ -4,7 +4,12 @@
    Reproduces the state that took the deployed site down: a stored dataset
    carrying schemaV3:true from an older build, missing every field added
    since. Then checks the things that were actually broken — buttons that
-   do nothing, and a welcome wizard that never stops reappearing.
+   do nothing, and a first-run overlay that never stops reappearing.
+
+   U52 moved the first run from the setup wizard to the guided tour, so the
+   permanence check runs over both: the tour is what a fresh install meets,
+   the wizard is what a dataset that has seen the tour but was never set up
+   meets, and each one has to stay gone once it has been answered.
    ========================================================================== */
 
 import pw from "/opt/node22/lib/node_modules/playwright/index.js";
@@ -78,14 +83,17 @@ console.log("\nboot: fresh install");
 {
   const { ctx, page, errors } = await freshPage(null);
   ok("no uncaught page errors", errors.length === 0, errors.join(" | "));
-  await page.waitForTimeout(700); // wizard fires on a 400ms timer
-  const wizard = await page.locator(".modal-root").count();
-  ok("welcome wizard shown once", wizard === 1);
+  await page.waitForTimeout(700); // the first-run overlay fires on a 400ms timer
+  ok("guided tour shown once", (await page.locator(".tour-root").count()) === 1);
+  // One welcome at a time: the wizard is offered by the tour's last step,
+  // not stacked underneath it.
+  ok("no wizard competing with it", (await page.locator(".modal-root").count()) === 0);
+  ok("it is skippable from the first step", (await page.locator("[data-tour-skip]").count()) > 0);
   await ctx.close();
 }
 
-/* --------------------------------- the wizard must not come back forever -- */
-console.log("\nboot: wizard is dismissed permanently (abandon at step 1)");
+/* ------------------------------ neither welcome may come back forever -- */
+console.log("\nboot: the first run is dismissed permanently");
 {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -99,8 +107,29 @@ console.log("\nboot: wizard is dismissed permanently (abandon at step 1)");
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(700);
 
-  // "Get started" then abandon the class form — the exact path that used to
-  // leave onboarded:false forever.
+  await page.locator("[data-tour-skip]").first().click();
+  await page.waitForTimeout(250);
+  const flags = await page.evaluate(() => ({
+    tour: App.store.settings.tourSeen, onboarded: App.store.settings.onboarded
+  }));
+  ok("skipping the tour is recorded", flags.tour === true, JSON.stringify(flags));
+  ok("and answers the wizard with it", flags.onboarded === true, JSON.stringify(flags));
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(800);
+  ok("tour does not reappear on reload", (await page.locator(".tour-root").count()) === 0);
+  ok("nor does the wizard behind it", (await page.locator(".modal-root").count()) === 0);
+
+  // U49's own regression, on the dataset that still reaches it: the tour has
+  // been answered but the classes were never set up, so boot opens the
+  // wizard. Abandoning the class form at step 1 used to leave onboarded
+  // false forever, which meant a welcome on every single load.
+  await page.evaluate(() => App.store.commit((db) => { db.settings.onboarded = false; }));
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(800);
+  ok("a tour-seen but unset-up dataset gets the wizard",
+     (await page.locator(".modal-root").count()) === 1);
+
   await page.locator("[data-next]").click();
   await page.waitForTimeout(300);
   const closeBtn = page.locator(".modal-root [data-close]").first();
@@ -110,7 +139,6 @@ console.log("\nboot: wizard is dismissed permanently (abandon at step 1)");
   const flag = await page.evaluate(() => App.store.settings.onboarded);
   ok("onboarded recorded after abandoning step 1", flag === true, `onboarded=${flag}`);
 
-  // Reload and confirm it does not reappear.
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(800);
   const again = await page.locator(".modal-root").count();

@@ -130,6 +130,7 @@ A student account stands on its own. Classes, homework, grades, schedule, extrac
 - **Parent portal** — link with a single-use code, then see live status, screen time, attendance, upcoming work, outside-school activities and what they cost, and (if shared) grades. Parents can also **suggest an outside-school activity**, which the student confirms in their own app.
 
 ### Everywhere
+- **Guided tour on first open** — the app walks itself, one screen per step, spotlighting the real control it is talking about. Skippable from every step with a button, the ✕ or Escape; one dismissal is permanent, and Settings → Getting started (or the command palette) replays it. A first-run setup wizard for adding your first class, bell schedule and assignment is offered at the end of it.
 - **Command palette** (`⌘K`) over every screen, assignment, class, note, and contact.
 - **Browser reminders** — before class, before deadlines, an overdue nudge, and a morning digest, with quiet hours.
 - **PWA** — installable, works fully offline via a service worker.

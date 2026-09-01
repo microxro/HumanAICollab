@@ -70,7 +70,9 @@ await page.waitForTimeout(500);
 
 // Real content, and past the welcome wizard — an empty app lays out fine and
 // would hide every problem this suite exists to catch.
-const closeBtn = await page.$(".modal [aria-label='Close'], .modal .icon-btn, .modal [data-close]");
+// U52 — the guided tour is what a fresh install meets; the wizard is the
+// older first run. Either way, close it before measuring the app.
+const closeBtn = await page.$("[data-tour-skip], .modal [aria-label='Close'], .modal .icon-btn, .modal [data-close]");
 if (closeBtn) { await closeBtn.click(); await page.waitForTimeout(300); }
 await page.evaluate(() => {
   if (App.store.loadDemo) App.store.loadDemo();

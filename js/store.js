@@ -66,7 +66,7 @@ App.store = (function () {
 
     return Object.assign(base, {
       profile: { name: "", school: "", grade: "", color: PALETTE[0], email: "", parentName: "", parentEmail: "" },
-      settings: Object.assign({}, base.settings, { onboarded: false }),
+      settings: Object.assign({}, base.settings, { onboarded: false, tourSeen: false }),
       terms: [{ id: U.uid("tm"), name: "This Term", start, end, current: true }],
       teachers: [], periods: [], classes: [], assignments: [], templates: [],
       events: [], activities: [], decks: [], notes: [], goals: [], habits: [],
@@ -407,6 +407,14 @@ App.store = (function () {
 
     out.schema = SCHEMA;
     out.settings = Object.assign({}, base.settings, raw.settings || {});
+    // U52 — the seed sets `tourSeen: false` so a genuinely fresh install gets
+    // the guided tour, and the line above merges the seed's settings
+    // *underneath* the stored ones. Without this, that false would reach
+    // every returning user whose data predates the flag and walk them
+    // through a tutorial of an app they already use.
+    if (!Object.prototype.hasOwnProperty.call(raw.settings || {}, "tourSeen")) {
+      out.settings.tourSeen = true;
+    }
     ["pomodoro", "schedule", "geo", "notifications", "planner"].forEach((k) => {
       out.settings[k] = Object.assign({}, base.settings[k], (raw.settings || {})[k] || {});
     });

@@ -1010,9 +1010,14 @@ App.views.settings = (function () {
       <div class="card mb-16">
         <div class="card-head"><h3>Getting started</h3></div>
         <div class="card-body">
-          <p class="small muted mb-12">The setup wizard walks through adding a class, your bell
-            schedule, and one assignment — the fastest way to make the rest of the app feel like yours.</p>
-          <button class="btn" data-run-onboarding>🎓 Run setup wizard</button>
+          <p class="small muted mb-12">The guided tour walks the whole app — one screen at a time,
+            ${U.plural(App.tour.steps().length, "step")}, skippable at any point. The setup wizard is
+            the shorter one: a class, your bell schedule, and one assignment — the fastest way to make
+            the rest of the app feel like yours.</p>
+          <div class="row gap-8" style="flex-wrap:wrap">
+            <button class="btn btn-primary" data-run-tour>🧭 Take the guided tour</button>
+            <button class="btn" data-run-onboarding>🎓 Run setup wizard</button>
+          </div>
         </div>
       </div>
 
@@ -1542,6 +1547,7 @@ App.views.settings = (function () {
   function mount(root) {
     U.on(root, "click", "[data-tab]", (_e, el) => { tab = el.dataset.tab; App.router.refresh(); });
     U.on(root, "click", "[data-run-onboarding]", () => App.runOnboarding());
+    U.on(root, "click", "[data-run-tour]", () => App.tour.start({ from: "settings" }));
 
     /* --- F154 feedback */
     U.on(root, "click", "[data-feedback-send]", () => {
