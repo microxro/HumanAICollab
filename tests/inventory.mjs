@@ -81,6 +81,7 @@ const surface = await page.evaluate(() => ({
   notify: App.notify ? Object.keys(App.notify) : [],
   geo: App.geo ? Object.keys(App.geo) : [],
   i18n: App.i18n ? Object.keys(App.i18n) : [],
+  tour: App.tour ? Object.keys(App.tour) : [],
   md: App.md ? Object.keys(App.md) : []
 }));
 
@@ -93,7 +94,7 @@ const assistantClientSrc = readFileSync("js/assistant.js", "utf8");
 console.log("\ninventory: roadmap rows parsed");
 ok("100 functionality items found", items.filter((i) => i.id[0] === "F").length === 100,
    String(items.filter((i) => i.id[0] === "F").length));
-ok("51 interface items found", items.filter((i) => i.id[0] === "U").length === 51,
+ok("52 interface items found", items.filter((i) => i.id[0] === "U").length === 52,
    String(items.filter((i) => i.id[0] === "U").length));
 
 console.log("\ninventory: every item is either marked in source or documented as blocked");
@@ -129,6 +130,15 @@ ok("the withdrawn delivery-retries claim is gone",
 
 console.log("\ninventory: the app's public surface is intact");
 ok("all 22 views registered", surface.views.length >= 22, `${surface.views.length}`);
+// U52 — the marker check above only proves someone wrote "U52" in a comment.
+// This proves the tour is loaded, and that its step plan still covers the
+// app rather than three screens someone stopped maintaining.
+ok("U52 guided tour is loaded", surface.tour.includes("start") && surface.tour.includes("autoStart"),
+   JSON.stringify(surface.tour));
+{
+  const steps = await page.evaluate(() => App.tour.steps().length);
+  ok("its tour plan is a tour of the whole app", steps >= 15, `${steps} steps`);
+}
 ok("guidance is one of them", surface.views.includes("guidance"), surface.views.join(", "));
 ok("its engine is loaded", surface.guidance && surface.guidance.length >= 6,
    JSON.stringify(surface.guidance));

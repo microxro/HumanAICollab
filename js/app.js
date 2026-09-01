@@ -111,7 +111,10 @@
       }
       current = id;
       S.db.ui.view = id;
-      S.trackNavVisit(id);   // U02 — feeds the "float to top" ranking
+      // U52 — a step of the guided tour is the tour's navigation, not the
+      // student's. Counting it would fill the sidebar's Pinned group with
+      // whatever the tour happened to visit last, on their very first load.
+      if (!(App.tour && App.tour.active())) S.trackNavVisit(id);   // U02 — feeds the "float to top" ranking
       S.save();
       const hashPath = id + (sub ? "/" + sub : "");
       if (location.hash.slice(1) !== hashPath) history.replaceState(null, "", "#" + hashPath);
@@ -465,7 +468,8 @@
         }},
       { group: "Actions", label: "Import from Canvas / Classroom", icon: "⬆", run: () => router.go("settings") },
       { group: "Actions", label: "Rebuild study plan", icon: "◳", run: () => router.go("planner") },
-      { group: "Actions", label: "Start a focus block", icon: "◷", run: () => router.go("focus") }
+      { group: "Actions", label: "Start a focus block", icon: "◷", run: () => router.go("focus") },
+      { group: "Actions", label: "Take the guided tour", icon: "🎓", run: () => App.tour.start({ from: "palette" }) }
     );
 
     // Jump straight to any assignment, class, or note.
@@ -606,6 +610,11 @@
   let chord = null;   // "g" prefix for go-to shortcuts
 
   function onKeydown(e) {
+    // U52 — the guided tour binds its own handler (→ ← Esc, and a focus trap)
+    // and blocks the app behind it, so an app shortcut fired from here would
+    // open a dialog underneath the overlay.
+    if (App.tour && App.tour.active()) return;
+
     const mod = e.metaKey || e.ctrlKey;
 
     if (mod && e.key.toLowerCase() === "k") {
@@ -1050,9 +1059,17 @@
     const startId = startPath.split("/")[0];
     router.go(App.views[startId] ? startPath : "dashboard");
 
-    // U49 — a genuinely fresh dataset (onboarded explicitly false) gets the
-    // setup wizard instead of a dashboard full of someone else's data.
-    if (S.settings.onboarded === false) setTimeout(runOnboarding, 400);
+    // U52/U49 — a genuinely fresh install gets the guided tour, which hands
+    // off to the setup wizard on its last step. autoStart() decides between
+    // the two and does nothing at all once either has been answered.
+    //
+    // Not while a link is mid-flow, though: ?join= and ?resetToken= below
+    // each open a form of their own, and a tour on top of one would be
+    // covering the thing the student clicked the link to reach.
+    const linkFlow = new URL(location.href).searchParams;
+    if (!linkFlow.get("join") && !linkFlow.get("resetToken")) {
+      setTimeout(() => App.tour.autoStart(), 400);
+    }
 
     // F064 — a group invite link (?join=CODE) drops you straight into the
     // join flow instead of making you type the code by hand.

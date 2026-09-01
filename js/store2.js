@@ -174,6 +174,10 @@
     need(s, "nameplate", "");           // title under your name in the sidebar
     need(s, "collapsedNavGroups", []);  // U07
     need(s, "onboarded", true);         // U49 — only for data predating the flag; a fresh seed sets it false explicitly
+    // U52 — same rule for the guided tour: a dataset that predates it belongs
+    // to someone already using the app, who should not be walked through it
+    // unannounced. A fresh seed sets this false explicitly.
+    need(s, "tourSeen", true);
     need(s, "emptyStateStyle", "drawn"); // U16 — "drawn" or "emoji"
     need(s, "dashboardLayout", ["hero", "quote", "warnings", "stats", "countdowns", "schedule", "due", "trend", "grades", "study"]); // F083
     // A layout saved before the quote widget existed has no entry for it, and
