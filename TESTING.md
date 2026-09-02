@@ -1,15 +1,20 @@
 # Testing
 
-`npm test` runs everything. Twenty-eight suites, roughly four minutes.
+`npm test` runs everything. Twenty-nine suites, roughly four minutes.
 
 Individual suites: `npm run test:node`, `test:security`, `test:api`,
 `test:teacher`, `test:browser`, `test:a11y`, `test:abuse`, `test:controls`,
 `test:inventory`, `test:concurrency`, `test:hardening`, `test:guidance`,
 `test:urlguard`, `test:authwall`, `test:activities`, `test:portal`,
-`test:tour`.
+`test:tour`, `test:gate`.
 
 Browser suites need a static server on port 8899; the runner starts one if
 nothing is already listening, and stops it afterwards.
+
+They also establish a session before loading the app (`tests/stub/session.mjs`
+plants the token a device that signed in yesterday would hold). Without it
+every one of them would find the login screen instead of the app — which is
+`gate`'s subject, and an obstacle to everything else.
 
 ## What each suite is for
 
@@ -21,6 +26,7 @@ nothing is already listening, and stops it afterwards.
 | `security` | The attacks a tester runs: role coercion, account enumeration, parallel brute force, session revocation, malformed blob keys, cross-account writes, guardian escalation, the sync race, and the `force` bypass. |
 | `api` | F100 — token minting and redemption, cross-account isolation, every `/v1` route, revocation, and all ten webhook SSRF vectors, with the signature verified the way a receiver would. |
 | `teacher` | F059 — role persistence, authoritative posts, broadcast to several class groups, and ownership transfer when a teacher leaves. |
+| `gate` | The login screen is the first thing that loads, and signed out the browser keeps nothing. The app shell is not visible behind the gate, Escape and an outside click do not dismiss it, and neither first-run overlay runs behind it. Then the cases that matter: data found on the device with **no session** is erased rather than shown or migrated (localStorage *and* the IndexedDB attachments), a "continue without saving" session writes nothing and is gone after a refresh, signing in is what turns storage on, signing out flushes pending writes to the account and then clears the device, and a token the server has retired takes that same path automatically and says why. Plus axe over the login screen in both themes, which `a11y` never sees because it signs in first. |
 | `boot` | The app starts and stays interactive from a stale-schema payload, the first-run overlay is dismissed permanently — the U52 tour on a fresh install, the U49 wizard on a dataset that has seen the tour but was never set up — and a throwing view shows a recoverable panel rather than a dead page. |
 | `tour` | U52 — the guided tour a first-time visitor gets on open. Mostly the things a tutorial fails at rather than the happy path: a step pointing at an element that no longer renders, a tour that has quietly stopped covering the app (every registered view must be walked to or named by name, which is what makes a new screen shipped without a step a test failure rather than an omission nobody notices), a skip that isn't offered on some step, a dismissal that doesn't stick across a reload, and a returning student being walked through a tutorial of an app they already use. Also that the app underneath is genuinely inert — the overlay covers a nav row, single-key shortcuts don't fire behind it, Tab can't leave the card — that the tour's own twenty-two navigations never reach the U02 most-visited ranking (a fresh student would otherwise get a Pinned group of wherever the tour finished), that the phone layout points at the tab bar rather than a sidebar that isn't there and doesn't cover the control it is describing, and axe over the overlay itself in both its centred and its spotlit shape. |
 | `xss` | Hostile input in every field that reaches an href or an attribute, across eight views. A payload that executes sets a flag the test reads. |

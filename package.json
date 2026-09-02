@@ -28,7 +28,8 @@
     "test:quiz": "node --import ./tests/stub/register.mjs tests/quiz.mjs",
     "test:activities": "node --import ./tests/stub/register.mjs tests/activities.mjs",
     "test:portal": "node tests/portal.mjs",
-    "test:tour": "node tests/tour.mjs"
+    "test:tour": "node tests/tour.mjs",
+    "test:gate": "node tests/gate.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1"

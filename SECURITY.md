@@ -43,6 +43,31 @@ Five routes, and only these:
 the public ones stay reachable, and every other route rejects eight kinds of
 forged credential.
 
+## Data at rest in the browser
+
+Until there is a session, this app writes nothing to the device.
+
+That is a client-side rule, so by the paragraph at the top of this file it is
+not a boundary — anyone can edit `js/store.js` and make their *own* browser
+keep whatever they like. It is not trying to be a boundary. It addresses a
+different and much more ordinary risk: the shared laptop in a school library,
+where the threat is not an attacker with devtools but the next person to open
+the tab.
+
+- `js/store.js` reads and writes localStorage only while `scholar.token.v1` is
+  present. Signed out, the whole store lives in memory and dies with the tab.
+- Data found on the device with no session is **erased on load**, not merely
+  ignored — a sweep of every `scholar.` key plus the IndexedDB attachment
+  store. Ignoring it would leave the previous student's grades sitting there.
+- Signing out clears the device after flushing pending writes to the account,
+  and a 401 on any request does the same thing automatically, so a revoked or
+  expired session cannot leave a readable copy behind.
+- The token itself is removed in the same sweep, so a cleared device cannot
+  be resumed without signing in again.
+
+`tests/gate.mjs` checks all of it in a real browser; `tests/migration.mjs`
+covers the same rule at the store level.
+
 ## Known limits, stated plainly
 
 - **The session token lives in `localStorage`.** Script injected into the page
@@ -52,7 +77,8 @@ forged credential.
   remaining hardening step; it needs a CSRF design to go with it.
 - **The study-token wallet is client-side, and that is a design limit, not a
   bug to be found later.** Balances, purchases and the day's per-topic tally
-  live in `localStorage`; anyone willing to open devtools can set the balance
+  live in the local store — `localStorage` while signed in, memory otherwise;
+  anyone willing to open devtools can set the balance
   to any number. The AI gate on earning (F158, and the topic quiz that replaced
   the photo in F160) raises the floor rather than the ceiling: it stops the
   earning route being farmed, which is what a student would actually do, and it

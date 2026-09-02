@@ -8,6 +8,7 @@
 
 import pw from "/opt/node22/lib/node_modules/playwright/index.js";
 const { chromium } = pw;
+import { resetSignedIn } from "./stub/session.mjs";
 
 const BASE = process.env.BASE || "http://localhost:8899";
 let pass = 0, fail = 0;
@@ -25,7 +26,7 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 
 await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
-await page.evaluate(() => localStorage.clear());
+await resetSignedIn(page);   // the app is behind a login gate now — tests/stub/session.mjs
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForTimeout(600);
 

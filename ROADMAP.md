@@ -314,6 +314,47 @@ Photos already taken are not deleted, and the retention sweep that ages them
 out of IndexedDB stays for exactly that reason — a student who used the old
 route keeps their gallery until it expires, and nothing new is written to it.
 
+## Sign in first, and nothing on the device without one
+
+The app used to open straight onto a dashboard and save every keystroke to
+localStorage whether or not anybody had signed in. On a personal laptop that
+is offline-first working exactly as intended. On the shared laptop in a
+school library it means the next person to open the tab inherits the last
+student's classes, grades, notes and their parent's email address — with no
+sign-in to reach any of it, and no sign-out that would have cleared it.
+
+Two changes, and the second is the one that matters:
+
+**The login screen loads first** (`js/authgate.js`). Not a banner over a
+working dashboard — a full screen that owns the tab, with no Escape and no
+backdrop dismissal, and both first-run overlays — the U52 guided tour and
+the U49 setup wizard — held back until there is an app to walk somebody
+through. A tour of a screen covered by a login form is a tour of a login
+form. `index.html` ships `body.gate-pending` so the app chrome
+is hidden before any JS runs, rather than flashing a shell for a frame.
+
+**Signed out, nothing is written** (`js/store.js`, "the local gate"). The
+store persists only while a session token exists; otherwise it runs in memory
+and dies with the tab. Data found on the device *without* a session is erased
+on load rather than shown or migrated — a prefix sweep of localStorage plus
+the IndexedDB attachment store — because ignoring it would leave the previous
+student's records sitting there for whoever opens the tab next. Signing out
+flushes pending writes to the account and then clears the device; a token the
+server has retired takes the same path automatically on the next 401.
+
+The cost is real and is stated on the screen where the choice is made: work
+done signed out does not survive a refresh. **Continue without saving** is
+kept deliberately — a student with no account yet, or one who will not put an
+account on a borrowed machine, can still use the whole app — with a standing
+banner saying what they are getting.
+
+This is not a security boundary and is not claimed as one: the browser is the
+user's, and anyone can edit `js/store.js` to make their own device keep
+whatever they like. It addresses the ordinary case, which is not an attacker
+with devtools but the next person to sit down. `tests/gate.mjs` drives all of
+it in a real browser, including the two worth being paranoid about — data on
+disk with no session, and a session the server no longer honours.
+
 **Gem chests on the streak (F161).** Making the quiz the only mint left the
 streak paying nothing at all, and a streak is the one thing in this app that
 cannot be rushed — 49 days is 49 days, whatever a student does with their

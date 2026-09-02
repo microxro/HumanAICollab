@@ -14,6 +14,7 @@
 
 import pw from "/opt/node22/lib/node_modules/playwright/index.js";
 const { chromium } = pw;
+import { TOKEN_KEY, TEST_TOKEN } from "./stub/session.mjs";
 
 const BASE = process.env.BASE || "http://localhost:8899";
 let pass = 0, fail = 0;
@@ -39,10 +40,14 @@ async function freshPage(seed) {
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.addInitScript((s) => {
+  // The token makes this a device that signed in previously — which is what
+  // every assertion below assumes, now that a signed-out visitor gets the
+  // login screen instead of the app. See tests/stub/session.mjs.
+  await page.addInitScript(([s, k, t]) => {
     if (s) localStorage.setItem("scholar.db.v2", JSON.stringify(s));
     else localStorage.clear();
-  }, seed);
+    localStorage.setItem(k, t);
+  }, [seed, TOKEN_KEY, TEST_TOKEN]);
   await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
   return { ctx, page, errors };
 }
@@ -103,7 +108,7 @@ console.log("\nboot: the first run is dismissed permanently");
   // reload below would wipe storage and manufacture a fresh install — the
   // test would "fail" on correct behaviour.
   await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(([k, t]) => { localStorage.clear(); localStorage.setItem(k, t); }, [TOKEN_KEY, TEST_TOKEN]);
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(700);
 

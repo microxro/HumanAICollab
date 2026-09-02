@@ -14,6 +14,7 @@
 
 import { readFileSync } from "node:fs";
 import pw from "/opt/node22/lib/node_modules/playwright/index.js";
+import { resetSignedIn, signedInDevice } from "./stub/session.mjs";
 const { chromium } = pw;
 
 const BASE = process.env.BASE || "http://localhost:8899";
@@ -32,7 +33,10 @@ async function freshPage(opts) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
-  await page.evaluate(() => localStorage.clear());
+  // A fresh install *on a signed-in device*: the tour is what a new student
+  // meets after the login screen, not instead of it. Signed out there is no
+  // app to tour — see tests/gate.mjs and tests/stub/session.mjs.
+  await resetSignedIn(page);
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(700);   // the first-run overlay fires on a 400ms timer
   return { ctx, page, errors };
@@ -191,6 +195,9 @@ console.log("\ntour: an existing install is not walked through it unannounced");
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   // A stored dataset from before the tour existed: no tourSeen anywhere in it.
+  // With the token that makes it readable — data on a device with no session
+  // is erased rather than migrated.
+  await signedInDevice(page);
   await page.addInitScript(() => {
     localStorage.setItem("scholar.db.v2", JSON.stringify({
       schema: 2, settings: { theme: "light", onboarded: true },

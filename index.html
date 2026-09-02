@@ -22,7 +22,11 @@
 <link rel="stylesheet" href="css/views.css" />
 <link rel="stylesheet" href="css/tour.css" />
 </head>
-<body>
+<!-- gate-pending hides the app chrome until js/app.js has decided whether
+     there is a session. It is a class rather than a script because the CSP
+     forbids inline script, and the whole point is that it applies before any
+     JS runs — see css/components.css and js/authgate.js. -->
+<body class="gate-pending">
 
 <div class="shell">
 
@@ -175,6 +179,9 @@
 <script src="js/views/groups.js"></script>
 <script src="js/views/parent.js"></script>
 <script src="js/views/settings.js"></script>
+
+<!-- the sign-in screen: loaded before boot, shown by it -->
+<script src="js/authgate.js"></script>
 
 <!-- boot -->
 <script src="js/app.js"></script>

@@ -18,6 +18,8 @@ python3 -m http.server 8000     # → http://localhost:8000
 
 Everything except sync, the parent portal, and study groups works exactly like this — including GPS, notifications, and offline mode. Opening `index.html` straight off disk works too (the scripts are classic `<script>` tags, not ES modules, on purpose).
 
+The app opens on a sign-in screen. Without a backend there is nothing to sign in *to*, so use **Continue without saving** — the whole app runs, in memory, for as long as the tab is open. Nothing is written to the browser without an account; see [Signed out, nothing is stored](#signed-out-nothing-is-stored).
+
 ### Full stack on Netlify
 
 ```bash
@@ -123,7 +125,9 @@ The photo path (a schedule screenshot or a photo of the school's bell-times page
 
 ### Connect *(needs an account — and none of it is required)*
 
-A student account stands on its own. Classes, homework, grades, schedule, extracurriculars, focus timer **and focus windows**, notes to yourself, flashcards, goals, applications and the token shop are all fully create/read/write with no linked parent, no linked teacher, and no account at all. Linking only adds what someone *else* can see.
+A student account stands on its own. Classes, homework, grades, schedule, extracurriculars, focus timer **and focus windows**, notes to yourself, flashcards, goals, applications and the token shop are all fully create/read/write with no linked parent and no linked teacher. Linking only adds what someone *else* can see.
+
+(Every one of those features also runs with no account at all — but only for the life of the tab. Keeping anything between visits is what an account is for; see below.)
 
 - **Sharing** — privacy toggles, a live preview of exactly what a parent sees, focus windows you set for yourself (or agree to when a guardian proposes one), and notes you leave yourself.
 - **Study groups** — shared flashcard decks and a **crowdsourced "what was the homework?" feed** with confirmations, one tap to add a post to your own homework list.
@@ -323,3 +327,32 @@ running when it fires), and the token shop's tiers, prices and purchase effects.
 ## Browser support
 
 Any modern browser. Uses localStorage, IndexedDB, Geolocation, Notifications, Service Workers, Page Visibility, CSS grid, and custom properties — all degrading gracefully when unavailable.
+
+## Signed out, nothing is stored
+
+The sign-in screen (`js/authgate.js`) is the first thing that loads, and it is
+not a formality: until there is a session, `js/store.js` will not write to
+this browser at all.
+
+- **A first visit** gets the login screen over a blank shell. Neither the
+  guided tour nor the setup wizard runs behind it — both wait until there is
+  an app to walk through — and nothing is written.
+- **Data found with no session** — a previous student's records on a shared
+  laptop, or a payload somebody planted — is erased on load rather than
+  displayed or migrated. localStorage is swept by prefix; attachments in
+  IndexedDB go too.
+- **Continue without saving** runs the entire app in memory, with a standing
+  banner saying so. A refresh returns to the login screen with nothing kept.
+- **Signing in** is what turns device storage on, and the guided tour starts
+  on the far side of it. From there the app behaves as it always did:
+  local-first writes, debounced background sync, usable offline.
+- **Signing out** pushes anything still queued to the account, then clears the
+  device — localStorage, IndexedDB and the in-memory copy. Your work is in
+  your account, not on the machine you borrowed.
+- **A token the server has retired** takes the same path automatically: the
+  next request gets a 401, the device is cleared, and the login screen comes
+  back saying why.
+
+`tests/gate.mjs` drives every one of those in a real browser, including the
+two cases worth being paranoid about — data on disk with no session, and a
+session the server no longer honours.

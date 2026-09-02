@@ -8,6 +8,7 @@
 
 import pw from "/opt/node22/lib/node_modules/playwright/index.js";
 const { chromium } = pw;
+import { resetSignedIn, signedInDevice } from "./stub/session.mjs";
 
 const BASE = process.env.BASE || "http://localhost:8899";
 let pass = 0, fail = 0;
@@ -24,7 +25,7 @@ async function fresh() {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
-  await page.evaluate(() => localStorage.clear());
+  await resetSignedIn(page);   // the app is behind a login gate now — tests/stub/session.mjs
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(600);
   const skip = page.locator("[data-skip]");
@@ -78,6 +79,11 @@ console.log("\nresilience: unreadable saved data is quarantined, not deleted");
   // a load and then reloading does not work: app.js registers a beforeunload
   // handler that flushes usage stats, so the in-memory database is written
   // back over the planted value on the way out.
+  // The token goes with it: quarantine is what happens to a *signed-in*
+  // device's unreadable data. With no session the store never reads the
+  // payload at all — it erases it, which is the gate working, not a
+  // quarantine failing. That case is covered in tests/gate.mjs.
+  await signedInDevice(page);
   await page.addInitScript(() => {
     localStorage.setItem("scholar.db.v2", "{not valid json at all");
   });
