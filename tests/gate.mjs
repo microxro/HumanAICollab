@@ -324,6 +324,92 @@ console.log("\ngate: axe finds nothing serious on the login screen, either theme
   }
 }
 
+/* ================================================ scales and scrolls ==== */
+console.log("\ngate: the card scales to the device and scrolls rather than overflowing");
+{
+  // The failure this fixes: on a short screen the signup form (name, email,
+  // password, role, plus an error) was taller than the viewport, so the
+  // submit button sat below an unscrollable fold. The card must now cap its
+  // own height and scroll its body, with the button reachable and the header
+  // pinned — measured on the tallest state (signup + a visible error).
+  async function tall(page) {
+    await page.locator('[data-mode="signup"]').click();
+    await page.waitForTimeout(150);
+    await page.evaluate(() => {
+      const b = document.querySelector("[data-error]");
+      if (b) { b.textContent = "At least 8 characters, with a letter and a number."; b.hidden = false; }
+    });
+    await page.waitForTimeout(80);
+  }
+
+  // A phone in landscape — the shortest case, where the old layout broke worst.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 720, height: 380 } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
+    await page.waitForTimeout(500);
+    await tall(page);
+
+    const fit = await page.evaluate(() => {
+      const c = document.querySelector(".gate-card").getBoundingClientRect();
+      return c.top >= -1 && c.bottom <= window.innerHeight + 1;
+    });
+    ok("the card never exceeds a short viewport", fit);
+
+    const scrolls = await page.evaluate(() => {
+      const f = document.querySelector(".gate-form");
+      return f.scrollHeight > f.clientHeight + 1;
+    });
+    ok("its body scrolls when the form is taller than the card", scrolls);
+
+    const headBefore = await page.evaluate(() => Math.round(document.querySelector(".gate-head").getBoundingClientRect().top));
+    await page.evaluate(() => { const f = document.querySelector(".gate-form"); f.scrollTop = f.scrollHeight; });
+    await page.waitForTimeout(150);
+    const reached = await page.evaluate(() => {
+      const card = document.querySelector(".gate-card").getBoundingClientRect();
+      const head = Math.round(document.querySelector(".gate-head").getBoundingClientRect().top);
+      const submit = document.querySelector('.gate-form button[type="submit"]').getBoundingClientRect();
+      const cont = document.querySelector("[data-skip-auth]").getBoundingClientRect();
+      const within = (r) => r.top >= card.top - 1 && r.bottom <= card.bottom + 1;
+      return { head, submit: within(submit), cont: within(cont) };
+    });
+    ok("the header stays pinned while the body scrolls", Math.abs(reached.head - headBefore) < 2, `${headBefore} → ${reached.head}`);
+    ok("the submit button is reachable by scrolling", reached.submit);
+    ok("so is the memory-only escape hatch below it", reached.cont);
+    await ctx.close();
+  }
+
+  // Device scaling: the card tracks the viewport width between its bounds.
+  {
+    const narrow = await (async () => {
+      const ctx = await browser.newContext({ viewport: { width: 340, height: 800 } });
+      const page = await ctx.newPage();
+      await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
+      await page.waitForTimeout(400);
+      const w = await page.evaluate(() => Math.round(document.querySelector(".gate-card").getBoundingClientRect().width));
+      await ctx.close();
+      return w;
+    })();
+    const wide = await (async () => {
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const page = await ctx.newPage();
+      await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
+      await page.waitForTimeout(400);
+      const r = await page.evaluate(() => {
+        const c = document.querySelector(".gate-card").getBoundingClientRect();
+        const f = document.querySelector(".gate-form");
+        return { w: Math.round(c.width), scrolls: f.scrollHeight > f.clientHeight + 1, top: c.top };
+      });
+      await ctx.close();
+      return r;
+    })();
+    ok("a narrow phone gets a narrower card than a desktop", narrow < wide.w, `${narrow} vs ${wide.w}`);
+    ok("the card is capped rather than growing without bound", wide.w <= 420, String(wide.w));
+    ok("on a roomy screen the form does not need to scroll", !wide.scrolls);
+    ok("and the card sits inset from the top", wide.top > 8, String(wide.top));
+  }
+}
+
 /* ================================================= the gate ships closed == */
 console.log("\ngate: the page cannot render the app before JS decides");
 {

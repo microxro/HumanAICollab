@@ -996,7 +996,12 @@ body.gated { overflow: hidden; }
   z-index: 90;              /* above the app, below modals (100) and toasts */
   display: grid;
   place-items: center;
-  padding: 24px 16px;
+  /* Vertical padding scales with the viewport so a phone in landscape gives
+     the card almost the whole screen while a desktop keeps it comfortably
+     inset. overflow-y is the last-resort scroller: the card caps its own
+     height below the viewport (see .gate-card), so this only ever engages on
+     something shorter than the card's own minimum. */
+  padding: clamp(12px, 4vh, 40px) 16px;
   overflow-y: auto;
   background:
     radial-gradient(900px 520px at 15% -10%, var(--brand-50), transparent 60%),
@@ -1007,18 +1012,38 @@ body.gated { overflow: hidden; }
 
 .gate-card {
   width: 100%;
-  max-width: 412px;
+  /* Dynamic scaling: track the device rather than a fixed 412px — narrow
+     phones get 92vw, anything roomier is capped at 420px so the form never
+     stretches into an awkward wide single column. */
+  max-width: clamp(320px, 92vw, 420px);
+  /* Never taller than the viewport. Once the content would exceed this, the
+     body (.gate-scroll) scrolls inside the card instead of pushing the
+     submit button off the bottom of an unscrollable page. dvh tracks the
+     real visible height as mobile browser chrome comes and goes; the vh line
+     above it is the fallback for engines without dvh. */
+  max-height: calc(100vh - clamp(24px, 8vh, 80px));
+  max-height: calc(100dvh - clamp(24px, 8vh, 80px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  padding: 26px 24px 20px;
+  overflow: hidden;         /* clip the scrolling body to the rounded corners */
   animation: pop .2s var(--ease);
+}
+
+/* Pinned header — brand, title and the mode tabs stay put while the fields
+   below them scroll. */
+.gate-head {
+  flex-shrink: 0;
+  padding: clamp(18px, 3.4vh, 26px) clamp(18px, 5vw, 24px) 0;
 }
 
 .gate-brand { display: flex; align-items: center; gap: 9px; margin-bottom: 18px; }
 
-.gate-title { font-size: 1.32rem; letter-spacing: -.02em; margin: 0 0 6px; }
+.gate-title { font-size: clamp(1.2rem, 1.02rem + 1vw, 1.36rem); letter-spacing: -.02em; margin: 0 0 6px; }
 .gate-sub { font-size: .82rem; color: var(--text-2); margin: 0 0 18px; line-height: 1.5; }
 
 .gate-tabs {
@@ -1026,7 +1051,7 @@ body.gated { overflow: hidden; }
   background: var(--surface-2);
   border-radius: var(--radius-sm);
   padding: 4px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 .gate-tab {
   border: none; background: none; cursor: pointer;
@@ -1037,8 +1062,36 @@ body.gated { overflow: hidden; }
 }
 .gate-tab.sel { background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); }
 
-.gate-form { display: flex; flex-direction: column; gap: 13px; }
-.gate-form .btn { margin-top: 4px; height: 40px; }
+/* The form is the card's one scroll region — "the text window". The head
+   above it stays pinned for context; everything else (fields, error, the
+   submit button, the escape hatch) scrolls together in document order when
+   it outgrows the device, so the button is reached right after the last
+   field rather than sitting below an unscrollable fold. Scrolling the body
+   rather than the whole page also keeps the background gradient still.
+
+   The layered background is a pure-CSS scroll shadow: the soft top and bottom
+   edges show only when there is more content above or below, so the card
+   signals it can be scrolled without any JS. */
+.gate-form {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 4px clamp(18px, 5vw, 24px) clamp(16px, 3vh, 20px);
+  background:
+    linear-gradient(var(--surface) 34%, transparent) 0 0 / 100% 26px,
+    linear-gradient(transparent, var(--surface) 66%) 0 100% / 100% 26px,
+    radial-gradient(farthest-side at 50% 0, rgba(10, 14, 25, .13), transparent) 0 0 / 100% 9px,
+    radial-gradient(farthest-side at 50% 100%, rgba(10, 14, 25, .13), transparent) 0 100% / 100% 9px;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
+.gate-form .btn-primary { height: 40px; margin-top: 2px; }
+/* Centre the secondary controls without disturbing the left-aligned fields. */
+.gate-form [data-skip-auth] { display: block; margin: 2px auto 0; }
 
 .gate-error {
   margin: 0;
@@ -1060,19 +1113,16 @@ body.gated { overflow: hidden; }
    themes *do* re-step --brand-600 for dark and would lose their colour, and
    the gate is pre-login, where no accent is applied anyway. */
 .gate-alt .btn-link,
-.gate-foot .btn-link { color: var(--brand-text); }
+.gate-form .btn-link { color: var(--brand-text); }
 
-.gate-foot {
-  margin-top: 18px;
+.gate-note {
+  margin: 14px 0 10px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
-  text-align: center;
-}
-.gate-note {
   font-size: .72rem;
   color: var(--text-3);
   line-height: 1.5;
-  margin: 0 0 10px;
+  text-align: center;
 }
 .gate-note strong { color: var(--text-2); }
 
@@ -1100,8 +1150,19 @@ body.gated { overflow: hidden; }
 }
 
 @media (max-width: 560px) {
-  .gate-card { padding: 22px 18px 18px; }
   .gate-banner { font-size: .72rem; padding: 8px 10px; }
+}
+
+/* A short screen — a phone in landscape, a split-window tablet. The card is
+   already height-capped and scrolls, but tightening the fixed regions first
+   means the scroll only engages when the fields genuinely can't fit, rather
+   than eating the header's breathing room. */
+@media (max-height: 560px) {
+  .gate-head { padding-top: clamp(14px, 3vh, 20px); }
+  .gate-brand { margin-bottom: 12px; }
+  .gate-sub { margin-bottom: 12px; }
+  .gate-tabs { margin-bottom: 12px; }
+  .gate-note { margin-top: 10px; padding-top: 10px; }
 }
 
 [data-theme="dark"] .gate-root {
@@ -1109,4 +1170,18 @@ body.gated { overflow: hidden; }
     radial-gradient(900px 520px at 15% -10%, rgba(99, 102, 241, .16), transparent 60%),
     radial-gradient(700px 460px at 100% 110%, rgba(99, 102, 241, .12), transparent 55%),
     var(--bg);
+}
+
+/* The scroll shadow's default tint (a near-black rgba) vanishes on the dark
+   card, so re-cut the two edge gradients darker where they now sit against a
+   dark surface. The cover gradients already track --surface, so only the
+   shadow layers change. */
+[data-theme="dark"] .gate-form {
+  background:
+    linear-gradient(var(--surface) 34%, transparent) 0 0 / 100% 26px,
+    linear-gradient(transparent, var(--surface) 66%) 0 100% / 100% 26px,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, .5), transparent) 0 0 / 100% 9px,
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, .5), transparent) 0 100% / 100% 9px;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
 }
