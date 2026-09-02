@@ -256,8 +256,15 @@ App.views.calendar = (function () {
       const d = U.addDays(gridStart, i);
       const iso = U.dateKey(d);
       const other = d.getMonth() !== m;
-      const items = itemsOn(iso, false);
-      const shown = items.slice(0, 3);
+      // Classes and activities used to be left out of the month grid entirely
+      // (only events and due dates showed) — a fully-booked day looked empty
+      // while the exact same day in Week view showed everything. Due items
+      // are pulled to the front of what's shown: on a busy day, a due date
+      // matters more than which slot fills the "+N more" cutoff.
+      const items = itemsOn(iso, true);
+      const due = items.filter((it) => it.kind === "due");
+      const rest = items.filter((it) => it.kind !== "due");
+      const shown = due.concat(rest).slice(0, 3);
       const load = dayLoadMinutes(iso);
       const lv = loadLevel(load);
 

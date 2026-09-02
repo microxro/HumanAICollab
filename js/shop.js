@@ -364,6 +364,18 @@ App.shop = (function () {
     return Array.isArray(list) ? list : [];
   }
 
+  /**
+   * Every photo-verified study session, past or present. A photo itself is
+   * discarded right after it pays out (there's no gallery any more), but the
+   * study session it wrote is not — this is what "photos logged"-style
+   * stats count instead, so the history survives even though the picture
+   * doesn't.
+   */
+  function proofSessions() {
+    const list = S.db.studySessions;
+    return Array.isArray(list) ? list.filter((s) => s.kind === "proof") : [];
+  }
+
   function earnedToday() {
     const d = wallet().daily[U.today()];
     return typeof d === "number" && isFinite(d) ? d : 0;
@@ -407,8 +419,12 @@ App.shop = (function () {
     return { ok: true };
   }
 
+  // Reads studySessions rather than studyProofs: a proof's photo is
+  // discarded the instant it pays out, so studyProofs never has more than
+  // one entry alive at a time and can't answer "has today already had one."
+  // The study session it wrote behind it is what persists.
   function firstToday() {
-    return !proofs().some((p) => p.date === U.today());
+    return !proofSessions().some((p) => p.date === U.today());
   }
 
   /**
@@ -417,8 +433,16 @@ App.shop = (function () {
    * Rendered live in the form as the student types, so the number they get
    * is never a surprise and the cap is never a silent subtraction.
    */
-  function quote(grade) {
-    const base = RULES.grades[grade] || 0;
+  // `serverTokens` is the authoritative per-grade amount the grading route
+  // already computed — the client's own RULES.grades table is a preview
+  // only, shown before a quiz exists to grade. Once a real grade comes back,
+  // it decides the base; the client still applies the daily cap and the
+  // first-of-day bonus, since the server doesn't hold wallet state to know
+  // either of those. A tampered client can still lie about the grade
+  // (nothing stops that without re-running the whole quiz server-side), but
+  // it can no longer pay itself a different amount for the grade it reports.
+  function quote(grade, serverTokens) {
+    const base = serverTokens != null ? Math.max(0, Math.round(serverTokens)) : (RULES.grades[grade] || 0);
     const bonus = base > 0 && firstToday() ? RULES.firstOfDayBonus : 0;
     const wanted = base + bonus;
     const total = Math.min(wanted, remainingToday());
@@ -613,7 +637,7 @@ App.shop = (function () {
         throw new Error("That quiz was for a different photo. Take a new one and try again.");
       }
 
-      const q = v ? quote(v.grade) : { grade: null, base: 0, bonus: 0, wanted: 0, total: 0, capped: false };
+      const q = v ? quote(v.grade, v.tokens) : { grade: null, base: 0, bonus: 0, wanted: 0, total: 0, capped: false };
       const photoId = U.uid("pf");
 
       return App.idb.put(photoId, info.blob).then(() => {
@@ -624,7 +648,7 @@ App.shop = (function () {
         // than paying twice for one sitting.
         if (cooldownLeft() > 0 || seenBefore(info.hash)) {
           App.idb.del(photoId).catch(() => {});
-          throw new Error("That photo has just been logged — check the gallery below.");
+          throw new Error("That photo has just been logged.");
         }
 
         const sessionId = U.uid("ss");
@@ -633,8 +657,10 @@ App.shop = (function () {
           classId: o.classId || null, minutes, note: String(o.note || "").slice(0, 240),
           photoId, hash: info.hash, width: info.width, height: info.height,
           tokens: q.total, sessionId,
-          // What the quiz said, kept on the proof so the gallery can show why
-          // a session paid what it did — including when it paid nothing.
+          // What the quiz said. The record itself is discarded right below —
+          // there's no gallery to show it in any more — but these ride along
+          // on the return value so the confirmation toast can say why a
+          // session paid what it did, including when it paid nothing.
           grade: v ? v.grade : null,
           correct: v ? v.correct : null,
           total: v ? v.total : null,
@@ -673,9 +699,33 @@ App.shop = (function () {
           while (days.length > 60) delete t.daily[days.shift()];
         });
 
+        // No gallery keeps photos around any more: a photo is taken, used
+        // for the quiz, and discarded the moment it's been paid for. The
+        // study session it wrote above is what survives — that's the record
+        // that the work happened, and it's what any "photos logged"-style
+        // stat now counts instead of the photo itself. The fingerprint
+        // ledger (t.seen, just above) is untouched by this — it has nothing
+        // to do with the gallery and still has to outlive the photo.
+        discardProofPhoto(proof.id);
+
         return { proof, awarded: q.total, capped: q.capped, quote: q, verified: !!v };
       });
     });
+  }
+
+  /**
+   * Discard a proof's photo the moment it's done its job — called
+   * automatically by submit() right after a photo is graded. Only the photo
+   * blob and the proof record go; the study session it wrote stays (that's
+   * the record that the work happened), and so does the fingerprint (that's
+   * what stops the same photo being resubmitted for a second payout).
+   */
+  function discardProofPhoto(id) {
+    const p = proofs().find((x) => x.id === id);
+    if (!p) return false;
+    if (p.photoId) App.idb.del(p.photoId).catch(() => {});
+    S.commit((db) => { db.studyProofs = db.studyProofs.filter((x) => x.id !== id); });
+    return true;
   }
 
   /**
@@ -1002,7 +1052,8 @@ App.shop = (function () {
     wallet, balance, item, items, kinds, kindLabel, owns, ownedCount, equipped, isEquipped,
     tiers, tierOf, byTier, slotValue,
     affordableCount, nextUp, proofs, earnedToday, remainingToday, cooldownLeft, firstToday,
-    quote, fingerprint, distance, seenBefore, inspect, submit, deleteProof,
+    quote, fingerprint, distance, seenBefore, inspect, submit, deleteProof, discardProofPhoto,
+    proofSessions,
     buy, equip, unequip, sanitize,
     award, ledger, multiplier, activeBoost, redenominate, sweepGoalPayouts,
     held, spendHeld, skipCooldown, triedBefore, markTried

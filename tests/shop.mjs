@@ -194,7 +194,8 @@ const wallet = () => page.evaluate(() => ({
   balance: App.shop.balance(),
   earned: App.store.db.wallet.earned,
   owned: App.store.db.wallet.owned.slice(),
-  proofs: App.shop.proofs().length,
+  proofs: App.shop.proofSessions().length,
+  livePhotos: App.shop.proofs().length,
   sessions: App.store.db.studySessions.length,
   seen: App.store.db.wallet.seen.length
 }));
@@ -336,12 +337,14 @@ console.log("\nshop: a photo of real work earns tokens and logs the study time")
   ok("awarded 100 for an A + 25 first-of-day", after.balance === 125, `balance ${after.balance}`);
   const logged = await page.evaluate(() => App.store.db.studySessions.slice(-1)[0].minutes);
   ok("the session length came from the estimate", logged === 45, String(logged));
-  ok("proof recorded", after.proofs === before.proofs + 1);
+  ok("proof session recorded", after.proofs === before.proofs + 1);
   ok("study session logged alongside it", after.sessions === before.sessions + 1);
   const kind = await page.evaluate(() => App.store.db.studySessions.slice(-1)[0].kind);
   ok("session is tagged as proof", kind === "proof", kind);
-  ok("thumbnail rendered from IndexedDB",
-     await page.locator(".proof-thumb img").count() === 1);
+  // No gallery any more — the photo is taken, used for the quiz, and
+  // discarded the moment it's paid for.
+  ok("the photo itself is discarded, not kept in a gallery", after.livePhotos === 0, String(after.livePhotos));
+  ok("no proof gallery rendered", await page.locator(".proof-thumb, .proof-card, [data-proof]").count() === 0);
 }
 
 console.log("\nshop: the same photo never pays twice");
@@ -407,33 +410,54 @@ console.log("\nshop: the daily cap holds, and says so instead of failing");
   ok("quote is zero at the cap", await page.evaluate(() => App.shop.quote("A").total) === 0);
   await submitPhoto(noisePhoto(3), 60);
   const after = await wallet();
-  ok("the photo still saved", after.proofs === before.proofs + 1);
+  ok("the study session still saved", after.proofs === before.proofs + 1);
   ok("but paid nothing", after.balance === before.balance, `${before.balance} → ${after.balance}`);
   ok("and the study time still counted", after.sessions === before.sessions + 1);
+  ok("the photo itself is still discarded, cap or not", after.livePhotos === 0, String(after.livePhotos));
   await page.evaluate(() => App.store.commit((db) => { db.wallet.daily = {}; }));
 }
 
-console.log("\nshop: deleting a proof keeps the tokens and keeps the photo spent");
+console.log("\nshop: a submitted photo can't be resubmitted after it's discarded");
 {
-  const before = await wallet();
-  const removed = await page.evaluate(() => {
-    const p = App.shop.proofs()[0];
-    App.shop.deleteProof(p.id);
-    return p.id;
-  });
-  await page.waitForTimeout(200);
-  const after = await wallet();
-  ok("the proof is gone", after.proofs === before.proofs - 1, removed);
-  ok("the tokens it earned are still yours", after.balance === before.balance);
-  ok("its session went with it", after.sessions === before.sessions - 1);
-  ok("its fingerprint stayed behind", after.seen === before.seen);
-
-  // …and the deleted photo still can't be resubmitted for a second payout.
+  // The photo is discarded the instant it pays out — there's no gallery
+  // entry left to delete any more — but its fingerprint (t.seen) must
+  // still outlive it, or a screenshot could be paid for twice by
+  // re-submitting it right after the cooldown clears.
   await clearCooldown();
+  const before = await wallet();
   await submitPhoto(noisePhoto(1), 45);
-  ok("resubmitting the deleted photo is refused", /already earned/i.test(await modalError()));
-  ok("balance still unchanged", (await wallet()).balance === after.balance);
+  ok("resubmitting an already-earned photo is refused", /already earned/i.test(await modalError()));
+  ok("balance unchanged", (await wallet()).balance === before.balance);
   await closeModal();
+}
+
+console.log("\nshop: deleteProof() still removes a proof's photo and session, keeping its tokens and fingerprint");
+{
+  // Nothing in the UI calls this any more (no gallery to delete from), but
+  // the function itself is still exported and still has to behave: it's
+  // the one place that can clean up a proof without refunding it or
+  // reopening the door to a second payout.
+  const before = await wallet();
+  const result = await page.evaluate(() => {
+    const photoId = App.utils.uid("pf");
+    const sessionId = App.utils.uid("ss");
+    const proof = {
+      id: App.utils.uid("pr"), at: Date.now(), date: App.utils.today(),
+      classId: null, minutes: 20, note: "", photoId, hash: "manual-test-hash",
+      width: 10, height: 10, tokens: 25, sessionId, grade: "C",
+      correct: 1, total: 4, subject: "", verified: true
+    };
+    App.store.commit((db) => {
+      db.studyProofs.push(proof);
+      db.studySessions.push({ id: sessionId, classId: null, date: proof.date, minutes: 20, kind: "proof", proofId: proof.id });
+    });
+    App.shop.deleteProof(proof.id);
+    return { proofId: proof.id, sessionId };
+  });
+  const after = await wallet();
+  ok("the proof record is gone", !(await page.evaluate((id) => App.shop.proofs().some((p) => p.id === id), result.proofId)));
+  ok("its session went with it", after.sessions === before.sessions);
+  ok("its fingerprint is untouched", after.seen === before.seen);
 }
 
 console.log("\nshop: buying, wearing and taking off");
@@ -529,7 +553,7 @@ console.log("\nshop: two submissions of the same photo at once pay once");
     const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
     const f = new File([bytes], "race.png", { type: "image/png" });
     const before = App.shop.balance();
-    const proofsBefore = App.shop.proofs().length;
+    const proofsBefore = App.shop.proofSessions().length;
     const v = { grade: "A", correct: 4, total: 4, estimatedMinutes: 60, subject: "Chemistry" };
     const out = await Promise.allSettled([
       App.shop.submit({ file: f, verdict: v }),
@@ -538,12 +562,12 @@ console.log("\nshop: two submissions of the same photo at once pay once");
     return {
       states: out.map((o) => o.status),
       gained: App.shop.balance() - before,
-      proofs: App.shop.proofs().length - proofsBefore
+      proofs: App.shop.proofSessions().length - proofsBefore
     };
   }, b64);
   ok("exactly one submission succeeded", res.states.filter((x) => x === "fulfilled").length === 1,
      JSON.stringify(res.states));
-  ok("only one proof was recorded", res.proofs === 1, String(res.proofs));
+  ok("only one proof session was recorded", res.proofs === 1, String(res.proofs));
   ok("and it paid once", res.gained === 100, String(res.gained));
 }
 
@@ -836,11 +860,11 @@ console.log("\nshop: failing the quiz logs the work and pays nothing");
   await page.waitForTimeout(600);
   const after = await wallet();
   ok("nothing was paid", after.balance === before.balance, `${before.balance} → ${after.balance}`);
-  ok("but the proof was kept", after.proofs === before.proofs + 1);
-  ok("and so was the study session", after.sessions === before.sessions + 1);
-  const last = await page.evaluate(() => App.store.db.studyProofs.slice(-1)[0]);
-  ok("the proof remembers the grade", last.grade === "F" || last.grade === "—", String(last.grade));
-  ok("and that it was checked", last.verified === true);
+  ok("but the study session was kept", after.proofs === before.proofs + 1);
+  ok("and it's tagged as proof work", after.sessions === before.sessions + 1);
+  ok("the photo itself is discarded even on a zero payout", after.livePhotos === 0, String(after.livePhotos));
+  const last = await page.evaluate(() => App.store.db.studySessions.slice(-1)[0]);
+  ok("the session is kind: proof", last.kind === "proof", last.kind);
 }
 
 console.log("\nshop: walking away from a failed quiz is not a free retry");
@@ -977,9 +1001,9 @@ console.log("\nshop: without the AI a photo logs time and earns nothing");
   const after = await wallet();
   ok("nothing was paid", after.balance === before.balance, `${before.balance} → ${after.balance}`);
   ok("the session was still logged", after.sessions === before.sessions + 1);
-  const last = await page.evaluate(() => App.store.db.studyProofs.slice(-1)[0]);
+  ok("the photo is discarded on this path too", after.livePhotos === 0, String(after.livePhotos));
+  const last = await page.evaluate(() => App.store.db.studySessions.slice(-1)[0]);
   ok("the minutes were kept", last.minutes === 90, String(last.minutes));
-  ok("and it is marked unverified", last.verified === false, String(last.verified));
 }
 
 console.log("\nshop: what the model says is text, never markup");

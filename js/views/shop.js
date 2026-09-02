@@ -438,51 +438,6 @@ App.views.shop = (function () {
       });
   }
 
-  /** Full-size look at one proof, with the option to remove it. */
-  function viewProof(id) {
-    const p = SH.proofs().find((x) => x.id === id);
-    if (!p) return;
-    const c = S.cls(p.classId);
-
-    UI.modal({
-      title: U.fmtDate(p.date, "day"),
-      sub: `${U.fmtDur(p.minutes)}${c ? " · " + c.name : ""} · earned ${p.tokens} token${p.tokens === 1 ? "" : "s"}`,
-      size: "wide",
-      body: `<img class="proof-preview" alt="Study photo from ${U.esc(U.fmtDate(p.date))}" data-full />
-        ${p.note ? `<p class="small mt-12">${U.esc(p.note)}</p>` : ""}
-        <p class="tiny dim mt-12">Deleting this removes the photo and its study session from this device.
-          Tokens you already earned stay yours, and the photo still can't be submitted again.</p>`,
-      footer: `<button type="button" class="btn btn-danger left" data-del-proof>Delete</button>
-               <button type="button" class="btn" data-close>Close</button>`,
-      onMount(root) {
-        const img = root.querySelector("[data-full]");
-        App.idb.dataUrl(p.photoId).then((src) => {
-          if (src) img.src = src;
-          else {
-            img.replaceWith(Object.assign(document.createElement("div"), {
-              className: "proof-thumb-missing",
-              textContent: "That photo isn't stored on this device."
-            }));
-          }
-        }).catch(() => {});
-
-        root.querySelector("[data-del-proof]").addEventListener("click", () => {
-          UI.closeModal();
-          UI.confirm({
-            title: "Delete this proof?",
-            message: "The photo and its study session go. The tokens it earned stay.",
-            okLabel: "Delete",
-            danger: true,
-            onConfirm() {
-              SH.deleteProof(p.id);
-              UI.toast("Proof deleted", "The tokens it earned are still yours.");
-            }
-          });
-        });
-      }
-    });
-  }
-
   /* ---------------------------------------------------------- purchasing -- */
 
   function buyItem(id) {
@@ -501,22 +456,6 @@ App.views.shop = (function () {
   }
 
   /* -------------------------------------------------------------- render -- */
-
-  function proofCard(p) {
-    const c = S.cls(p.classId);
-    return `<div class="proof-card">
-      <button class="proof-thumb" data-proof="${p.id}" data-thumb="${U.esc(p.photoId)}"
-              aria-label="Open study photo from ${U.esc(U.fmtDate(p.date))}"></button>
-      <div class="proof-meta">
-        <div class="row between gap-6">
-          <span class="small bold">${U.fmtDur(p.minutes)}</span>
-          <span class="badge brand">+${p.tokens}</span>
-        </div>
-        <div class="tiny dim truncate">${U.esc(U.fmtDate(p.date, "day"))}${c ? " · " + U.esc(c.name) : ""}</div>
-        ${p.note ? `<div class="tiny dim truncate">${U.esc(p.note)}</div>` : ""}
-      </div>
-    </div>`;
-  }
 
   function preview(it) {
     if (it.kind === "title") {
@@ -592,12 +531,15 @@ App.views.shop = (function () {
   }
 
   function earnTab() {
-    const list = U.sortBy(SH.proofs(), (p) => p.at, true);
     const st = statusLine();
     const rules = SH.RULES;
     const rates = SH.RATES;
     const boost = SH.activeBoost();
-    const week = U.sum(SH.proofs().filter((p) => p.date >= U.dateKey(U.addDays(new Date(), -6))), (p) => p.minutes);
+    // Photos themselves are discarded right after they pay out — there's no
+    // gallery any more — so "how much photo-verified study have I done"
+    // reads off the study sessions they wrote, not the photos.
+    const proofSessions = SH.proofSessions();
+    const week = U.sum(proofSessions.filter((p) => p.date >= U.dateKey(U.addDays(new Date(), -6))), (p) => p.minutes);
 
     return `<div class="grid g-main">
       <div class="card">
@@ -655,7 +597,7 @@ App.views.shop = (function () {
         <div class="card-body col gap-12">
           <div class="row between">
             <span class="small dim">Photos logged</span>
-            <span class="bold nums">${SH.proofs().length}</span>
+            <span class="bold nums">${proofSessions.length}</span>
           </div>
           <div class="row between">
             <span class="small dim">Studied this way, last 7 days</span>
@@ -687,15 +629,6 @@ App.views.shop = (function () {
             <span class="badge ${e.n > 0 ? "ok" : ""}">${e.n > 0 ? "+" : ""}${e.n}</span>
           </div>`).join("")}</div>`
         : `<div class="card-body"><p class="dim small">Nothing yet — finish a focus block, or add a photo above.</p></div>`}
-    </div>
-
-    <div class="card mt-16">
-      <div class="card-head"><h3>Proof gallery</h3><span class="sub">${list.length} photo${list.length === 1 ? "" : "s"}</span></div>
-      ${list.length
-        ? `<div class="card-body"><div class="proof-grid">${list.map(proofCard).join("")}</div></div>`
-        : UI.emptyState("studySessions", "No study photos yet",
-            "Photograph what you worked on and it becomes tokens — and a record of the term you can scroll back through.",
-            `<button class="btn btn-primary" data-add-proof>📷 Add your first photo</button>`)}
     </div>`;
   }
 
@@ -747,7 +680,7 @@ App.views.shop = (function () {
           <div class="stat-ico" aria-hidden="true">📷</div>
           <div class="stat-label">Earned all time</div>
           <div class="stat-value nums">${Math.max(0, Math.floor(w.earned))}</div>
-          <div class="stat-foot">${U.plural(SH.proofs().length, "photo")}</div>
+          <div class="stat-foot">${U.plural(SH.proofSessions().length, "photo")}</div>
         </div>
         <div class="stat">
           <div class="stat-ico" aria-hidden="true">📅</div>
@@ -788,7 +721,6 @@ App.views.shop = (function () {
       UI.toast("Wait skipped", "Photograph the next thing now.", "ok");
       App.router.refresh();
     });
-    U.on(root, "click", "[data-proof]", (_e, el) => viewProof(el.dataset.proof));
     U.on(root, "click", "[data-buy]", (_e, el) => buyItem(el.dataset.buy));
     U.on(root, "click", "[data-equip]", (_e, el) => {
       const it = SH.item(el.dataset.equip);
@@ -805,29 +737,7 @@ App.views.shop = (function () {
       SH.unequip(kind);
       UI.toast(`${it ? it.name : SH.kindLabel(kind)} off`, "It stays in your collection.");
     });
-
-    // Thumbnails live in IndexedDB, so they're fetched after the markup is in
-    // place — same pattern as class cover images. The image goes *inside* the
-    // button rather than replacing it, so the delegated [data-proof] handler
-    // above keeps working and the photo stays keyboard-reachable.
-    const fillThumb = (el) => {
-      App.idb.dataUrl(el.dataset.thumb).then((src) => {
-        if (src) {
-          const img = document.createElement("img");
-          img.alt = "";
-          img.src = src;
-          el.appendChild(img);
-        } else {
-          // The blob is gone (cleared site data, or a backup opened on a
-          // different device). The record is still true, so say that rather
-          // than showing an empty frame.
-          el.classList.add("proof-thumb-missing");
-          el.textContent = "Photo isn't on this device";
-        }
-      }).catch(() => {});
-    };
-    U.$$("[data-thumb]", root).forEach(fillThumb);
   }
 
-  return { render, mount, proofForm, viewProof, title: "Study shop" };
+  return { render, mount, proofForm, title: "Study shop" };
 })();

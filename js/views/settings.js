@@ -68,7 +68,7 @@ App.views.settings = (function () {
       ["Events", d.events.length], ["Notes", d.notes.length],
       ["Flashcards", U.sum(d.decks, (x) => x.cards.length)],
       ["Study sessions", d.studySessions.length],
-      ["Study photos", (d.studyProofs || []).length],
+      ["Study photos", d.studySessions.filter((s) => s.kind === "proof").length],
       ["Books", d.reading.length], ["Applications", d.collegeApps.length]
     ];
   }
@@ -1588,11 +1588,10 @@ App.views.settings = (function () {
       });
     });
     U.on(root, "click", "[data-sync-now]", () => {
-      App.sync.push(false).then((r) => {
-        if (r && r.ok) UI.toast("Synced", "Your data is up to date.", "ok");
-        else if (r && r.reason !== "conflict") UI.toast("Not synced", (r && r.message) || "", "danger");
-        App.router.refresh();
-      });
+      // No toast either way — the status badge next to this button already
+      // reflects the outcome (Synced / Offline / Conflict), and syncing is
+      // meant to be a background thing even when it's manually kicked off.
+      App.sync.push(false).then(() => { App.router.refresh(); });
     });
     U.on(root, "change", "[data-autosync]", (_e, el) => {
       S.commit((db) => { db.account.autoSync = el.checked; });

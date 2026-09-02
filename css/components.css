@@ -366,6 +366,7 @@
 .table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .table tbody tr:last-child td { border-bottom: none; }
 .table tbody tr:hover { background: var(--surface-2); }
+.table tbody tr.row-link { cursor: pointer; }
 .table .right, .table th.right { text-align: right; }
 
 /* `overflow-x: auto` computes overflow-y to auto as well, which makes this
@@ -397,6 +398,7 @@
 }
 .list-item:last-child { border-bottom: none; }
 .list-item:hover { background: var(--surface-2); }
+.list-item.row-link { cursor: pointer; }
 .list-item .title { font-weight: 600; font-size: .855rem; }
 .list-item .meta { font-size: .745rem; color: var(--text-3); margin-top: 1px; }
 

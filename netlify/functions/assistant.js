@@ -790,9 +790,9 @@ const PROOF_MAX_MINUTES = 240;
  */
 function gradeFor(correct, total) {
   const pct = total > 0 ? correct / total : 0;
-  if (pct >= 0.9) return { grade: "A", tokens: 4 };
-  if (pct >= 0.75) return { grade: "B", tokens: 2 };
-  if (pct >= 0.5) return { grade: "C", tokens: 1 };
+  if (pct >= 0.9) return { grade: "A", tokens: 100 };
+  if (pct >= 0.75) return { grade: "B", tokens: 50 };
+  if (pct >= 0.5) return { grade: "C", tokens: 25 };
   return { grade: "—", tokens: 0 };
 }
 

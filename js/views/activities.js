@@ -100,12 +100,6 @@ App.views.activities = (function () {
             ${typeList.map((t) => `<option ${t === (a.type || (isExternal ? "Class" : "Club")) ? "selected" : ""}>${U.esc(t)}</option>`).join("")}
           </select>
         </div>
-        <div class="field">
-          <label>Their role <span class="tiny dim">(optional)</span></label>
-          <input class="input" name="role" maxlength="60" value="${U.esc(a.role || "")}"
-                 placeholder="${isExternal ? "Grade 4, Squad B, Beginner…" : "Member, Captain, Treasurer…"}" />
-        </div>
-
         <!-- school-only -->
         <div class="field" data-only="school" ${isExternal ? "hidden" : ""}>
           <label>Advisor / coach</label>
@@ -221,7 +215,7 @@ App.views.activities = (function () {
         if (!d.name.trim()) return false;
         const external = !!d.external;
         const patch = {
-          name: d.name.trim(), type: d.type, role: d.role.trim(),
+          name: d.name.trim(), type: d.type,
           start: d.start, end: d.end, season: d.season.trim(), color: d.color,
           days: d.days ? d.days.split(",").filter(Boolean) : [],
           startDate: d.startDate || "", endDate: d.endDate || "",
@@ -264,26 +258,30 @@ App.views.activities = (function () {
     });
   }
 
-  function logHours(id) {
+  function logHours(id, entry) {
     const a = S.byId("activities", id);
     if (!a) return;
     UI.modal({
-      title: "Log hours",
+      title: entry ? "Edit logged hours" : "Log hours",
       sub: a.name,
-      okLabel: "Log it",
+      okLabel: entry ? "Save" : "Log it",
       body: `<div class="form-grid">
         <div class="field"><label>Date</label>
-          <input class="input" type="date" name="date" value="${U.today()}" /></div>
+          <input class="input" type="date" name="date" value="${U.esc(entry ? entry.date : U.today())}" /></div>
         <div class="field"><label>Hours</label>
-          <input class="input" type="number" name="hours" step="0.25" min="0" value="1.5" /></div>
+          <input class="input" type="number" name="hours" step="0.25" min="0" value="${entry ? entry.hours : 1.5}" /></div>
         <div class="field full"><label>What did you do?</label>
-          <input class="input" name="note" placeholder="Practice, lesson, volunteering…" /></div>
+          <input class="input" name="note" value="${U.esc(entry ? entry.note || "" : "")}" placeholder="Practice, lesson, volunteering…" /></div>
       </div>`,
       onSubmit(d) {
         a.hours = a.hours || [];
-        a.hours.push({ date: d.date, hours: Number(d.hours) || 0, note: d.note.trim() });
+        if (entry) {
+          entry.date = d.date; entry.hours = Number(d.hours) || 0; entry.note = d.note.trim();
+        } else {
+          a.hours.push({ date: d.date, hours: Number(d.hours) || 0, note: d.note.trim() });
+        }
         S.commit();
-        UI.toast("Hours logged", `${d.hours}h · ${a.name}`, "ok");
+        UI.toast(entry ? "Hours updated" : "Hours logged", `${d.hours}h · ${a.name}`, "ok");
       }
     });
   }
@@ -329,7 +327,7 @@ App.views.activities = (function () {
 
     UI.modal({
       title: a.name,
-      sub: `${a.external ? "Outside school · " : ""}${a.type}${a.role ? " · " + a.role : ""} · ${a.season}`,
+      sub: `${a.external ? "Outside school · " : ""}${a.type} · ${a.season}`,
       size: "wide",
       footer: `<button type="button" class="btn btn-danger left" data-del>Delete</button>
                <button type="button" class="btn" data-log>+ Log hours</button>
@@ -362,11 +360,11 @@ App.views.activities = (function () {
         <h4 class="mb-8">Hour log</h4>
         ${hours.length ? `<div class="table-wrap"><table class="table">
           <thead><tr><th>Date</th><th>What</th><th class="right">Hours</th><th></th></tr></thead>
-          <tbody>${hours.map((h, i) => `<tr>
+          <tbody>${hours.map((h, i) => `<tr class="row-link" data-edit-hour="${i}">
             <td class="nowrap">${U.esc(U.fmtDate(h.date, "day"))}</td>
             <td class="muted">${U.esc(h.note || "—")}</td>
             <td class="right nums">${h.hours}</td>
-            <td class="right"><button class="icon-btn btn-sm" data-rm-hour="${i}" aria-label="Remove">✕</button></td>
+            <td class="right"><button class="icon-btn btn-sm" data-rm-hour="${i}" data-stop-propagation aria-label="Remove">✕</button></td>
           </tr>`).join("")}</tbody>
         </table></div>` : `<p class="dim small">No hours logged yet.</p>`}`,
       onMount(root) {
@@ -379,6 +377,13 @@ App.views.activities = (function () {
             okLabel: "Delete", danger: true,
             onConfirm() { S.remove("activities", a.id); UI.toast("Activity deleted", a.name, "warn"); }
           });
+        });
+        U.on(root, "click", "[data-edit-hour]", (e, el) => {
+          if (e.target.closest("[data-rm-hour]")) return;
+          const idx = Number(el.dataset.editHour);
+          const target = hours[idx];
+          UI.closeModal();
+          logHours(a.id, target);
         });
         U.on(root, "click", "[data-rm-hour]", (_e, el) => {
           const idx = Number(el.dataset.rmHour);
@@ -405,7 +410,7 @@ App.views.activities = (function () {
         <div class="between mb-8">
           <div style="min-width:0">
             <h3 class="truncate">${U.esc(a.name)}</h3>
-            <div class="tiny dim">${U.esc(a.type)}${a.role ? " · " + U.esc(a.role) : ""}</div>
+            <div class="tiny dim">${U.esc(a.type)}</div>
           </div>
           <span class="badge brand">${U.round(total, 1)}h</span>
         </div>
