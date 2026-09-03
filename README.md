@@ -353,6 +353,14 @@ this browser at all.
   next request gets a 401, the device is cleared, and the login screen comes
   back saying why.
 
+The login card scales to the device — its width tracks the viewport between
+sensible bounds, and it caps its own height so it never runs off the screen.
+When a form is taller than the device (the sign-up fields on a phone in
+landscape, say), the card's body scrolls internally with a soft scroll
+shadow while the header stays pinned, rather than pushing the submit button
+below an unscrollable fold.
+
 `tests/gate.mjs` drives every one of those in a real browser, including the
 two cases worth being paranoid about — data on disk with no session, and a
-session the server no longer honours.
+session the server no longer honours — plus the responsive scaling and the
+scroll behaviour on a short viewport.

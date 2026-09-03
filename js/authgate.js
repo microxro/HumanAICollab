@@ -67,23 +67,30 @@ App.authgate = (function () {
 
   function render() {
     const signup = mode === "signup";
+    // Three regions, the same shape as the app's own .modal (head / scrolling
+    // body / pinned foot): the brand and mode tabs stay put, the fields scroll
+    // when they outgrow the device, and the primary button never falls below
+    // an unscrollable fold — which is exactly what happened to "Create
+    // account" on a short screen before this. See css/components.css.
     root.innerHTML = `
       <div class="gate-card" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
-        <div class="gate-brand">
-          <span class="logo" aria-hidden="true">S</span>
-          <span class="logo-text">Study<span>Hold</span></span>
-        </div>
+        <div class="gate-head">
+          <div class="gate-brand">
+            <span class="logo" aria-hidden="true">S</span>
+            <span class="logo-text">Study<span>Hold</span></span>
+          </div>
 
-        <h1 class="gate-title" id="gateTitle">${signup ? "Create your account" : "Sign in to StudyHold"}</h1>
-        <p class="gate-sub">${signup
-          ? "Your classes, homework and grades are stored under your account, so they follow you between devices."
-          : "Your work is stored under your account. Sign in to load it onto this device."}</p>
+          <h1 class="gate-title" id="gateTitle">${signup ? "Create your account" : "Sign in to StudyHold"}</h1>
+          <p class="gate-sub">${signup
+            ? "Your classes, homework and grades are stored under your account, so they follow you between devices."
+            : "Your work is stored under your account. Sign in to load it onto this device."}</p>
 
-        <div class="gate-tabs" role="tablist" aria-label="Sign in or create an account">
-          <button type="button" class="gate-tab${signup ? "" : " sel"}" role="tab"
-                  aria-selected="${signup ? "false" : "true"}" data-mode="signin">Sign in</button>
-          <button type="button" class="gate-tab${signup ? " sel" : ""}" role="tab"
-                  aria-selected="${signup ? "true" : "false"}" data-mode="signup">Create account</button>
+          <div class="gate-tabs" role="tablist" aria-label="Sign in or create an account">
+            <button type="button" class="gate-tab${signup ? "" : " sel"}" role="tab"
+                    aria-selected="${signup ? "false" : "true"}" data-mode="signin">Sign in</button>
+            <button type="button" class="gate-tab${signup ? " sel" : ""}" role="tab"
+                    aria-selected="${signup ? "true" : "false"}" data-mode="signup">Create account</button>
+          </div>
         </div>
 
         <form class="gate-form" novalidate>
@@ -92,17 +99,13 @@ App.authgate = (function () {
           <button type="submit" class="btn btn-primary btn-block">
             ${signup ? "Create account" : "Sign in"}
           </button>
-        </form>
-
-        ${signup ? "" : `<p class="gate-alt"><button type="button" class="btn-link small" data-forgot hidden>Forgot your password?</button></p>`}
-
-        <div class="gate-foot">
+          ${signup ? "" : `<p class="gate-alt"><button type="button" class="btn-link small" data-forgot hidden>Forgot your password?</button></p>`}
           <p class="gate-note">
             <strong>Nothing is saved on this device until you sign in.</strong>
             Signed out, StudyHold runs in this tab only — closing it clears everything.
           </p>
           <button type="button" class="btn-link small" data-skip-auth>Continue without saving →</button>
-        </div>
+        </form>
       </div>`;
 
     bind();
