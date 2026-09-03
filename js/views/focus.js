@@ -103,10 +103,10 @@ App.views.focus = (function () {
         // XP in proportion, so a skipped block can't out-earn a finished one.
         db.streak.xp += Math.max(1, Math.round(25 * (elapsedMin / Math.max(1, planned))));
       });
-      // Tokens follow the same rule: paid per minute actually spent, with the
-      // completion bonus only for a block that ran to the end.
-      S.awardTokens(elapsedMin * App.shop.RATES.focusPerMin + (skipped ? 0 : App.shop.RATES.focusBlockBonus),
-        `${elapsedMin} min of focus${timer.classId ? " · " + S.className(timer.classId) : ""}`);
+      // No tokens here. A running timer is the easiest thing in the app to
+      // leave running, and paying by the minute for it made the shop's best
+      // earning strategy "start a block and walk away". Tokens are earned by
+      // answering a quiz on what you studied — see js/shop.js.
       const next = timer.round % cfg().rounds === 0 ? "long" : "short";
       timer.round += 1;
       timer.phase = next;

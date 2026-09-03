@@ -459,6 +459,7 @@ html[data-sidebar="collapsed"] {
   --sidebar-w: 60px;
 }
 html[data-sidebar="collapsed"] .logo-text,
+html[data-sidebar="collapsed"] .beta-tag,
 html[data-sidebar="collapsed"] .nav-label,
 html[data-sidebar="collapsed"] .nav-item .lbl,
 html[data-sidebar="collapsed"] .nav-item .grow,

@@ -30,7 +30,9 @@
       { id: "reading",    label: "Reading",     icon: "▥",
         badge: () => S.db.reading.filter((r) => !r.done).length },
       { id: "shop",       label: "Study shop",  icon: "◆",
-        badge: () => App.shop.affordableCount() }
+        // An unopened chest is the more urgent of the two, and both are the
+        // same kind of thing to the student: something waiting for them.
+        badge: () => App.shop.affordableCount() + App.shop.unopenedChests().length }
     ]},
     { group: "Life", items: [
       { id: "activities", label: "Activities", icon: "◇" },
@@ -109,7 +111,10 @@
       }
       current = id;
       S.db.ui.view = id;
-      S.trackNavVisit(id);   // U02 — feeds the "float to top" ranking
+      // U52 — a step of the guided tour is the tour's navigation, not the
+      // student's. Counting it would fill the sidebar's Pinned group with
+      // whatever the tour happened to visit last, on their very first load.
+      if (!(App.tour && App.tour.active())) S.trackNavVisit(id);   // U02 — feeds the "float to top" ranking
       S.save();
       const hashPath = id + (sub ? "/" + sub : "");
       if (location.hash.slice(1) !== hashPath) history.replaceState(null, "", "#" + hashPath);
@@ -463,7 +468,8 @@
         }},
       { group: "Actions", label: "Import from Canvas / Classroom", icon: "⬆", run: () => router.go("settings") },
       { group: "Actions", label: "Rebuild study plan", icon: "◳", run: () => router.go("planner") },
-      { group: "Actions", label: "Start a focus block", icon: "◷", run: () => router.go("focus") }
+      { group: "Actions", label: "Start a focus block", icon: "◷", run: () => router.go("focus") },
+      { group: "Actions", label: "Take the guided tour", icon: "🎓", run: () => App.tour.start({ from: "palette" }) }
     );
 
     // Jump straight to any assignment, class, or note.
@@ -604,6 +610,11 @@
   let chord = null;   // "g" prefix for go-to shortcuts
 
   function onKeydown(e) {
+    // U52 — the guided tour binds its own handler (→ ← Esc, and a focus trap)
+    // and blocks the app behind it, so an app shortcut fired from here would
+    // open a dialog underneath the overlay.
+    if (App.tour && App.tour.active()) return;
+
     const mod = e.metaKey || e.ctrlKey;
 
     if (mod && e.key.toLowerCase() === "k") {
@@ -1048,9 +1059,28 @@
     const startId = startPath.split("/")[0];
     router.go(App.views[startId] ? startPath : "dashboard");
 
-    // U49 — a genuinely fresh dataset (onboarded explicitly false) gets the
-    // setup wizard instead of a dashboard full of someone else's data.
-    if (S.settings.onboarded === false) setTimeout(runOnboarding, 400);
+    // The gate. Nothing above this line touches the network or the user's
+    // data — it wires listeners and paints a shell nobody can see yet
+    // (index.html ships body.gate-pending) — so this is the first moment
+    // where the question can be asked and the last where it still matters.
+    //
+    // A session token is the whole test. Present: this device already holds
+    // that account's data, so open the app; if the server has since retired
+    // the token, restore() gets a 401 and the gate comes back up on its own.
+    // Absent: js/store.js has already refused to read anything off this
+    // device, so there is nothing behind the gate to protect but nothing to
+    // show either. Either way the first-run overlays are afterAuth's, not
+    // boot's — a tour of an app covered by a login screen is a tour of a
+    // login screen.
+    if (App.sync.hasSession() || App.authgate.isEphemeral()) {
+      document.body.classList.remove("gate-pending");
+      afterAuth();
+    } else {
+      // Belt and braces: store.js purged localStorage at load, before
+      // App.idb existed. Now it does, so the attachment blobs go too.
+      S.purgeLocal();
+      App.authgate.show();
+    }
 
     // F064 — a group invite link (?join=CODE) drops you straight into the
     // join flow instead of making you type the code by hand.
@@ -1073,6 +1103,35 @@
 
     paintProfileChip();
   }
+
+  /**
+   * The app, from the far side of the gate.
+   *
+   * Everything here used to sit at the end of boot(). It cannot any more:
+   * a guided tour of an app hidden behind a login screen is a tour of a
+   * login screen, and until there is a session there is nothing to onboard
+   * *into*. js/authgate.js calls this once — on a successful sign-in, on a
+   * sign-up, or when somebody deliberately chooses a memory-only session.
+   */
+  function afterAuth() {
+    document.body.classList.remove("gate-pending");
+    paintProfileChip();
+    paintSyncBadge();
+    router.refresh();
+
+    // U52/U49 — a genuinely fresh install gets the guided tour, which hands
+    // off to the setup wizard on its last step. autoStart() decides between
+    // the two and does nothing at all once either has been answered.
+    //
+    // Not while a link is mid-flow, though: ?join= and ?resetToken= each open
+    // a form of their own (see boot), and a tour on top of one would be
+    // covering the thing the student clicked the link to reach.
+    const linkFlow = new URL(location.href).searchParams;
+    if (!linkFlow.get("join") && !linkFlow.get("resetToken")) {
+      setTimeout(() => App.tour.autoStart(), 400);
+    }
+  }
+  App.afterAuth = afterAuth;
 
   /**
    * The name, grade and avatar in the sidebar.
@@ -1111,6 +1170,12 @@
    */
   function fatal(err) {
     console.error("[studyhold] boot failed", err);
+    // The gate hides the app chrome via body classes, and this screen renders
+    // into #page — inside it. A crash before the gate resolves would
+    // otherwise show a blank tab instead of the recovery steps.
+    document.body.classList.remove("gate-pending", "gated");
+    const gate = document.querySelector(".gate-root");
+    if (gate && gate.parentNode) gate.parentNode.removeChild(gate);
     const msg = (err && (err.message || String(err))) || "Unknown error";
     const stack = (err && err.stack) || "";
     const host = document.getElementById("page") || document.body;
@@ -1159,8 +1224,10 @@
     if (rs) rs.addEventListener("click", () => {
       if (!window.confirm("Erase all StudyHold data on this device? This cannot be undone.")) return;
       try {
-        localStorage.removeItem("scholar.db.v2");
-        localStorage.removeItem("scholar.db.v1");
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf("scholar.") === 0) localStorage.removeItem(k);
+        }
       } catch (e) { /* nothing left to do */ }
       location.href = location.pathname;
     });
@@ -1201,8 +1268,13 @@
     try {
       if (new URL(location.href).searchParams.get("reset") === "1") {
         if (window.confirm("Reset StudyHold's local data on this device? Export a backup first if you need one.")) {
-          localStorage.removeItem("scholar.db.v2");
-          localStorage.removeItem("scholar.db.v1");
+          // Sweep the session out with the data. Leaving the token behind
+          // would leave the device looking signed in with an empty store,
+          // which then syncs that emptiness up as a legitimate state.
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (k && k.indexOf("scholar.") === 0) localStorage.removeItem(k);
+          }
         }
         history.replaceState(null, "", location.pathname);
       }

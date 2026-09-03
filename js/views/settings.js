@@ -54,8 +54,13 @@ App.views.settings = (function () {
   /* ------------------------------------------------------------- helpers */
 
   function dataSize() {
+    // Signed out there is no stored copy to measure, and reporting "0.0 KB"
+    // reads like an empty account rather than a session that is keeping
+    // nothing. Measure what is in memory and say where it lives.
     try {
-      const raw = localStorage.getItem("scholar.db.v2") || "";
+      const raw = S.isPersistent()
+        ? (localStorage.getItem("scholar.db.v2") || "")
+        : JSON.stringify(S.db);
       const kb = new Blob([raw]).size / 1024;
       return kb > 1024 ? `${U.round(kb / 1024, 2)} MB` : `${U.round(kb, 1)} KB`;
     } catch (e) { return "unknown"; }
@@ -68,7 +73,7 @@ App.views.settings = (function () {
       ["Events", d.events.length], ["Notes", d.notes.length],
       ["Flashcards", U.sum(d.decks, (x) => x.cards.length)],
       ["Study sessions", d.studySessions.length],
-      ["Study photos", d.studySessions.filter((s) => s.kind === "proof").length],
+      ["Quizzes answered", (d.studyQuizzes || []).length],
       ["Books", d.reading.length], ["Applications", d.collegeApps.length]
     ];
   }
@@ -136,7 +141,8 @@ App.views.settings = (function () {
       </div>
       ${!isSignup ? `<p class="mt-8" data-forgot-slot><button type="button" class="btn-link small" data-forgot hidden>Forgot your password?</button></p>` : ""}
       <p class="hint mt-12">Your data is stored under your account so it follows you between devices.
-        Sign out any time — the local copy stays on this device.</p>`,
+        This browser only keeps a copy while you're signed in — sign out and the local copy is erased,
+        so a shared computer keeps nothing.</p>`,
       onMount(root) {
         const forgot = root.querySelector("[data-forgot]");
         if (forgot) {
@@ -229,6 +235,7 @@ App.views.settings = (function () {
     });
   }
   App.resetPasswordForm = resetPasswordForm;   // reached from a ?resetToken= link at boot (js/app.js)
+  App.forgotPasswordForm = forgotPasswordForm; // reached from the sign-in screen (js/authgate.js)
 
   function accountTab() {
     const s = App.sync.info();
@@ -237,11 +244,12 @@ App.views.settings = (function () {
     if (!s.signedIn) {
       return `
         <div class="card mb-16">
-          <div class="card-head"><h3>Cloud sync</h3><span class="badge">Signed out</span></div>
+          <div class="card-head"><h3>Your account</h3><span class="badge warn">Not signed in</span></div>
           <div class="card-body">
             <p class="small muted mb-16">
-              StudyHold works completely offline — everything you've entered is saved in this browser.
-              An account adds cross-device sync, the parent portal, and study groups.
+              Nothing you enter is being saved on this device — StudyHold is running in this tab only,
+              and closing it clears everything. Signing in stores your work under your account, brings it
+              back on any device, and unlocks the parent portal and study groups.
             </p>
             <div class="row gap-8">
               <button class="btn btn-primary" data-signup>Create an account</button>
@@ -647,7 +655,7 @@ App.views.settings = (function () {
     return `
       <div class="card mb-16">
         <div class="card-head">
-          <div><h3>Your data</h3><div class="sub">In this browser · ${dataSize()}${idbBytes != null ? ` + ${App.idb.fmtSize(idbBytes)} of files` : ""}</div></div>
+          <div><h3>Your data</h3><div class="sub">${S.isPersistent() ? "In this browser" : "In this tab only — not saved"} · ${dataSize()}${idbBytes != null && S.isPersistent() ? ` + ${App.idb.fmtSize(idbBytes)} of files` : ""}</div></div>
         </div>
         <div class="card-body">
           <div class="grid g-4 mb-16">
@@ -908,9 +916,14 @@ App.views.settings = (function () {
       <div class="card mb-16">
         <div class="card-head"><h3>Getting started</h3></div>
         <div class="card-body">
-          <p class="small muted mb-12">The setup wizard walks through adding a class, your bell
-            schedule, and one assignment — the fastest way to make the rest of the app feel like yours.</p>
-          <button class="btn" data-run-onboarding>🎓 Run setup wizard</button>
+          <p class="small muted mb-12">The guided tour walks the whole app — one screen at a time,
+            ${U.plural(App.tour.steps().length, "step")}, skippable at any point. The setup wizard is
+            the shorter one: a class, your bell schedule, and one assignment — the fastest way to make
+            the rest of the app feel like yours.</p>
+          <div class="row gap-8" style="flex-wrap:wrap">
+            <button class="btn btn-primary" data-run-tour>🧭 Take the guided tour</button>
+            <button class="btn" data-run-onboarding>🎓 Run setup wizard</button>
+          </div>
         </div>
       </div>
 
@@ -934,8 +947,11 @@ App.views.settings = (function () {
       <div class="card">
         <div class="card-head"><h3>About</h3></div>
         <div class="card-body small muted">
-          <p><strong style="color:var(--text)">StudyHold ${S.SCHEMA === 2 ? "2.0" : ""}</strong> —
+          <p><strong style="color:var(--text)">StudyHold ${S.SCHEMA === 2 ? "2.0" : ""}</strong>
+          <span class="beta-tag" style="margin-left:6px;vertical-align:2px">Beta</span> —
           a school tracker built with plain HTML, CSS, and JavaScript. No framework, no build step.</p>
+          <p class="mt-8">This is a beta. Everything here works, but details still move between
+          releases — keep an export of your data (Settings &rarr; Data) if it matters to you.</p>
           <p class="mt-8">Accounts, cross-device sync, the parent portal, and study groups run on
           Netlify Functions with Netlify Blobs. Everything else works entirely offline in your browser.</p>
           <p class="mt-8">Location uses the browser Geolocation API with a campus geofence you set yourself.
@@ -1437,6 +1453,7 @@ App.views.settings = (function () {
   function mount(root) {
     U.on(root, "click", "[data-tab]", (_e, el) => { tab = el.dataset.tab; App.router.refresh(); });
     U.on(root, "click", "[data-run-onboarding]", () => App.runOnboarding());
+    U.on(root, "click", "[data-run-tour]", () => App.tour.start({ from: "settings" }));
 
     /* --- F154 feedback */
     U.on(root, "click", "[data-feedback-send]", () => {
@@ -1478,11 +1495,21 @@ App.views.settings = (function () {
     U.on(root, "click", "[data-signup]", () => authForm("signup"));
     U.on(root, "click", "[data-signin]", () => authForm("signin"));
     U.on(root, "click", "[data-signout]", () => {
+      // The old copy — "your data stays on this device" — is now the opposite
+      // of what happens, and a sign-out that silently erased the device
+      // after promising the reverse would be the worst possible way to
+      // learn about the change.
       UI.confirm({
         title: "Sign out?",
-        message: "Your data stays on this device. Sign back in any time to resume syncing.",
+        message: App.sync.hasPendingWrites()
+          ? "This device keeps no copy once you sign out. There are still changes waiting to sync — "
+            + "they'll be pushed to your account first. Sign back in to load everything again."
+          : "This device keeps no copy once you sign out — your work stays in your account and comes "
+            + "back when you sign in again.",
         okLabel: "Sign out",
-        onConfirm() { App.sync.signOut(); UI.toast("Signed out"); App.router.refresh(); }
+        onConfirm() {
+          App.sync.signOut().then(() => UI.toast("Signed out", "This device has been cleared.", "ok"));
+        }
       });
     });
     U.on(root, "click", "[data-sync-now]", () => {

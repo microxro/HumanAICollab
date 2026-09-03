@@ -111,10 +111,10 @@ const GUARDED = [
 const AI_GUARDED = [
   ["POST", "parse-text"], ["POST", "parse-image"], ["POST", "parse-note-image"],
   ["POST", "from-url"], ["POST", "estimate"], ["POST", "act"], ["POST", "ask"],
-  // F158. study-quiz is the one that pays out, so it is attacked with the
-  // same eight forged credentials as everything else: a caller who can grade
-  // a quiz without an account can mint tokens without one.
-  ["POST", "study-proof"], ["POST", "study-quiz"]
+  // F158/F160. study-quiz is the one that pays out, so it is attacked with
+  // the same eight forged credentials as everything else: a caller who can
+  // grade a quiz without an account can mint tokens without one.
+  ["POST", "study-topic"], ["POST", "study-quiz"]
 ];
 
 /* ============================================== forged and absent tokens == */

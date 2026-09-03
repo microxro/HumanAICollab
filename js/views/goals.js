@@ -549,16 +549,9 @@ App.views.goals = (function () {
       if (wasOn) delete h.log[iso];
       else h.log[iso] = true;
       S.commit();
-      // Only today's tick pays, and only the first time: back-filling a week
-      // of boxes is bookkeeping, not work done today, and un-ticking then
-      // re-ticking the same box would otherwise pay twice.
-      if (!wasOn && iso === U.today() && !(h.paidDays || []).includes(iso)) {
-        S.commit((db) => {
-          const rec = db.habits.find((x) => x.id === h.id);
-          if (rec) rec.paidDays = (rec.paidDays || []).concat([iso]).slice(-90);
-        });
-        S.awardTokens(App.shop.RATES.habitCheck, `Habit kept — ${h.name}`, { silent: true });
-      }
+      // Ticking a box used to pay study tokens. It doesn't any more — a
+      // checkbox is not evidence of anything, and the shop pays for quizzes
+      // only now (js/shop.js). The streak and the habit chart are unchanged.
     });
   }
 

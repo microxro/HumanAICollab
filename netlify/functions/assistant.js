@@ -8,7 +8,7 @@
      POST /assistant/parse-text    { text }                → { entries, periods, summary, clarify }
      POST /assistant/parse-image   { imageBase64, mimeType} → { entries, periods, summary, clarify }
      POST /assistant/parse-note-image { imageBase64, mimeType } → { title, body, tags, … }
-     POST /assistant/study-proof   { imageBase64, mimeType, hash } → { schoolwork, quiz, ticket }
+     POST /assistant/study-topic   { topic, className, difficulty } → { ok, questions, ticket }
      POST /assistant/study-quiz    { ticket, answers }             → { correct, total, grade, tokens }
      POST /assistant/from-url      { url, kind }             → schedule | events | courses
      POST /assistant/estimate      { title, type, … }      → { minutes, low, high, suggestedSteps }
@@ -742,51 +742,61 @@ async function health(req) {
   return ok(out);
 }
 
-/* ================================================ F158 verified study proof
+/* ================================================== F160 topic study quiz
 
-   Study-shop tokens used to be paid for a photo plus a number the student
-   typed into a box. Neither was checked, so a screenshot of anything and a
-   claim of "240 minutes" was worth exactly as much as an evening of real
-   work — and the ten-minute cooldown was the only thing between a student
-   and a farmed wardrobe.
+   Study-shop tokens used to be paid for a photo of the work plus a quiz
+   written about that photo. The photo was always the weakest part of it: it
+   demanded a camera, it demanded that the work be on paper and in front of
+   you, it shipped a picture of a student's homework through an image model,
+   and it still proved nothing on its own — the quiz was doing all the work.
 
-   These two routes are the check that was missing.
+   So the photo is gone and the quiz is the whole feature. The student picks
+   a topic they have been studying, and these two routes write and mark a
+   short multiple-choice quiz about it.
 
-   `study-proof` asks the model two things about the photo: is this
-   schoolwork at all, and if it is, write a short quiz about *this page*.
-   That second half is the part that does the work. A photo of a games
-   library or a bedroom wall yields no quiz, so it earns nothing; a photo of
-   a real worksheet yields questions only somebody who looked at the
-   worksheet can answer.
+   `study-topic` decides whether the topic is something academic that can be
+   quizzed at all — "the French Revolution" yes, "my cat" no — and, if it is,
+   writes the questions. `study-quiz` marks the answers and says what the
+   attempt scored.
 
-   `study-quiz` grades the answers and says what the attempt is worth.
-
-   The answer key never reaches the browser. It rides in a ticket signed
-   with the same HMAC-SHA256 that signs session tokens, so what the client
-   holds is opaque — it cannot read the key out of the network tab, and it
-   cannot forge a ticket that says it scored full marks. The ticket also
-   carries the photo's fingerprint and the model's own estimate of how long
-   the work represents, which is why neither of those is trusted from the
-   request body afterwards.
+   The answer key never reaches the browser. It rides in a ticket signed with
+   the same HMAC-SHA256 that signs session tokens, so what the client holds is
+   opaque: it cannot read the key out of the network tab, and it cannot forge
+   a ticket that says it scored full marks. The ticket also carries the topic
+   and the difficulty, which is why neither is trusted from the request body
+   when the answers come back.
 
    What this does not do is make the economy cheat-proof. The wallet is in
-   localStorage and devtools can set it to any number at all. The goal here
-   is narrower and worth stating plainly: the lazy routes stop working.
+   localStorage and devtools can set it to any number at all. The goal is
+   narrower and worth stating plainly: the lazy routes stop working. You
+   cannot earn without answering questions somebody wrote after reading your
+   topic, you cannot answer the same set twice, and grinding one easy topic
+   all evening pays less each time (js/shop.js).
    ========================================================================== */
 
 const QUIZ_MIN_QUESTIONS = 2;      // fewer than this isn't evidence of anything
-const QUIZ_MAX_QUESTIONS = 6;
+const QUIZ_MAX_QUESTIONS = 8;
+const QUIZ_WANTED = 5;             // what the model is asked for
 const QUIZ_CHOICES = 4;
 const QUIZ_TTL_MS = 15 * 60 * 1000; // long enough to answer, short enough to matter
-const PROOF_MIN_MINUTES = 5;
-const PROOF_MAX_MINUTES = 240;
+const TOPIC_MAX_LEN = 80;
 
 /**
- * What a score is worth, and the only place that decides it.
+ * What each difficulty is worth, and the only place that decides it.
  *
- * js/shop.js carries the same table for the "what pays what" hint in the
- * form, but it is display only — the number actually credited is the one
- * this function returns, because the client is the side with a motive.
+ * Harder questions pay more because the alternative is an economy where the
+ * rational move is to answer five easy questions about the same thing
+ * forever. The multiplier is bound into the ticket rather than sent back by
+ * the client, for the same reason the answer key is.
+ */
+const DIFFICULTY = { easy: 0.75, medium: 1, hard: 1.25 };
+
+/**
+ * What a score is worth, and the only place that decides *that*.
+ *
+ * js/shop.js carries the same grade bands for the "what pays what" hint in
+ * the form, but they are display only — the grade actually credited is the
+ * one this function returns, because the client is the side with a motive.
  */
 function gradeFor(correct, total) {
   const pct = total > 0 ? correct / total : 0;
@@ -796,40 +806,31 @@ function gradeFor(correct, total) {
   return { grade: "—", tokens: 0 };
 }
 
-const PROOF_SCHEMA = {
+const TOPIC_SCHEMA = {
   type: "OBJECT",
   properties: {
-    schoolwork: {
+    teachable: {
       type: "BOOLEAN",
-      description: "True only if this image shows actual academic work — a worksheet, problem set, essay draft, lab report, textbook page, or handwritten class notes."
-    },
-    kind: {
-      type: "STRING",
-      enum: ["worksheet", "problemset", "notes", "essay", "lab", "textbook", "reading", "other"],
-      description: "What kind of work it is. Use 'other' when schoolwork is false."
+      description: "True only if this is a real academic topic that a school student could study and be quizzed on."
     },
     subject: {
       type: "STRING",
-      description: "The school subject, e.g. 'Chemistry' or 'US History'. Empty string when schoolwork is false."
+      description: "The school subject the topic belongs to, e.g. 'Chemistry' or 'US History'. Empty string when teachable is false."
     },
     reason: {
       type: "STRING",
-      description: "One short sentence a student will read. When schoolwork is false, say plainly what you see instead and why it doesn't count."
-    },
-    estimatedMinutes: {
-      type: "INTEGER",
-      description: "Roughly how many minutes of focused work the visible content represents, for a typical student at this level. 0 when schoolwork is false."
+      description: "One short sentence a student will read. When teachable is false, say plainly why this topic can't be quizzed."
     },
     questions: {
       type: "ARRAY",
-      description: "Exactly 4 multiple-choice questions answerable ONLY by someone who read this specific page. Empty array when schoolwork is false.",
+      description: "Exactly 5 multiple-choice questions about this topic. Empty array when teachable is false.",
       items: {
         type: "OBJECT",
         properties: {
           prompt: { type: "STRING", description: "The question. Never reveal the answer in the wording." },
           choices: {
             type: "ARRAY",
-            description: "Exactly 4 options. The wrong ones must be plausible to somebody who did not read the page.",
+            description: "Exactly 4 options. The wrong ones must be plausible to somebody who has not studied the topic.",
             items: { type: "STRING" }
           },
           answerIndex: { type: "INTEGER", description: "0-based index into choices of the correct option." }
@@ -838,32 +839,30 @@ const PROOF_SCHEMA = {
       }
     }
   },
-  required: ["schoolwork", "kind", "subject", "reason", "estimatedMinutes", "questions"]
+  required: ["teachable", "subject", "reason", "questions"]
 };
 
-const PROOF_SYSTEM = `You verify that a photo shows real schoolwork, and then test whether the person
-who submitted it actually engaged with it.
+const TOPIC_SYSTEM = `You write short multiple-choice quizzes that test whether a middle or high school
+student has actually studied a topic they chose themselves.
 
-First decide: is this academic work? A worksheet, problem set, essay draft, lab report, textbook
-page, set of handwritten class notes, or annotated reading all count. A screenshot of a game, a
-social feed, a video, a messaging app, a store page, a photo of a wall, a desk, a pet, a person, or
-a blank or unreadable image do NOT count. Neither does a picture of an assignment that has not been
-worked on — a blank worksheet is not work. Be strict: when you cannot read enough of the content to
-write questions about it, schoolwork is false.
+First decide whether the topic is quizzable school material. Any academic subject counts — a
+historical period, a scientific process, a mathematical method, a set text, a language's grammar, a
+unit from a syllabus. These do NOT count: a person the student knows, a video game, a TV show, a
+sports team, an empty or nonsense string, a topic so vague it names a whole subject and nothing else
+("science", "maths"), and anything that is not school material. A pop-culture subject that a school
+genuinely teaches (a set novel, a studied film) does count.
 
-If it is not schoolwork, set schoolwork false, questions to an empty array, estimatedMinutes to 0,
-and write one plain sentence in reason saying what you actually see. Do not be sarcastic or
-scolding — just say what it is.
+If it is not quizzable, set teachable false, questions to an empty array, and write one plain
+sentence in reason saying why and what a better topic would look like. Do not be sarcastic or
+scolding.
 
-If it is schoolwork, write exactly 4 multiple-choice questions drawn from the specific content
-visible in this image: the actual numbers, terms, dates, steps or claims on the page. A student who
-worked through this page should answer all 4; a student who only photographed it should not be able
-to guess. Never write a question answerable from general knowledge of the subject, and never write
-one whose answer is given away by its own wording. Each question gets exactly 4 options, with three
-plausible wrong ones. Vary which index is correct.
-
-estimatedMinutes is your own judgement of the focused working time the visible content represents.
-Be realistic rather than generous.`;
+If it is, write exactly 5 multiple-choice questions on that topic at the requested difficulty:
+easy = recall a student meets in the first lesson, medium = the level of a normal end-of-unit test,
+hard = applying it, or a detail only somebody who revised it properly would hold. Ask about the
+substance — the actual dates, terms, steps, numbers, causes and consequences — never about the
+wording of the topic itself. Each question gets exactly 4 options, with three plausible wrong ones.
+Vary which index is correct. Never write a question whose answer is given away by its own wording,
+and never write two questions that test the same fact.`;
 
 /** Keep only what the schema promises, and bound every field. */
 function cleanQuestions(raw) {
@@ -887,74 +886,65 @@ function cleanQuestions(raw) {
   return out;
 }
 
-async function studyProof(req, user) {
+async function studyTopic(req, user) {
   requireConfigured();
   const b = await body(req);
-  const imageBase64 = String(b.imageBase64 || "");
-  const mimeType = String(b.mimeType || "image/jpeg");
-  // The client's own perceptual hash of the photo. Bound into the ticket so a
-  // quiz earned for one photo cannot be answered against a different one.
-  const hash = String(b.hash || "").slice(0, 64);
+  const topic = String(b.topic || "").replace(/\s+/g, " ").trim().slice(0, TOPIC_MAX_LEN);
+  const className = String(b.className || "").trim().slice(0, 60);
+  const difficulty = Object.prototype.hasOwnProperty.call(DIFFICULTY, b.difficulty) ? b.difficulty : "medium";
 
-  if (!imageBase64) return fail(400, "No image received.");
-  // Required, not optional. An empty hash would sign a ticket bound to no
-  // particular photo, and "the binding quietly does nothing" is a worse
-  // failure than a 400 — the client always has one, it computed it.
-  if (!hash) return fail(400, "No photo fingerprint received.");
-  if (imageBase64.length > MAX_IMAGE_B64_LEN) return fail(413, "That image is too large — try a smaller photo.");
-  if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(mimeType)) return fail(400, "Unsupported image type.");
+  // Two characters is not a topic, and the model would dutifully invent a
+  // quiz about whatever it guessed the student meant. Refuse here rather
+  // than spend a call on it.
+  if (topic.length < 3) return fail(400, "Say what you studied — a few words is enough.");
 
   const raw = await generateJSON({
-    system: PROOF_SYSTEM,
-    prompt: "Decide whether this is schoolwork, and if it is, write the quiz.",
-    responseSchema: PROOF_SCHEMA,
-    image: { base64: imageBase64, mimeType }
+    system: TOPIC_SYSTEM,
+    prompt: `Topic: ${topic}\n` +
+      (className ? `Class: ${className}\n` : "") +
+      `Difficulty: ${difficulty}\n\nDecide whether this is quizzable school material, and if it is, write the quiz.`,
+    responseSchema: TOPIC_SCHEMA
   });
 
   const reason = String((raw && raw.reason) || "").trim().slice(0, 240);
 
-  if (!raw || raw.schoolwork !== true) {
+  if (!raw || raw.teachable !== true) {
     return ok({
-      schoolwork: false,
-      reason: reason || "That doesn't look like schoolwork — photograph the work you actually did."
+      ok: false,
+      reason: reason || "That isn't a topic this can quiz you on — name something you actually studied."
     });
   }
 
   const questions = cleanQuestions(raw.questions);
-  // Schoolwork the model couldn't write a usable quiz about pays nothing, and
-  // says so honestly rather than falling back to paying for the photo alone —
+  // A topic the model couldn't write a usable quiz about pays nothing, and
+  // says so honestly rather than falling back to paying for the topic alone —
   // that fallback is the hole this whole route exists to close.
   if (questions.length < QUIZ_MIN_QUESTIONS) {
     return ok({
-      schoolwork: false,
-      reason: "That looks like schoolwork, but not enough of it is readable to ask about. Try a clearer, closer photo."
+      ok: false,
+      reason: "That topic is too broad or too thin to write questions about. Try naming the unit you actually revised."
     });
   }
-
-  const est = Number(raw.estimatedMinutes);
-  const minutes = Number.isFinite(est)
-    ? Math.min(PROOF_MAX_MINUTES, Math.max(PROOF_MIN_MINUTES, Math.round(est)))
-    : PROOF_MIN_MINUTES;
 
   const ticket = await signToken({
     k: "sq",                                  // this is a quiz ticket, not a session
     sub: user.id,                             // and only to this account
-    h: hash,
+    t: topic,
+    d: difficulty,
     key: questions.map((q) => q.answerIndex),
-    est: minutes,
     // The handle the one-grade-per-ticket rule is keyed on. Without it a
     // ticket is a signed, replayable oracle: grade, read `wrong`, correct
-    // those, grade again — full marks in two calls without reading the page.
+    // those, grade again — full marks in two calls without knowing anything.
     n: crypto.randomUUID(),
     qexp: Date.now() + QUIZ_TTL_MS
   });
 
   return ok({
-    schoolwork: true,
-    kind: String(raw.kind || "other").slice(0, 32),
+    ok: true,
+    topic,
+    difficulty,
     subject: String(raw.subject || "").trim().slice(0, 60),
     reason,
-    estimatedMinutes: minutes,
     // answerIndex is deliberately not in here.
     questions: questions.map((q) => ({ prompt: q.prompt, choices: q.choices })),
     ticket
@@ -970,13 +960,13 @@ async function studyQuiz(req, user) {
   // without the kind check a student could present their own session token,
   // which this server also signed.
   if (!payload || payload.k !== "sq" || !Array.isArray(payload.key)) {
-    return fail(400, "That quiz has expired or wasn't issued here. Take a new photo.");
+    return fail(400, "That quiz has expired or wasn't issued here. Start a new one.");
   }
   if (payload.sub !== user.id) {
     return fail(403, "That quiz was issued to a different account.");
   }
   if (!payload.qexp || payload.qexp < Date.now()) {
-    return fail(400, "That quiz timed out. Take a new photo and try again.");
+    return fail(400, "That quiz timed out. Pick a topic and start again.");
   }
 
   const key = payload.key;
@@ -987,12 +977,12 @@ async function studyQuiz(req, user) {
 
   // One grade per ticket. Keyed on the ticket's own nonce and given the same
   // lifetime as the ticket, so the record can expire with the thing it
-  // guards instead of accumulating forever. A second attempt on the same
-  // photo is what a bought retake is for — it fetches a fresh quiz.
+  // guards instead of accumulating forever. A second attempt at the same
+  // topic is what a bought retake is for — it fetches a fresh quiz.
   if (payload.n) {
     const once = await rateLimit("quiz-once", String(payload.n), 1, QUIZ_TTL_MS);
     if (!once.allowed) {
-      return fail(409, "That quiz has already been marked. Take a new photo, or use a retake.");
+      return fail(409, "That quiz has already been marked. Start a new one, or use a retake.");
     }
   }
 
@@ -1004,16 +994,21 @@ async function studyQuiz(req, user) {
   });
 
   const { grade, tokens } = gradeFor(correct, key.length);
+  const difficulty = Object.prototype.hasOwnProperty.call(DIFFICULTY, payload.d) ? payload.d : "medium";
   return ok({
     correct,
     total: key.length,
     grade,
     tokens,
     wrong,                                   // which questions to mark, not what the answers were
-    estimatedMinutes: payload.est || PROOF_MIN_MINUTES,
-    hash: payload.h || ""
+    // Both come off the signed ticket, so the wallet is credited for the
+    // topic and difficulty the quiz was actually written at.
+    topic: String(payload.t || ""),
+    difficulty,
+    multiplier: DIFFICULTY[difficulty]
   });
 }
+
 
 /* --------------------------------------------------------------- routes -- */
 
@@ -1041,12 +1036,12 @@ export default async (req) => {
       const user = await requireUser(req); await charge(user, "image");
       return await parseNoteImage(req);
     }
-    // Verifying a study photo is one image call; grading the answers costs
-    // nothing at the provider, so it is charged at the text rate and kept
-    // cheap enough that a student is never locked out mid-quiz.
-    if (path === "study-proof" && method === "POST") {
-      const user = await requireUser(req); await charge(user, "image");
-      return await studyProof(req, user);
+    // Writing a quiz from a topic is one text call, and grading the answers
+    // costs nothing at the provider — so both are charged at the text rate,
+    // and a student is never locked out mid-quiz.
+    if (path === "study-topic" && method === "POST") {
+      const user = await requireUser(req); await charge(user, "text");
+      return await studyTopic(req, user);
     }
     if (path === "study-quiz" && method === "POST") {
       const user = await requireUser(req); await charge(user, "text");

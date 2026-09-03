@@ -406,7 +406,20 @@
 .legend-swatch { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
 
 /* heatmap */
-.heatmap { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr); gap: 3px; }
+/* The week columns are implicit tracks, and an implicit `auto` track absorbs
+   free space — so in a card wider than the four weeks it holds, the columns
+   spread across it and the grid read as scattered dots rather than the
+   GitHub-style block it is. Pinning the track to the cell width keeps the
+   block compact, and gives .scroll-x a real width to scroll once a longer
+   range is passed in. */
+.heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 1fr);
+  grid-auto-columns: 13px;
+  justify-content: start;
+  gap: 3px;
+}
 .heat-cell {
   width: 13px; height: 13px;
   border-radius: 3px;
@@ -967,12 +980,11 @@
 }
 
 /* ==========================================================================
-   Study shop — proof gallery and the cosmetics for sale
+   Study shop — the quiz, the quiz log, and the cosmetics for sale
 
-   Two jobs, one screen: show that the photos are real records (a gallery of
-   what you actually did, at a size where the page is still legible), and
-   show what a cosmetic looks like *before* the tokens are spent, so nothing
-   in here is bought blind.
+   Two jobs, one screen: make a five-question quiz comfortable to answer on a
+   phone and legible on a laptop, and show what a cosmetic looks like *before*
+   the tokens are spent, so nothing in here is bought blind.
    ========================================================================== */
 
 .token-pill {
@@ -988,32 +1000,10 @@
 .token-pill .tk { font-size: 1rem; line-height: 1; }
 .token-pill.lg { font-size: 1.15rem; padding: 7px 16px 7px 12px; }
 
-/* The drop target for a photo. It is a <label> wrapping a file input, so a
-   click, a tap, a keyboard Enter and a drag all reach the same control. */
-.proof-drop {
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  padding: 26px 18px;
-  border: 2px dashed var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-  text-align: center;
-  cursor: pointer;
-  transition: border-color .14s var(--ease), background .14s var(--ease);
-}
-.proof-drop:hover, .proof-drop.drag { border-color: var(--brand-500); background: var(--brand-50); }
-.proof-drop:focus-within { box-shadow: var(--ring); border-color: var(--brand-500); }
-.proof-drop .ico { font-size: 1.7rem; line-height: 1; }
-.proof-drop input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-
-.proof-preview {
-  width: 100%; max-height: 260px; object-fit: contain;
-  border-radius: var(--radius-sm);
-  background: var(--surface-3);
-}
-
-/* The quiz (F158). A question is a <fieldset> so its options are announced as
-   one group, and each option is a <label> wrapping its radio so the whole row
-   is a target rather than the 13px dot. */
+/* The quiz (F158, and the whole earning route since F160). A question is a
+   <fieldset> so its options are announced as one group, and each option is a
+   <label> wrapping its radio so the whole row is a target rather than the
+   13px dot. */
 .quiz-list { display: flex; flex-direction: column; gap: 14px; }
 
 .quiz-q {
@@ -1048,37 +1038,99 @@
 
 [data-theme="dark"] .quiz-choice:has(input:checked) { background: var(--surface-3); }
 
-.proof-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 12px;
+/* The topic chips in the quiz form: the classes and open assignments a
+   student can name with one tap instead of typing them out again. */
+.topic-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.topic-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  padding: 5px 12px;
+  font-size: .78rem;
+  cursor: pointer;
+  transition: border-color .12s var(--ease), background .12s var(--ease), color .12s var(--ease);
 }
-.proof-card {
+.topic-chip:hover { border-color: var(--brand-500); background: var(--brand-50); color: var(--text); }
+.topic-chip:focus-visible { box-shadow: var(--ring); }
+[data-theme="dark"] .topic-chip:hover { background: var(--surface-3); }
+
+/* One answered quiz in the log. A .list-item that is itself the button, so
+   the whole row opens it by pointer and by keyboard alike. */
+.quiz-row {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.quiz-row:hover { background: var(--surface-2); }
+.quiz-row:focus-visible { box-shadow: var(--ring); }
+
+/* Streak chests (F161). The gem carries the rarity as a colour, and the
+   rarity is also spelled out next to it — a colour alone is never the only
+   thing saying what tier a chest is (U47). */
+.chest-row { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.chest-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  min-width: 132px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: transform .12s var(--ease), box-shadow .12s var(--ease);
+}
+.chest-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+.chest-tile:focus-visible { box-shadow: var(--ring); }
+
+.chest-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 26px 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--surface);
-}
-.proof-thumb {
-  display: block; width: 100%; aspect-ratio: 4 / 3;
-  background: var(--surface-3);
-  border: none; padding: 0; cursor: zoom-in;
-}
-.proof-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.proof-thumb:focus-visible { box-shadow: var(--ring); }
-/* The blob is gone (cleared site data, or a backup opened on another
-   device). The record is still true, so the card keeps its numbers and says
-   what happened instead of showing a broken image. */
-.proof-thumb-missing {
-  display: flex; align-items: center; justify-content: center;
-  width: 100%; aspect-ratio: 4 / 3;
   background: var(--surface-2);
-  color: var(--text-3);
-  font-size: .72rem;
-  text-align: center;
-  padding: 10px;
 }
-.proof-meta { padding: 9px 11px; display: flex; flex-direction: column; gap: 3px; }
+.chest-gem { font-size: 1.9rem; line-height: 1; }
+.chest-gem.lg { font-size: 3rem; }
+
+.chest-rarity { font-size: .8rem; font-weight: 700; letter-spacing: .02em; }
+.chest-rarity.lg { font-size: 1.1rem; }
+.chest-rarity.tier-common { color: var(--text-2); }
+.chest-rarity.tier-rare   { color: #2a78d6; }
+.chest-rarity.tier-ultra  { color: #7c3aed; }
+.chest-rarity.tier-elite  { color: #a97a06; }
+[data-theme="dark"] .chest-rarity.tier-rare  { color: #6ea8f0; }
+[data-theme="dark"] .chest-rarity.tier-ultra { color: #b49bfa; }
+[data-theme="dark"] .chest-rarity.tier-elite { color: #e8bf52; }
+
+.chest-tile.tier-common { border-top-color: #64748b; }
+.chest-tile.tier-rare   { border-top-color: #2a78d6; }
+.chest-tile.tier-ultra  { border-top-color: #7c3aed; }
+.chest-tile.tier-elite  { border-top-color: #d4a017; }
+.chest-hero.tier-common { border-top: 3px solid #64748b; }
+.chest-hero.tier-rare   { border-top: 3px solid #2a78d6; }
+.chest-hero.tier-ultra  { border-top: 3px solid #7c3aed; }
+.chest-hero.tier-elite  {
+  border-top: 3px solid #d4a017;
+  background: linear-gradient(180deg, rgba(212, 160, 23, .10), transparent 140px), var(--surface-2);
+}
+
+.chest-reveal {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.chest-reveal .shop-swatch, .chest-reveal .plate-preview, .chest-reveal .ring-preview { flex: none; }
 
 .shop-grid {
   display: grid;
@@ -1138,16 +1190,16 @@
 /* Reads exactly like .field-error, but is deliberately NOT that class: the
    modal's own submit handler removes every .field-error in the form before
    handing over, and this message has to survive its own submit to explain
-   why a photo was refused. */
-.proof-error {
+   why a topic or an answer was refused. */
+.quiz-error {
   margin-top: 4px;
   color: var(--danger);
   display: flex;
   align-items: flex-start;
   gap: 4px;
 }
-.proof-error::before { content: "⚠"; flex: none; line-height: 1.35; }
-.proof-error[hidden] { display: none; }
+.quiz-error::before { content: "⚠"; flex: none; line-height: 1.35; }
+.quiz-error[hidden] { display: none; }
 
 .earn-rules { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
 .earn-rules li { color: var(--text-2); font-size: .8rem; }

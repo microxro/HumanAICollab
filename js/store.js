@@ -15,6 +15,14 @@ App.store = (function () {
   // Unreadable payloads are moved here rather than thrown away, keyed by the
   // timestamp of the failure.
   const CORRUPT_KEY = "scholar.db.corrupt";
+  // The session token js/sync.js mints on sign-in. It is named here, not
+  // there, because the store has to answer "may I write to this device?"
+  // before sync.js has even been parsed — index.html loads store.js first —
+  // and the two modules must agree on the answer.
+  const TOKEN_KEY = "scholar.token.v1";
+  // Everything this app has ever written to localStorage shares this prefix,
+  // which is what makes a purge a sweep rather than a list to keep updated.
+  const KEY_PREFIX = "scholar.";
   const SCHEMA = 2;
 
   /* Categorical palette — validated for colorblind separation and contrast in
@@ -66,7 +74,7 @@ App.store = (function () {
 
     return Object.assign(base, {
       profile: { name: "", school: "", grade: "", color: PALETTE[0], email: "", parentName: "", parentEmail: "" },
-      settings: Object.assign({}, base.settings, { onboarded: false }),
+      settings: Object.assign({}, base.settings, { onboarded: false, tourSeen: false }),
       terms: [{ id: U.uid("tm"), name: "This Term", start, end, current: true }],
       teachers: [], periods: [], classes: [], assignments: [], templates: [],
       events: [], activities: [], decks: [], notes: [], goals: [], habits: [],
@@ -407,6 +415,14 @@ App.store = (function () {
 
     out.schema = SCHEMA;
     out.settings = Object.assign({}, base.settings, raw.settings || {});
+    // U52 — the seed sets `tourSeen: false` so a genuinely fresh install gets
+    // the guided tour, and the line above merges the seed's settings
+    // *underneath* the stored ones. Without this, that false would reach
+    // every returning user whose data predates the flag and walk them
+    // through a tutorial of an app they already use.
+    if (!Object.prototype.hasOwnProperty.call(raw.settings || {}, "tourSeen")) {
+      out.settings.tourSeen = true;
+    }
     ["pomodoro", "schedule", "geo", "notifications", "planner"].forEach((k) => {
       out.settings[k] = Object.assign({}, base.settings[k], (raw.settings || {})[k] || {});
     });
@@ -478,7 +494,84 @@ App.store = (function () {
     return out;
   }
 
+  /* ==================================================== the local gate ==
+
+     Nothing reaches this device's storage without an account.
+
+     StudyHold was offline-first in the strongest sense: every keystroke went
+     to localStorage whether or not anybody had signed in. On a personal
+     laptop that is a feature. On the shared laptop in a school library it
+     means the next person to open the tab inherits the last student's
+     classes, grades, notes and parent's email address — with no sign-in to
+     reach any of it, and no sign-out that would have cleared it.
+
+     So the rule is now: this device is written to only while a session token
+     is present. Signed out, the whole app runs in memory and the tab is the
+     only thing holding the data — close it and the data is gone, which is
+     the point rather than a shortcoming.
+
+     Two consequences worth stating plainly, because they are the cost:
+     work done signed out does not survive a refresh, and signing out erases
+     this device's copy (js/sync.js pushes what is pending first).
+  ========================================================================= */
+
+  /** Is a session token present? The one input to every decision below. */
+  function hasSession() {
+    try { return !!localStorage.getItem(TOKEN_KEY); } catch (e) { return false; }
+  }
+
+  let persist = hasSession();
+
+  /**
+   * Erase every trace of this app from the browser.
+   *
+   * A sweep by prefix rather than a list of known keys: a key added later
+   * and forgotten here would otherwise be exactly the thing that survives a
+   * sign-out. Attachment bytes live in IndexedDB rather than localStorage
+   * and are just as personal, so they go too — App.idb may not be parsed yet
+   * when this runs at load time, which is why js/app.js calls this a second
+   * time once every module is up.
+   */
+  function purgeLocal() {
+    try {
+      const doomed = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf(KEY_PREFIX) === 0) doomed.push(k);
+      }
+      doomed.forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* keep going */ } });
+    } catch (e) { /* storage unavailable — there is nothing to purge */ }
+    try { if (App.idb && App.idb.clearAll) App.idb.clearAll(); } catch (e) { /* best effort */ }
+  }
+
+  /**
+   * Turn device storage on (a session was adopted) or off (signed out).
+   * Called by js/sync.js at both ends of a session.
+   *
+   * Turning it off erases what is already there. "Stop writing from now on"
+   * would leave the previous session's data sitting in the browser, which is
+   * the thing this exists to prevent.
+   */
+  function setPersistence(on) {
+    const next = !!on;
+    if (next === persist) {
+      if (!next) purgeLocal();      // idempotent, and cheap insurance
+      return persist;
+    }
+    persist = next;
+    if (persist) save();            // capture what's in memory right now
+    else purgeLocal();
+    return persist;
+  }
+
+  function isPersistent() { return persist; }
+
   function load() {
+    // Signed out, there is nothing to read and nothing may be written. Any
+    // data a previous session left behind goes now rather than waiting for a
+    // sign-in that may never come.
+    if (!persist) { purgeLocal(); return seed(); }
+
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) {
@@ -543,6 +636,11 @@ App.store = (function () {
   let saveFailing = false;
 
   function save() {
+    // A memory-only session. Every other path through the app is unchanged —
+    // commit() still bumps the revision and repaints — the write is simply
+    // never made. See the local gate above.
+    if (!persist) return;
+
     try {
       localStorage.setItem(KEY, JSON.stringify(db));
       saveFailing = false;
@@ -1299,7 +1397,20 @@ App.store = (function () {
     emit();
   }
 
-  function reset() { db = seed(); commit(); }
+  /**
+   * Back to an empty install, in memory.
+   *
+   * seed() produces a v1-shaped database and every v3 field is added by
+   * ensureV3() — the same repair importJSON, loadDemo and wipe all carry.
+   * This one had no caller that repainted afterwards, so the gap never
+   * showed; sign-out is now exactly that caller, and the next paint would
+   * have thrown on the first v3 field it read.
+   */
+  function reset() {
+    db = seed();
+    if (App.store && App.store.ensureV3) App.store.ensureV3();
+    commit();
+  }
 
   /** Opt-in sample data, for demoing the app without entering a real schedule. */
   function loadDemo() {
@@ -1333,6 +1444,7 @@ App.store = (function () {
 
   return {
     PALETTE, PALETTE_DARK, SEQ, SCHEMA, chartColor, isDark,
+    TOKEN_KEY, hasSession, setPersistence, isPersistent, purgeLocal,
     get db() { return db; },
     get settings() { return db.settings; },
     get profile() { return db.profile; },
