@@ -256,22 +256,36 @@ App.sync = (function () {
       const serverNewer = (res.updatedAt || 0) > (state.lastSync || 0);
 
       if (state.version === 0 && localDirty && serverNewer) {
-        // Two real datasets — let the person choose rather than guess.
-        setStatus("conflict");
-        if (App.ui) {
-          App.ui.confirm({
-            title: "This device has unsynced data",
-            message: "Your account already has saved data. Keep the cloud copy, or overwrite it with what's on this device?",
-            okLabel: "Use cloud copy",
-            onConfirm() { adoptRemote(res); },
-            onCancel() { push(true); }
-          });
-        }
+        // Two real datasets, and no way to merge two whole-database snapshots
+        // — this used to ask which to keep. It resolves itself now: whichever
+        // side was saved more recently wins, the same rule handleConflict()
+        // uses for the same problem arriving mid-session instead of at sign-in.
+        resolveByRecency(res);
         return;
       }
       adoptRemote(res);
     } catch (e) {
       setStatus("error", e.message);
+    }
+  }
+
+  /**
+   * Two copies of the database disagree and there's no way to merge them —
+   * only a choice of which to keep. `remote.updatedAt` is the server's own
+   * timestamp for the copy it's holding; `S.db.ui.dirty` is when this device
+   * last actually committed a change. Whichever is later wins, silently —
+   * this used to be a confirm dialog asking the person to pick a side.
+   */
+  function resolveByRecency(remote) {
+    const localAt = (S.db.ui && S.db.ui.dirty) || 0;
+    if ((remote.updatedAt || 0) > localAt) {
+      adoptRemote(remote);
+    } else {
+      // Adopt the server's version number (without its data) so the
+      // overwrite below is a legitimate conditional update, not a bypass.
+      state.version = remote.version;
+      localStorage.setItem(VERSION_KEY, String(state.version));
+      push(true);
     }
   }
 
@@ -282,7 +296,6 @@ App.sync = (function () {
     localStorage.setItem(VERSION_KEY, String(state.version));
     setStatus("idle");
     if (App.router) App.router.refresh();
-    if (App.ui) App.ui.toast("Synced", "Loaded your data from the cloud.", "ok");
   }
 
   /**
@@ -338,24 +351,8 @@ App.sync = (function () {
   }
 
   function handleConflict(data) {
-    if (!data || !App.ui) return;
-    App.ui.confirm({
-      title: "Changes from another device",
-      message: `Another device saved changes ${U.fmtDate(U.dateKey(new Date(data.updatedAt)))}. ` +
-               "Keep those and discard this device's unsaved edits, or overwrite them with this device?",
-      okLabel: "Keep other device",
-      danger: false,
-      onConfirm() {
-        adoptRemote({ state: data.state, version: data.version, updatedAt: data.updatedAt });
-      },
-      onCancel() {
-        // Adopt the server's version so the next push is a legitimate
-        // conditional update rather than a bypass.
-        state.version = data.version;
-        localStorage.setItem(VERSION_KEY, String(state.version));
-        push(true);
-      }
-    });
+    if (!data) return;
+    resolveByRecency({ state: data.state, version: data.version, updatedAt: data.updatedAt });
   }
 
   /** Debounced push, called from store.commit() on every write. */

@@ -327,6 +327,62 @@ App.views.goals = (function () {
           </div>
         </div>
       </div>
+
+      ${emergencyCard()}
+    </div>`;
+  }
+
+  /* -------------------------------------------------- F072 emergency card */
+
+  function emergencyForm(ec) {
+    const e = ec || {};
+    UI.modal({
+      title: ec ? "Edit emergency contact" : "Add emergency contact",
+      okLabel: "Save",
+      footer: ec ? `<button type="button" class="btn btn-danger left" data-del>Delete</button>
+                    <button type="button" class="btn" data-close>Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>` : undefined,
+      body: `<div class="form-grid">
+        <div class="field"><label>Name</label>
+          <input class="input" name="name" required value="${U.esc(e.name || "")}" placeholder="Mom, Dr. Patel, Poison Control…" /></div>
+        <div class="field"><label>Relation</label>
+          <input class="input" name="relation" value="${U.esc(e.relation || "")}" placeholder="Parent, Doctor, School nurse…" /></div>
+        <div class="field full"><label>Phone</label>
+          <input class="input" name="phone" required value="${U.esc(e.phone || "")}" placeholder="555-0100" /></div>
+      </div>`,
+      onMount(root) {
+        const del = root.querySelector("[data-del]");
+        if (del) del.addEventListener("click", () => {
+          UI.closeModal();
+          S.commit((db) => { db.emergencyContacts = db.emergencyContacts.filter((x) => x.id !== ec.id); });
+          UI.toast("Removed", e.name, "warn");
+        });
+      },
+      onSubmit(d) {
+        if (!d.name.trim() || !d.phone.trim()) return false;
+        const patch = { name: d.name.trim(), relation: d.relation.trim(), phone: d.phone.trim() };
+        if (ec) S.update("emergencyContacts", ec.id, patch);
+        else S.insert("emergencyContacts", patch);
+        UI.toast("Saved", patch.name, "ok");
+      }
+    });
+  }
+
+  function emergencyCard() {
+    const list = S.db.emergencyContacts;
+    return `<div class="card" style="border-left:3px solid var(--danger)">
+      <div class="card-head">
+        <div><h3>🚨 Emergency contacts</h3><div class="sub">Works offline — never behind a login</div></div>
+        <button class="btn btn-sm" data-add-emergency>+ Add</button>
+      </div>
+      ${list.length ? `<div class="list">${list.map((e) => `
+        <div class="list-item">
+          <span class="grow"><div class="title">${U.esc(e.name)}</div>
+            <div class="meta">${U.esc(e.relation || "")}</div></span>
+          <a class="btn btn-sm btn-primary" href="tel:${U.esc(e.phone)}">📞 ${U.esc(e.phone)}</a>
+          <button class="icon-btn btn-sm" data-edit-emergency="${e.id}" aria-label="Edit">✎</button>
+        </div>`).join("")}</div>`
+        : `<div class="card-body"><p class="dim small">Add a parent, doctor, or the school nurse so it's here even if you're offline.</p></div>`}
     </div>`;
   }
 
@@ -480,6 +536,8 @@ App.views.goals = (function () {
     U.on(root, "click", "[data-log-sleep]", sleepLogForm);
     U.on(root, "click", "[data-journal]", journalForm);
     U.on(root, "click", "[data-journal-history]", journalHistory);
+    U.on(root, "click", "[data-add-emergency]", () => emergencyForm(null));
+    U.on(root, "click", "[data-edit-emergency]", (_e, el) => emergencyForm(S.byId("emergencyContacts", el.dataset.editEmergency)));
 
     U.on(root, "click", "[data-habit]", (_e, el) => {
       const h = S.byId("habits", el.dataset.habit);

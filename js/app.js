@@ -1237,19 +1237,30 @@
 
   // Nothing reported a failure before this: an async throw anywhere in the
   // app produced a silent no-op, which is how a one-line bug became an
-  // unreproducible bug report.
+  // unreproducible bug report. But a raw error message isn't meant for a
+  // student to read — "TypeError: Cannot read properties of undefined" next
+  // to a shop purchase is exactly the "random bits of text" this stopped
+  // showing; the real message still goes to the console for anyone who needs
+  // it. And something that fails on every tick of a retrying interval used to
+  // toast every single time — ui.js's toast() collapses an identical
+  // title+kind rather than stacking a new node, and this throttle keeps that
+  // one surviving toast from being re-triggered (and its dismiss timer
+  // restarted) faster than a person could read it.
+  let lastGlobalErrorToast = 0;
+  const GLOBAL_ERROR_TOAST_MIN_GAP_MS = 4000;
+  function toastUncaught(logMessage) {
+    console.error("[studyhold]", logMessage);
+    const now = Date.now();
+    if (now - lastGlobalErrorToast < GLOBAL_ERROR_TOAST_MIN_GAP_MS) return;
+    lastGlobalErrorToast = now;
+    if (App.ui && App.ui.toast) App.ui.toast("Something went wrong", "", "danger");
+  }
   window.addEventListener("error", (e) => {
-    console.error("[studyhold] uncaught error", e.error || e.message);
-    if (App.ui && App.ui.toast) {
-      App.ui.toast("Something went wrong", (e.error && e.error.message) || e.message || "", "danger");
-    }
+    toastUncaught("uncaught error: " + ((e.error && e.error.message) || e.message));
   });
   window.addEventListener("unhandledrejection", (e) => {
-    console.error("[studyhold] unhandled rejection", e.reason);
-    if (App.ui && App.ui.toast) {
-      const r = e.reason;
-      App.ui.toast("Something went wrong", (r && (r.message || String(r))) || "", "danger");
-    }
+    const r = e.reason;
+    toastUncaught("unhandled rejection: " + ((r && (r.message || String(r))) || ""));
   });
 
   function startup() {

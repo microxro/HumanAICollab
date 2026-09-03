@@ -602,7 +602,7 @@ App.views.classes = (function () {
 
         <h4 class="mb-8">Open work <span class="badge">${open.length}</span></h4>
         ${open.length ? `<div class="list" style="border:1px solid var(--border);border-radius:var(--radius)">
-          ${open.map((a) => `<div class="list-item">
+          ${open.map((a) => `<div class="list-item row-link" data-open-assign="${a.id}">
             <span class="grow"><div class="title">${U.esc(a.title)}</div>
               <div class="meta">${U.esc(a.type)} · ${a.points} pts</div></span>
             ${UI.dueBadge(a.due)}
@@ -616,7 +616,7 @@ App.views.classes = (function () {
           <tbody>${graded.map((a) => {
             const cat = c.categories.find((k) => k.id === a.categoryId);
             const s = a.points ? (a.earned / a.points) * 100 : null;
-            return `<tr>
+            return `<tr class="row-link" data-open-assign="${a.id}">
               <td>${U.esc(a.title)}<div class="tiny dim">${U.esc(U.fmtDate(a.due))}</div></td>
               <td class="small muted">${U.esc(cat ? cat.name : "—")}</td>
               <td class="right nums">${a.earned}/${a.points}</td>
@@ -629,6 +629,10 @@ App.views.classes = (function () {
         root.querySelector("[data-copy-link]").addEventListener("click", () => App.router.copyDeepLink("classes", c.id));
         root.querySelector("[data-files]").addEventListener("click", () => { UI.closeModal(); fileManager(c); });
         root.querySelector("[data-rubrics]").addEventListener("click", () => { UI.closeModal(); rubricList(c); });
+        U.on(root, "click", "[data-open-assign]", (_e, el) => {
+          UI.closeModal();
+          App.views.homework.detail(el.dataset.openAssign);
+        });
         root.querySelector("[data-del]").addEventListener("click", () => {
           UI.closeModal();
           UI.confirm({
