@@ -663,7 +663,6 @@ App.views.settings = (function () {
             <button class="btn" data-import-school>📥 Import from Canvas / Classroom</button>
             <button class="btn" data-export-ics>📅 Export calendar</button>
             <button class="btn" data-print>🖨 Print</button>
-            <button class="btn" data-load-demo title="Fill the app with an example student's schedule, for trying things out">✨ Load sample data</button>
           </div>
           <p class="hint mt-12">
             Everything lives in this browser unless you're signed in. Clearing your browser data erases it —
@@ -742,115 +741,14 @@ App.views.settings = (function () {
         </div>
       </div>
 
-      <div class="card mb-16">
-        <div class="card-head">
-          <div><h3>AI service</h3><div class="sub">Powers Add with AI and the Assistant</div></div>
-        </div>
-        <div class="card-body">
-          <div id="aiStatus" class="small dim">Checking…</div>
-          <div class="row gap-8 wrap mt-12">
-            <button class="btn" data-ai-check>↻ Re-check</button>
-            <button class="btn btn-primary" data-ai-probe>⚡ Test connection</button>
-          </div>
-          <p class="hint mt-12">
-            Set <code>GEMINI_API_KEY</code> in your Netlify site's environment variables, then redeploy.
-            A key added without a redeploy won't be picked up.
-          </p>
-        </div>
-      </div>
-
       <div class="card" style="border-left:3px solid var(--danger)">
         <div class="card-head"><h3>Danger zone</h3></div>
         <div class="card-body">
           <div class="row gap-8 wrap">
-            <button class="btn" data-reseed>↺ Start over</button>
             <button class="btn btn-danger" data-wipe>🗑 Clear everything</button>
           </div>
         </div>
       </div>`;
-  }
-
-  /** Renders the AI service diagnostic into #aiStatus. */
-  // Last health result, so a repaint doesn't re-request. Probes are never
-  // cached — the whole point of a probe is to try it again for real.
-  let aiStatusCache = { at: 0, html: null };
-  const AI_STATUS_TTL = 60000;
-
-  function renderAiStatus(root, probe, allowCache) {
-    const box = root.querySelector("#aiStatus");
-    if (!box) return;
-
-    if (allowCache && !probe && aiStatusCache.html && Date.now() - aiStatusCache.at < AI_STATUS_TTL) {
-      box.innerHTML = aiStatusCache.html;
-      return;
-    }
-
-    box.innerHTML = `<span class="dim">${probe ? "Testing a real request…" : "Checking…"}</span>`;
-
-    App.assistant.checkHealth(probe).then((h) => {
-      const rows = [];
-      const badge = (okd, text) =>
-        `<span class="badge ${okd ? "ok" : "danger"}">${U.esc(text)}</span>`;
-
-      // The server only returns the key's length, the model name and the
-      // rest of the deployment configuration to the operator account
-      // (ADMIN_EMAIL). Everyone else gets the one fact this panel needs —
-      // is the assistant switched on — so the panel has to render both
-      // shapes rather than reading absent fields as "not set".
-      if (h.operator) {
-        rows.push(`<div class="between" style="padding:6px 0">
-          <span class="small">API key</span>
-          ${h.keyPresent
-            ? badge(true, `Present (${h.keyLength} chars)`)
-            : badge(false, "Not set on this deploy")}
-        </div>`);
-
-        if (h.keyPresent && !h.keyLooksTrimmed) {
-          rows.push(`<div class="tiny" style="color:var(--warn);padding:2px 0">
-            ⚠ The key has leading or trailing whitespace — re-paste it in Netlify without spaces or newlines.
-          </div>`);
-        }
-
-        rows.push(`<div class="between" style="padding:6px 0">
-          <span class="small">Model</span>
-          <span class="small"><code>${U.esc(h.model)}</code> <span class="dim tiny">· ${U.esc(h.modelSource)}</span></span>
-        </div>`);
-      } else {
-        rows.push(`<div class="between" style="padding:6px 0">
-          <span class="small">AI assistant</span>
-          ${h.configured ? badge(true, "Set up on this deploy") : badge(false, "Not set up on this deploy")}
-        </div>`);
-        rows.push(`<div class="tiny dim" style="padding:2px 0">
-          Set <code>ADMIN_EMAIL</code> to this account's address in Netlify to see the full configuration here.
-        </div>`);
-      }
-
-      if (h.probe) {
-        rows.push(h.probe.ok
-          ? `<div class="between" style="padding:6px 0">
-               <span class="small">Live test</span>
-               ${badge(true, `Working (${h.probe.ms} ms)`)}
-             </div>`
-          : `<div style="padding:6px 0">
-               <div class="between"><span class="small">Live test</span>${badge(false, "Failed")}</div>
-               <div class="tiny mt-4" style="color:var(--danger);word-break:break-word">
-                 ${U.esc(h.probe.error || "Unknown error")}
-                 ${h.probe.status ? ` <span class="dim">(HTTP ${h.probe.status})</span>` : ""}
-               </div>
-               ${/not found|404|model/i.test(h.probe.error || "")
-                  ? `<div class="tiny dim mt-4">That usually means the model name is wrong for this key. Set <code>GEMINI_MODEL</code> to a model your key can reach.</div>`
-                  : ""}
-               ${/api key|permission|401|403/i.test(h.probe.error || "")
-                  ? `<div class="tiny dim mt-4">That usually means the key is invalid, restricted, or the Generative Language API isn't enabled for it.</div>`
-                  : ""}
-             </div>`);
-      }
-
-      box.innerHTML = rows.join("");
-      if (!probe) aiStatusCache = { at: Date.now(), html: box.innerHTML };
-    }).catch((e) => {
-      box.innerHTML = `<div class="small" style="color:var(--danger)">${U.esc(e.message)}</div>`;
-    });
   }
 
   const DASHBOARD_WIDGET_LABELS = {
@@ -1812,29 +1710,9 @@ App.views.settings = (function () {
       U.download(`studyhold-backup-${U.today()}.json`, S.exportJSON());
       UI.toast("Backup downloaded", "Keep it somewhere safe.", "ok");
     });
-    // Every commit repaints the page, and mount() re-runs — so toggling any
-    // setting on this tab fired a fresh network request. Cache the last
-    // non-probe result briefly; the explicit "Check again" button below
-    // bypasses it.
-    if (root.querySelector("#aiStatus")) renderAiStatus(root, false, true);
     if (root.querySelector("#devTokens")) mountDeveloper(root);
-    U.on(root, "click", "[data-ai-check]", () => renderAiStatus(root, false));
-    U.on(root, "click", "[data-ai-probe]", () => renderAiStatus(root, true));
 
     U.on(root, "click", "[data-import]", importDialog);
-    U.on(root, "click", "[data-load-demo]", () => {
-      UI.confirm({
-        title: "Load sample data?",
-        message: "This replaces everything currently in the app with an example student's classes, grades, and assignments — handy for trying features out. Export a backup first if you've already entered real data.",
-        okLabel: "Load sample data",
-        danger: true,
-        onConfirm() {
-          S.loadDemo();
-          UI.toast("Sample data loaded", "Clear everything in Danger zone to start fresh.", "ok");
-          App.router.go("dashboard");
-        }
-      });
-    });
     U.on(root, "click", "[data-import-school]", schoolImportDialog);
     U.on(root, "click", "[data-export-ics]", () => {
       App.ics.download();
@@ -1866,14 +1744,6 @@ App.views.settings = (function () {
       UI.deleteWithUndo("templates", t.id, t.title);
     });
 
-    U.on(root, "click", "[data-reseed]", () => {
-      UI.confirm({
-        title: "Start over?",
-        message: "This clears everything and returns the app to a brand-new state, including the first-run setup. Export a backup first if you want to keep anything.",
-        okLabel: "Start over", danger: true,
-        onConfirm() { S.reset(); UI.toast("Reset", "The app is back to a fresh start.", "ok"); App.router.go("dashboard"); }
-      });
-    });
     U.on(root, "click", "[data-wipe]", () => {
       UI.confirmTyped({
         title: "Clear everything?",

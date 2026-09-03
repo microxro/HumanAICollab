@@ -191,5 +191,5 @@ App.views.contacts = (function () {
     }, 250));
   }
 
-  return { render, mount, title: "Contacts" };
+  return { render, mount, detail, title: "Contacts" };
 })();
