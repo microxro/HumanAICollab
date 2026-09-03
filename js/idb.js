@@ -68,6 +68,18 @@ App.idb = (function () {
       (all || []).reduce((n, r) => n + (r.blob ? r.blob.size : 0), 0));
   }
 
+  /**
+   * Erase every stored file.
+   *
+   * Called when a session ends (js/store.js purgeLocal). Attachments are the
+   * one part of the dataset that never lived in localStorage, so a purge that
+   * only swept that would leave a student's uploaded lab report on a shared
+   * machine after they signed out.
+   */
+  function clearAll() {
+    return tx("readwrite", (s) => s.clear()).catch(() => { /* nothing stored */ });
+  }
+
   /** Remove blobs whose metadata record is gone. */
   function gc(validIds) {
     const keep = new Set(validIds);
@@ -111,5 +123,5 @@ App.idb = (function () {
     return (bytes / 1048576).toFixed(1) + " MB";
   }
 
-  return { put, get, del, keys, usage, gc, openFile, dataUrl, fmtSize, MAX_BYTES };
+  return { put, get, del, keys, usage, gc, clearAll, openFile, dataUrl, fmtSize, MAX_BYTES };
 })();

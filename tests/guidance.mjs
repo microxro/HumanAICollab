@@ -16,6 +16,7 @@
 
 import pw from "/opt/node22/lib/node_modules/playwright/index.js";
 const { chromium } = pw;
+import { resetSignedIn } from "./stub/session.mjs";
 
 const BASE = process.env.BASE || "http://localhost:8899";
 let pass = 0, fail = 0;
@@ -30,9 +31,15 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 
 await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
-await page.evaluate(() => localStorage.clear());
+await resetSignedIn(page);   // the app is behind a login gate now — tests/stub/session.mjs
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForFunction(() => window.App && App.store && App.store.db && App.guidance, null, { timeout: 15000 });
+// U52 — a fresh install opens the guided tour, which blocks the app behind it
+// on purpose. The evaluates below reach past it, but the real clicks at the
+// end of this file do not, so dismiss it the way the other browser suites do.
+await page.waitForTimeout(700);
+const skip = page.locator("[data-skip]");
+if (await skip.count()) { await skip.click(); await page.waitForTimeout(250); }
 
 /** Replace the whole database with a synthetic one, then read the engine. */
 async function withData(build) {

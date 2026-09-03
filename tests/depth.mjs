@@ -29,6 +29,7 @@
 
 import pw from "/opt/node22/lib/node_modules/playwright/index.js";
 const { chromium } = pw;
+import { resetSignedIn } from "./stub/session.mjs";
 
 const BASE = process.env.BASE || "http://localhost:8899";
 const BUDGET = 3;              // total clicks, the last one being the action
@@ -120,11 +121,13 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 
 await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
-await page.evaluate(() => localStorage.clear());
+await resetSignedIn(page);   // the app is behind a login gate now — tests/stub/session.mjs
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForFunction(() => window.App && App.store && App.store.db, null, { timeout: 15000 });
 await page.waitForTimeout(400);
-const welcome = await page.$(".modal [data-close]");
+// U52 — a fresh install now opens the guided tour; older builds opened the
+// setup wizard. Dismiss whichever first-run overlay is up.
+const welcome = await page.$("[data-tour-skip], .modal [data-close]");
 if (welcome) { await welcome.click(); await page.waitForTimeout(250); }
 await page.evaluate(() => {
   if (App.store.loadDemo) App.store.loadDemo();

@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import pw from "/opt/node22/lib/node_modules/playwright/index.js";
 const { chromium } = pw;
+import { resetSignedIn } from "./stub/session.mjs";
 
 const BASE = process.env.BASE || "http://localhost:8899";
 const AXE = readFileSync("node_modules/axe-core/axe.min.js", "utf8");
@@ -44,7 +45,7 @@ const ctx = await browser.newContext({ reducedMotion: "reduce" });
 const page = await ctx.newPage();
 
 await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
-await page.evaluate(() => localStorage.clear());
+await resetSignedIn(page);   // the app is behind a login gate now — tests/stub/session.mjs
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForTimeout(600);
 const skip = page.locator("[data-skip]");

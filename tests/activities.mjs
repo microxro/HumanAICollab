@@ -34,12 +34,19 @@ const ok = (name, cond, extra) => {
 function bootStore(stored) {
   const store = new Map();
   if (stored !== undefined) store.set("scholar.db.v2", JSON.stringify(stored));
+  // The token that makes the stored payload readable — js/store.js ignores
+  // (and erases) local data on a device with no session. See tests/gate.mjs.
+  store.set("scholar.token.v1", "test-session-token");
   const ctx = {
     console,
     localStorage: {
       getItem: (k) => (store.has(k) ? store.get(k) : null),
       setItem: (k, v) => store.set(k, String(v)),
-      removeItem: (k) => store.delete(k)
+      removeItem: (k) => store.delete(k),
+      // js/store.js sweeps by prefix when a session ends, which needs the
+      // index side of the API as well as the map side.
+      key: (i) => { const all = [...store.keys()]; return i < all.length ? all[i] : null; },
+      get length() { return store.size; }
     },
     crypto: { randomUUID: () => "id-" + Math.random().toString(36).slice(2) },
     Date, Math, JSON, Object, Array, String, Number, Boolean, RegExp, Error, Intl, Set, Map,

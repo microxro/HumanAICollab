@@ -13,7 +13,7 @@
 // with the current VERSION, so this string is the only thing that evicts a
 // stale shell. It sat at v2.0.0 across every release, which meant returning
 // users kept whatever they first cached.
-const VERSION = "studyhold-v2.7.1";
+const VERSION = "studyhold-v2.8.0";
 const SHELL_CACHE = VERSION + "-shell";
 const RUNTIME_CACHE = VERSION + "-runtime";
 
@@ -25,6 +25,7 @@ const SHELL = [
   "./css/layout.css",
   "./css/components.css",
   "./css/views.css",
+  "./css/tour.css",
   "./js/utils.js",
   "./js/store.js",
   "./js/store2.js",
@@ -43,6 +44,7 @@ const SHELL = [
   "./js/guidance.js",
   "./js/shop.js",
   "./js/quotes.js",
+  "./js/tour.js",
   "./js/assistant.js",
   "./js/aiadd.js",
   "./js/views/dashboard.js",
@@ -68,6 +70,7 @@ const SHELL = [
   "./js/views/parent.js",
   "./js/views/settings.js",
   "./js/views/assistant.js",
+  "./js/authgate.js",
   "./js/app.js"
 ];
 

@@ -16,6 +16,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import pw from "/opt/node22/lib/node_modules/playwright/index.js";
 const { chromium } = pw;
+import { resetSignedIn } from "./stub/session.mjs";
 
 const BASE = process.env.BASE || "http://localhost:8899";
 let pass = 0, fail = 0;
@@ -58,7 +59,7 @@ const page = await ctx.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 await page.goto(BASE + "/index.html", { waitUntil: "networkidle" });
-await page.evaluate(() => localStorage.clear());
+await resetSignedIn(page);   // the app is behind a login gate now — tests/stub/session.mjs
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForTimeout(600);
 const skipBtn = page.locator("[data-skip]");
@@ -81,6 +82,7 @@ const surface = await page.evaluate(() => ({
   notify: App.notify ? Object.keys(App.notify) : [],
   geo: App.geo ? Object.keys(App.geo) : [],
   i18n: App.i18n ? Object.keys(App.i18n) : [],
+  tour: App.tour ? Object.keys(App.tour) : [],
   md: App.md ? Object.keys(App.md) : []
 }));
 
@@ -93,7 +95,7 @@ const assistantClientSrc = readFileSync("js/assistant.js", "utf8");
 console.log("\ninventory: roadmap rows parsed");
 ok("100 functionality items found", items.filter((i) => i.id[0] === "F").length === 100,
    String(items.filter((i) => i.id[0] === "F").length));
-ok("51 interface items found", items.filter((i) => i.id[0] === "U").length === 51,
+ok("52 interface items found", items.filter((i) => i.id[0] === "U").length === 52,
    String(items.filter((i) => i.id[0] === "U").length));
 
 console.log("\ninventory: every item is either marked in source or documented as blocked");
@@ -129,6 +131,15 @@ ok("the withdrawn delivery-retries claim is gone",
 
 console.log("\ninventory: the app's public surface is intact");
 ok("all 22 views registered", surface.views.length >= 22, `${surface.views.length}`);
+// U52 — the marker check above only proves someone wrote "U52" in a comment.
+// This proves the tour is loaded, and that its step plan still covers the
+// app rather than three screens someone stopped maintaining.
+ok("U52 guided tour is loaded", surface.tour.includes("start") && surface.tour.includes("autoStart"),
+   JSON.stringify(surface.tour));
+{
+  const steps = await page.evaluate(() => App.tour.steps().length);
+  ok("its tour plan is a tour of the whole app", steps >= 15, `${steps} steps`);
+}
 ok("guidance is one of them", surface.views.includes("guidance"), surface.views.join(", "));
 ok("its engine is loaded", surface.guidance && surface.guidance.length >= 6,
    JSON.stringify(surface.guidance));
@@ -143,17 +154,43 @@ ok("F156 client methods present",
      .every((k) => surface.sync.includes(k)),
    surface.sync.filter((k) => /Suggest/i.test(k)).join(", "));
 ok("F156 is documented in the roadmap", /\*\*Outside-school activities \(F156\)\.\*\*/.test(roadmap));
-ok("F158 client methods present",
-   ["verifyStudyPhoto", "gradeStudyQuiz"].every((k) => surface.assistant.includes(k)),
-   surface.assistant.filter((k) => /Study/i.test(k)).join(", "));
-ok("F158 shop methods present",
-   ["held", "spendHeld", "skipCooldown"].every((k) => surface.shop.includes(k)),
+ok("F160 client methods present",
+   ["makeTopicQuiz", "gradeStudyQuiz"].every((k) => surface.assistant.includes(k)),
+   surface.assistant.filter((k) => /Quiz|Topic/i.test(k)).join(", "));
+ok("F160 shop methods present",
+   ["quizzes", "record", "canStart", "topicRepeats", "held", "spendHeld", "skipCooldown"]
+     .every((k) => surface.shop.includes(k)),
    surface.shop.join(", "));
 ok("F158 is documented in the roadmap", /\(F158\)\.\*\*/.test(roadmap));
+ok("F160 is documented in the roadmap", /\(F160\)\.\*\*/.test(roadmap));
 // The regression this whole feature exists to prevent: claimed minutes must
 // not be a rate any more. A `tokensPerMinute` back in RULES means somebody
 // reinstated the lever.
 ok("claimed minutes are not a rate", !/tokensPerMinute/.test(shopSrc), "tokensPerMinute is back in js/shop.js");
+// F160 retired the photo route and the focus-timer payout. Either coming back
+// is a regression, not a feature: one sent schoolwork to an image model, the
+// other paid by the minute for a timer nobody had to be sitting at.
+ok("the photo earning route is gone",
+   !/function fingerprint/.test(shopSrc) && !/verifyStudyPhoto/.test(assistantClientSrc),
+   "photo proof code is back");
+ok("the focus timer no longer pays tokens",
+   !/focusPerMin/.test(shopSrc) && !/focusPerMin/.test(readFileSync("js/views/focus.js", "utf8")),
+   "focusPerMin is back");
+// The quiz is the only mint. A rate card, an award() or an awardTokens on the
+// store is a second one, whoever calls it.
+ok("the quiz is the only way to earn",
+   !surface.shop.includes("award") && !surface.shop.includes("RATES")
+   && !surface.store.includes("awardTokens"),
+   surface.shop.filter((k) => /award|RATES/.test(k)).join(", "));
+ok("F161 chest methods present",
+   ["chests", "unopenedChests", "chestOdds", "grantChest", "openChest", "nextChest"]
+     .every((k) => surface.shop.includes(k)),
+   surface.shop.filter((k) => /chest/i.test(k)).join(", "));
+ok("F161 is documented in the roadmap", /\(F161\)\.\*\*/.test(roadmap));
+// A chest holds an item, and a chest that credited tokens would be the second
+// mint the rule above exists to prevent.
+ok("a chest never touches the balance",
+   !/openChest[\s\S]{0,1200}?t\.balance/.test(shopSrc), "openChest writes to the balance");
 ok("the answer key is not sent to the client",
    !/answerIndex/.test(assistantClientSrc), "answerIndex appears in js/assistant.js");
 ok("F100 client methods present",
