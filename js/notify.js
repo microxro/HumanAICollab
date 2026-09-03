@@ -17,6 +17,7 @@ App.notify = (function () {
   let sent = load();
 
   function load() {
+    if (!S.isPersistent()) return { day: U.today(), keys: {} };
     try {
       const raw = JSON.parse(localStorage.getItem(SENT_KEY) || "{}");
       // Drop anything not from today so the map can't grow forever.
@@ -26,6 +27,11 @@ App.notify = (function () {
   }
 
   function persist() {
+    // Signed out, nothing about this browsing session is written down — not
+    // even "we already reminded you about Chem at 3pm", which names a class
+    // and a time to anyone who opens the tab next. The map still works for
+    // the life of the tab; it just doesn't outlive it. See js/store.js.
+    if (!S.isPersistent()) return;
     try { localStorage.setItem(SENT_KEY, JSON.stringify(sent)); } catch (e) { /* non-fatal */ }
   }
 

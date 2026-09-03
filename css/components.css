@@ -388,6 +388,7 @@
 .table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .table tbody tr:last-child td { border-bottom: none; }
 .table tbody tr:hover { background: var(--surface-2); }
+.table tbody tr.row-link { cursor: pointer; }
 .table .right, .table th.right { text-align: right; }
 
 /* `overflow-x: auto` computes overflow-y to auto as well, which makes this
@@ -419,6 +420,7 @@
 }
 .list-item:last-child { border-bottom: none; }
 .list-item:hover { background: var(--surface-2); }
+.list-item.row-link { cursor: pointer; }
 .list-item .title { font-weight: 600; font-size: .855rem; }
 .list-item .meta { font-size: .745rem; color: var(--text-3); margin-top: 1px; }
 
@@ -970,4 +972,143 @@ th.sortable:hover { color: var(--text); }
   outline: 2px solid var(--brand-600);
   outline-offset: 2px;
   border-radius: var(--radius-xs);
+}
+
+/* ------------------------------------------------------- auth gate -- */
+/* The sign-in screen (js/authgate.js). It is the first thing painted, so
+   these rules also cover the moment *before* JS has decided anything:
+   index.html ships `class="gate-pending"` on <body>, which hides the app
+   chrome until boot() either opens the gate or confirms a session. Without
+   that, a signed-out visitor gets a frame of somebody's dashboard shell
+   before the gate lands on top of it. */
+
+body.gate-pending .shell,
+body.gate-pending .mobile-tabbar,
+body.gate-pending .fab-add,
+body.gated .shell,
+body.gated .mobile-tabbar,
+body.gated .fab-add {
+  visibility: hidden;
+}
+
+body.gated { overflow: hidden; }
+
+.gate-root {
+  position: fixed; inset: 0;
+  z-index: 90;              /* above the app, below modals (100) and toasts */
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+  background:
+    radial-gradient(900px 520px at 15% -10%, var(--brand-50), transparent 60%),
+    radial-gradient(700px 460px at 100% 110%, var(--brand-100), transparent 55%),
+    var(--bg);
+  animation: fade .16s var(--ease);
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 412px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 26px 24px 20px;
+  animation: pop .2s var(--ease);
+}
+
+.gate-brand { display: flex; align-items: center; gap: 9px; margin-bottom: 18px; }
+
+.gate-title { font-size: 1.32rem; letter-spacing: -.02em; margin: 0 0 6px; }
+.gate-sub { font-size: .82rem; color: var(--text-2); margin: 0 0 18px; line-height: 1.5; }
+
+.gate-tabs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  margin-bottom: 18px;
+}
+.gate-tab {
+  border: none; background: none; cursor: pointer;
+  padding: 8px 6px;
+  border-radius: var(--radius-xs);
+  font: inherit; font-size: .8rem; font-weight: 600;
+  color: var(--text-2);
+}
+.gate-tab.sel { background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); }
+
+.gate-form { display: flex; flex-direction: column; gap: 13px; }
+.gate-form .btn { margin-top: 4px; height: 40px; }
+
+.gate-error {
+  margin: 0;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: var(--radius-xs);
+  padding: 8px 10px;
+}
+
+.gate-alt { margin: 12px 0 0; text-align: center; }
+
+/* .btn-link is painted with --brand-600, which the default dark theme leaves
+   at its light-mode indigo (#4f46e5) — 2.79:1 on the dark card, caught by the
+   axe pass in tests/gate.mjs. --brand-text is the token that exists for
+   exactly this ("the brand colour, as text") and is defined for both themes.
+   Scoped to the gate rather than fixed on .btn-link globally: the accent
+   themes *do* re-step --brand-600 for dark and would lose their colour, and
+   the gate is pre-login, where no accent is applied anyway. */
+.gate-alt .btn-link,
+.gate-foot .btn-link { color: var(--brand-text); }
+
+.gate-foot {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+.gate-note {
+  font-size: .72rem;
+  color: var(--text-3);
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+.gate-note strong { color: var(--text-2); }
+
+/* The memory-only strip. Sits above the topbar rather than floating, so it
+   scrolls with nothing and can't be mistaken for a dismissible toast. */
+.gate-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-bottom: 1px solid var(--border);
+  font-size: .77rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.gate-banner-dot { font-size: .6rem; }
+.gate-banner .btn { background: var(--surface); color: var(--text); }
+
+/* css/layout.css centres every heading below 640px, app-wide. Left on its
+   own that splits the gate's header in two — a centred title over a
+   left-aligned subtitle — so the subtitle follows it at the same
+   breakpoint rather than the card looking half-styled. */
+@media (max-width: 640px) {
+  .gate-sub { text-align: center; }
+}
+
+@media (max-width: 560px) {
+  .gate-card { padding: 22px 18px 18px; }
+  .gate-banner { font-size: .72rem; padding: 8px 10px; }
+}
+
+[data-theme="dark"] .gate-root {
+  background:
+    radial-gradient(900px 520px at 15% -10%, rgba(99, 102, 241, .16), transparent 60%),
+    radial-gradient(700px 460px at 100% 110%, rgba(99, 102, 241, .12), transparent 55%),
+    var(--bg);
 }

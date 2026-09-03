@@ -30,7 +30,9 @@
       { id: "reading",    label: "Reading",     icon: "▥",
         badge: () => S.db.reading.filter((r) => !r.done).length },
       { id: "shop",       label: "Study shop",  icon: "◆",
-        badge: () => App.shop.affordableCount() }
+        // An unopened chest is the more urgent of the two, and both are the
+        // same kind of thing to the student: something waiting for them.
+        badge: () => App.shop.affordableCount() + App.shop.unopenedChests().length }
     ]},
     { group: "Life", items: [
       { id: "activities", label: "Activities", icon: "◇" },
@@ -1057,16 +1059,27 @@
     const startId = startPath.split("/")[0];
     router.go(App.views[startId] ? startPath : "dashboard");
 
-    // U52/U49 — a genuinely fresh install gets the guided tour, which hands
-    // off to the setup wizard on its last step. autoStart() decides between
-    // the two and does nothing at all once either has been answered.
+    // The gate. Nothing above this line touches the network or the user's
+    // data — it wires listeners and paints a shell nobody can see yet
+    // (index.html ships body.gate-pending) — so this is the first moment
+    // where the question can be asked and the last where it still matters.
     //
-    // Not while a link is mid-flow, though: ?join= and ?resetToken= below
-    // each open a form of their own, and a tour on top of one would be
-    // covering the thing the student clicked the link to reach.
-    const linkFlow = new URL(location.href).searchParams;
-    if (!linkFlow.get("join") && !linkFlow.get("resetToken")) {
-      setTimeout(() => App.tour.autoStart(), 400);
+    // A session token is the whole test. Present: this device already holds
+    // that account's data, so open the app; if the server has since retired
+    // the token, restore() gets a 401 and the gate comes back up on its own.
+    // Absent: js/store.js has already refused to read anything off this
+    // device, so there is nothing behind the gate to protect but nothing to
+    // show either. Either way the first-run overlays are afterAuth's, not
+    // boot's — a tour of an app covered by a login screen is a tour of a
+    // login screen.
+    if (App.sync.hasSession() || App.authgate.isEphemeral()) {
+      document.body.classList.remove("gate-pending");
+      afterAuth();
+    } else {
+      // Belt and braces: store.js purged localStorage at load, before
+      // App.idb existed. Now it does, so the attachment blobs go too.
+      S.purgeLocal();
+      App.authgate.show();
     }
 
     // F064 — a group invite link (?join=CODE) drops you straight into the
@@ -1090,6 +1103,35 @@
 
     paintProfileChip();
   }
+
+  /**
+   * The app, from the far side of the gate.
+   *
+   * Everything here used to sit at the end of boot(). It cannot any more:
+   * a guided tour of an app hidden behind a login screen is a tour of a
+   * login screen, and until there is a session there is nothing to onboard
+   * *into*. js/authgate.js calls this once — on a successful sign-in, on a
+   * sign-up, or when somebody deliberately chooses a memory-only session.
+   */
+  function afterAuth() {
+    document.body.classList.remove("gate-pending");
+    paintProfileChip();
+    paintSyncBadge();
+    router.refresh();
+
+    // U52/U49 — a genuinely fresh install gets the guided tour, which hands
+    // off to the setup wizard on its last step. autoStart() decides between
+    // the two and does nothing at all once either has been answered.
+    //
+    // Not while a link is mid-flow, though: ?join= and ?resetToken= each open
+    // a form of their own (see boot), and a tour on top of one would be
+    // covering the thing the student clicked the link to reach.
+    const linkFlow = new URL(location.href).searchParams;
+    if (!linkFlow.get("join") && !linkFlow.get("resetToken")) {
+      setTimeout(() => App.tour.autoStart(), 400);
+    }
+  }
+  App.afterAuth = afterAuth;
 
   /**
    * The name, grade and avatar in the sidebar.
@@ -1128,6 +1170,12 @@
    */
   function fatal(err) {
     console.error("[studyhold] boot failed", err);
+    // The gate hides the app chrome via body classes, and this screen renders
+    // into #page — inside it. A crash before the gate resolves would
+    // otherwise show a blank tab instead of the recovery steps.
+    document.body.classList.remove("gate-pending", "gated");
+    const gate = document.querySelector(".gate-root");
+    if (gate && gate.parentNode) gate.parentNode.removeChild(gate);
     const msg = (err && (err.message || String(err))) || "Unknown error";
     const stack = (err && err.stack) || "";
     const host = document.getElementById("page") || document.body;
@@ -1176,8 +1224,10 @@
     if (rs) rs.addEventListener("click", () => {
       if (!window.confirm("Erase all StudyHold data on this device? This cannot be undone.")) return;
       try {
-        localStorage.removeItem("scholar.db.v2");
-        localStorage.removeItem("scholar.db.v1");
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf("scholar.") === 0) localStorage.removeItem(k);
+        }
       } catch (e) { /* nothing left to do */ }
       location.href = location.pathname;
     });
@@ -1187,19 +1237,30 @@
 
   // Nothing reported a failure before this: an async throw anywhere in the
   // app produced a silent no-op, which is how a one-line bug became an
-  // unreproducible bug report.
+  // unreproducible bug report. But a raw error message isn't meant for a
+  // student to read — "TypeError: Cannot read properties of undefined" next
+  // to a shop purchase is exactly the "random bits of text" this stopped
+  // showing; the real message still goes to the console for anyone who needs
+  // it. And something that fails on every tick of a retrying interval used to
+  // toast every single time — ui.js's toast() collapses an identical
+  // title+kind rather than stacking a new node, and this throttle keeps that
+  // one surviving toast from being re-triggered (and its dismiss timer
+  // restarted) faster than a person could read it.
+  let lastGlobalErrorToast = 0;
+  const GLOBAL_ERROR_TOAST_MIN_GAP_MS = 4000;
+  function toastUncaught(logMessage) {
+    console.error("[studyhold]", logMessage);
+    const now = Date.now();
+    if (now - lastGlobalErrorToast < GLOBAL_ERROR_TOAST_MIN_GAP_MS) return;
+    lastGlobalErrorToast = now;
+    if (App.ui && App.ui.toast) App.ui.toast("Something went wrong", "", "danger");
+  }
   window.addEventListener("error", (e) => {
-    console.error("[studyhold] uncaught error", e.error || e.message);
-    if (App.ui && App.ui.toast) {
-      App.ui.toast("Something went wrong", (e.error && e.error.message) || e.message || "", "danger");
-    }
+    toastUncaught("uncaught error: " + ((e.error && e.error.message) || e.message));
   });
   window.addEventListener("unhandledrejection", (e) => {
-    console.error("[studyhold] unhandled rejection", e.reason);
-    if (App.ui && App.ui.toast) {
-      const r = e.reason;
-      App.ui.toast("Something went wrong", (r && (r.message || String(r))) || "", "danger");
-    }
+    const r = e.reason;
+    toastUncaught("unhandled rejection: " + ((r && (r.message || String(r))) || ""));
   });
 
   function startup() {
@@ -1207,8 +1268,13 @@
     try {
       if (new URL(location.href).searchParams.get("reset") === "1") {
         if (window.confirm("Reset StudyHold's local data on this device? Export a backup first if you need one.")) {
-          localStorage.removeItem("scholar.db.v2");
-          localStorage.removeItem("scholar.db.v1");
+          // Sweep the session out with the data. Leaving the token behind
+          // would leave the device looking signed in with an empty store,
+          // which then syncs that emptiness up as a legitimate state.
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (k && k.indexOf("scholar.") === 0) localStorage.removeItem(k);
+          }
         }
         history.replaceState(null, "", location.pathname);
       }

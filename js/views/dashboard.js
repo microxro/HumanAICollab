@@ -23,8 +23,17 @@ App.views.dashboard = (function () {
       main = "Free right now";
       sub = `${live.next.title} starts in ${U.fmtDur(live.untilNext)} (${U.fmtTime(live.next.start)})`;
     } else {
-      main = "Nothing scheduled";
-      sub = "No more classes or activities today";
+      // liveStatus() only looks at classes/activities/events — a day with no
+      // more of those still isn't "nothing scheduled" if there's homework due.
+      // Overdue work counts too: dueSoon(0) is "due today or earlier."
+      const dueToday = S.dueSoon(0);
+      if (dueToday.length) {
+        main = dueToday.length === 1 ? "1 thing due today" : `${dueToday.length} things due today`;
+        sub = dueToday[0].title + (dueToday.length > 1 ? ` and ${dueToday.length - 1} more` : "");
+      } else {
+        main = "Nothing scheduled";
+        sub = "No more classes or activities today";
+      }
     }
 
     return `<div class="hero">
@@ -253,12 +262,18 @@ App.views.dashboard = (function () {
       case "due": return `<div class="card">
           <div class="card-head">
             <div><h3>Due soon</h3><div class="sub">Next 7 days</div></div>
-            <button class="btn btn-sm btn-primary" data-new-hw>+ Add</button>
+            <div class="row gap-6">
+              <button class="btn btn-sm" data-go="homework">All homework</button>
+              <button class="btn btn-sm btn-primary" data-new-hw>+ Add</button>
+            </div>
           </div>
           ${dueHTML()}
         </div>`;
       case "grades": return `<div class="card">
-          <div class="card-head"><h3>Class averages</h3></div>
+          <div class="card-head">
+            <h3>Class averages</h3>
+            <button class="btn btn-sm" data-go="grades">Grade book</button>
+          </div>
           <div class="card-body">${gradesHTML()}</div>
         </div>`;
       case "study": return `<div class="card">

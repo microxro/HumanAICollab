@@ -1,16 +1,24 @@
 /* ==========================================================================
    sync.js — account, cloud sync, parent link, and study-group client
 
-   Offline-first by design: the app is fully usable signed out, every write
-   still lands in localStorage first, and sync is a debounced background push
-   that retries. A version conflict surfaces to the user rather than silently
-   picking a winner.
+   Offline-first *within a session*: every write lands in the local store
+   first and sync is a debounced background push that retries, so a dropped
+   connection costs nothing. A version conflict surfaces to the user rather
+   than silently picking a winner.
+
+   What changed: the local store is only written to disk while a session
+   exists (js/store.js, "the local gate"). Signing in turns device storage
+   on; signing out — or a token the server has stopped honouring — turns it
+   off and erases this device's copy. Adopting and ending a session are
+   therefore the two places that own that switch.
    ========================================================================== */
 
 App.sync = (function () {
   const U = App.utils, S = App.store;
 
-  const TOKEN_KEY = "scholar.token.v1";
+  // One definition, in the store, because it decides whether the store may
+  // write at all — see js/store.js.
+  const TOKEN_KEY = S.TOKEN_KEY;
   const VERSION_KEY = "scholar.syncver.v1";
   const PUSH_DEBOUNCE_MS = 4000;
   const FOREGROUND_PULL_MS = 60000;   // throttle for pull-on-foreground (below)
@@ -91,8 +99,20 @@ App.sync = (function () {
     try { data = await res.json(); } catch (e) { data = null; }
 
     if (res.status === 401) {
-      signOutLocal();
-      throw Object.assign(new Error("Your session expired — sign in again."), { status: 401 });
+      // Only a request that carried a token can have had one rejected. A 401
+      // from /auth/login is a wrong password, and treating that as an expired
+      // session used to answer a mistyped password with "your session
+      // expired" — and, now that signing out erases the device, would purge
+      // a signed-out visitor's in-progress work over a typo.
+      if (state.token) {
+        // The gate says why. Landing back on a login screen with no
+        // explanation reads as the app having lost your work, when what
+        // happened is that the token aged out and the work is in the account.
+        signOutLocal({ reason: "expired" });
+        throw Object.assign(new Error("Your session expired — sign in again."), { status: 401 });
+      }
+      throw Object.assign(new Error((data && data.error) || "That email and password don't match."),
+        { status: 401, data });
     }
     if (!res.ok) {
       throw Object.assign(new Error((data && data.error) || `Request failed (${res.status})`),
@@ -129,32 +149,66 @@ App.sync = (function () {
     state.token = res.token;
     state.user = res.user;
     localStorage.setItem(TOKEN_KEY, res.token);
+    // The account is what licenses this device to keep anything, so storage
+    // goes on before the first commit — otherwise the write below would be
+    // dropped by the gate that is still closed.
+    S.setPersistence(true);
     S.commit((db) => {
       db.account.userId = res.user.id;
       db.account.email = res.user.email;
       db.account.role = res.user.role;
     });
+    // Signing in from the Settings dialog rather than the gate leaves the
+    // "nothing is being saved" banner on screen, contradicting the sync tick
+    // that just went green. hide() is a no-op on an already-closed gate and
+    // clears the banner either way.
+    if (App.authgate) App.authgate.hide();
     setStatus("idle");
   }
 
-  function signOutLocal() {
+  /**
+   * End the session on this device.
+   *
+   * Reached two ways: the person asked (signOut below), or the server stopped
+   * honouring the token mid-flight (the 401 branch in call()). Both mean the
+   * same thing now — no account, so no local copy. setPersistence(false)
+   * erases what is on disk; reset() clears what is still in memory, so the
+   * login screen isn't showing the last account's dashboard through it.
+   */
+  function signOutLocal(opts) {
+    const o = opts || {};
     state.token = null;
     state.user = null;
     state.version = 0;
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(VERSION_KEY);
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(VERSION_KEY);
+    } catch (e) { /* storage unavailable — nothing was stored either */ }
+    S.setPersistence(false);
+    S.reset();
     setStatus("offline");
+    if (!o.quiet && App.authgate) App.authgate.show({ reason: o.reason || "signed-out" });
   }
 
-  function signOut() {
-    signOutLocal();
-    S.commit((db) => {
-      db.account.userId = null;
-      db.account.email = null;
-      db.account.token = null;
-      db.account.lastSync = null;
-    });
+  /**
+   * Sign out on purpose.
+   *
+   * Async because a sign-out now erases this device: anything still sitting
+   * in the debounce has to go up first or it goes nowhere at all. Best
+   * effort — a failed push must not trap somebody in a session they asked to
+   * leave, and push() reports rather than throws, so the await is safe.
+   */
+  async function signOut() {
+    if (isSignedIn()) {
+      clearTimeout(state.timer);
+      state.timer = null;
+      try { await push(false); } catch (e) { /* leaving regardless */ }
+    }
+    signOutLocal({ reason: "signed-out" });
   }
+
+  /** Is there a write that hasn't reached the server yet? Asked before sign-out. */
+  function hasPendingWrites() { return isSignedIn() && (!!state.timer || !!state.inflight); }
 
   async function restore() {
     if (!state.token) { setStatus("offline"); return null; }
@@ -202,22 +256,36 @@ App.sync = (function () {
       const serverNewer = (res.updatedAt || 0) > (state.lastSync || 0);
 
       if (state.version === 0 && localDirty && serverNewer) {
-        // Two real datasets — let the person choose rather than guess.
-        setStatus("conflict");
-        if (App.ui) {
-          App.ui.confirm({
-            title: "This device has unsynced data",
-            message: "Your account already has saved data. Keep the cloud copy, or overwrite it with what's on this device?",
-            okLabel: "Use cloud copy",
-            onConfirm() { adoptRemote(res); },
-            onCancel() { push(true); }
-          });
-        }
+        // Two real datasets, and no way to merge two whole-database snapshots
+        // — this used to ask which to keep. It resolves itself now: whichever
+        // side was saved more recently wins, the same rule handleConflict()
+        // uses for the same problem arriving mid-session instead of at sign-in.
+        resolveByRecency(res);
         return;
       }
       adoptRemote(res);
     } catch (e) {
       setStatus("error", e.message);
+    }
+  }
+
+  /**
+   * Two copies of the database disagree and there's no way to merge them —
+   * only a choice of which to keep. `remote.updatedAt` is the server's own
+   * timestamp for the copy it's holding; `S.db.ui.dirty` is when this device
+   * last actually committed a change. Whichever is later wins, silently —
+   * this used to be a confirm dialog asking the person to pick a side.
+   */
+  function resolveByRecency(remote) {
+    const localAt = (S.db.ui && S.db.ui.dirty) || 0;
+    if ((remote.updatedAt || 0) > localAt) {
+      adoptRemote(remote);
+    } else {
+      // Adopt the server's version number (without its data) so the
+      // overwrite below is a legitimate conditional update, not a bypass.
+      state.version = remote.version;
+      localStorage.setItem(VERSION_KEY, String(state.version));
+      push(true);
     }
   }
 
@@ -228,7 +296,6 @@ App.sync = (function () {
     localStorage.setItem(VERSION_KEY, String(state.version));
     setStatus("idle");
     if (App.router) App.router.refresh();
-    if (App.ui) App.ui.toast("Synced", "Loaded your data from the cloud.", "ok");
   }
 
   /**
@@ -284,24 +351,8 @@ App.sync = (function () {
   }
 
   function handleConflict(data) {
-    if (!data || !App.ui) return;
-    App.ui.confirm({
-      title: "Changes from another device",
-      message: `Another device saved changes ${U.fmtDate(U.dateKey(new Date(data.updatedAt)))}. ` +
-               "Keep those and discard this device's unsaved edits, or overwrite them with this device?",
-      okLabel: "Keep other device",
-      danger: false,
-      onConfirm() {
-        adoptRemote({ state: data.state, version: data.version, updatedAt: data.updatedAt });
-      },
-      onCancel() {
-        // Adopt the server's version so the next push is a legitimate
-        // conditional update rather than a bypass.
-        state.version = data.version;
-        localStorage.setItem(VERSION_KEY, String(state.version));
-        push(true);
-      }
-    });
+    if (!data) return;
+    resolveByRecency({ state: data.state, version: data.version, updatedAt: data.updatedAt });
   }
 
   /** Debounced push, called from store.commit() on every write. */
@@ -568,6 +619,16 @@ App.sync = (function () {
     if (state.token) restore();
     else setStatus("offline");
 
+    // A sign-out in one tab has to end the session in all of them. Otherwise
+    // the tab left open keeps writing to a device the other tab just cleared,
+    // and the data comes straight back — which is the promise on the login
+    // screen quietly not being kept.
+    window.addEventListener("storage", (e) => {
+      if (e.key !== TOKEN_KEY && e.key !== null) return;   // null: the whole origin was cleared
+      const gone = !S.hasSession();
+      if (gone && state.token) signOutLocal({ reason: "signed-out" });
+    });
+
     // Flush pending changes when the tab goes away or connectivity returns.
     window.addEventListener("online", () => { if (isSignedIn()) push(false); });
     document.addEventListener("visibilitychange", () => {
@@ -598,8 +659,8 @@ App.sync = (function () {
   }
 
   return {
-    init, info, isSignedIn, authToken, on,
-    signUp, signIn, signOut, restore, forgotPassword, resetPassword,
+    init, info, isSignedIn, hasSession: S.hasSession, hasPendingWrites, authToken, on,
+    signUp, signIn, signOut, signOutLocal, restore, forgotPassword, resetPassword,
     push, pull, pullAndMerge, queue, refresh,
     createLinkCode, redeemLinkCode, children, parents, unlink,
     pushLocation, readLocation,

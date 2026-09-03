@@ -7,12 +7,30 @@ App.ui = (function () {
 
   /* ------------------------------------------------------------ toasts -- */
 
+  // Toasts used to have no ceiling: a repeating failure (a retrying interval,
+  // an error thrown on every re-render) could pile up an identical toast
+  // forever, crowding the whole corner of the screen. Two guards fix that
+  // without changing the normal one-toast-at-a-time experience:
+  //   - the same title+kind showing twice in a row is a repeat, not news —
+  //     refresh its timer instead of stacking a second copy of it
+  //   - visible toasts are capped; the oldest is dismissed to make room
+  const TOAST_MAX_VISIBLE = 3;
+  const liveToasts = [];   // [{ title, kind, kill, restart }], oldest first
+
   /**
    * toast(title, msg, kind, action)
    * `action` = { label, onClick } renders a button (used for Undo). Toasts
    * with an action stay up longer so there's time to hit it.
    */
   function toast(title, msg, kind, action) {
+    // A toast with an action (Undo, etc.) is a distinct offer each time, so
+    // only plain toasts are collapsed — deduping an Undo toast could quietly
+    // eat the one actually offering to undo the newest change.
+    if (!action) {
+      const dup = liveToasts.find((t) => t.title === title && t.kind === (kind || ""));
+      if (dup) { dup.restart(); return dup.kill; }
+    }
+
     let host = document.getElementById("toastHost");
     if (!host) {
       host = document.createElement("div");
@@ -22,6 +40,9 @@ App.ui = (function () {
       host.setAttribute("aria-live", "polite");
       document.body.appendChild(host);
     }
+
+    while (liveToasts.length >= TOAST_MAX_VISIBLE) liveToasts[0].kill();
+
     const el = document.createElement("div");
     el.className = "toast " + (kind || "");
     el.innerHTML = `<div class="grow">
@@ -33,12 +54,24 @@ App.ui = (function () {
     if (App.store && App.store.logNotification) App.store.logNotification(title, msg, kind);
 
     let dead = false;
+    let timer;
+    const entry = { title, kind: kind || "" };
     const kill = () => {
       if (dead) return;
       dead = true;
+      clearTimeout(timer);
+      const i = liveToasts.indexOf(entry);
+      if (i !== -1) liveToasts.splice(i, 1);
       el.classList.add("out");
       setTimeout(() => el.remove(), 200);
     };
+    const restart = () => {
+      clearTimeout(timer);
+      timer = setTimeout(kill, action ? 7000 : 3200);
+    };
+    entry.kill = kill;
+    entry.restart = restart;
+    liveToasts.push(entry);
 
     if (action) {
       el.querySelector(".t-action").addEventListener("click", () => {
@@ -46,7 +79,7 @@ App.ui = (function () {
         action.onClick();
       });
     }
-    setTimeout(kill, action ? 7000 : 3200);
+    restart();
     return kill;
   }
 

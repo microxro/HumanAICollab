@@ -113,14 +113,17 @@ actually contributed — the thing that was asked for — is folded into it:
     (800–1000), with every item carrying its tier and the suite asserting that
     each price sits inside its own band. The Shop tab groups by tier rather
     than by kind, because the tier is what a price *means* to a student.
-  - **A second earning route.** Tokens now also come from work the app already
-    measured: focus minutes (3 each, +20 for finishing the block), a completed
-    assignment (45, +25 if it wasn't late), a streak day (50, +150 every
-    seventh), flashcards, reading, habits, goals. These carry no photo, no
-    cooldown and no daily cap, because there is no claim to check — the guards
-    that matter for them are narrower and sit at the point of payment: an
-    assignment pays once ever however often it is reopened, and a focus block
-    pays for the minutes actually spent.
+  - **A second earning route — folded in here, and since removed.** Tokens
+    also came from work the app already measured: focus minutes (3 each, +20
+    for finishing the block), a completed assignment (45, +25 if it wasn't
+    late), a streak day (50, +150 every seventh), flashcards, reading, habits
+    and goals. None of it pays any more, and this bullet is kept only so the
+    decision has a before. What those routes measured was app usage rather
+    than knowledge — a completed assignment is a checkbox the student ticks,
+    which is why it needed a paid-once flag to stop a reopen-and-reclose farm,
+    and a guard against farming a payout is a good sign the payout was wrong.
+    See **The quiz is now the only mint** below for what replaced them, and
+    **Gem chests on the streak (F161)** for what the streak pays instead.
   - **Inflated denomination.** Prices and rates were multiplied by 25 together,
     which changes no ratio and no attainability but puts the top tier at a
     number worth showing. A wallet written before the change is redenominated
@@ -245,6 +248,144 @@ back to the relative luminance of the colour it replaces, so every contrast
 ratio in the app is arithmetically unchanged. `tests/shop.mjs` re-derives both
 from `css/theme.css`, and `App.shop.sanitize()` takes off any cosmetic a
 restored backup names but this wallet never bought.
+
+**The topic quiz replaces the photo (F160).** F158 established what the
+earning route actually was: not the photo, the quiz written about it. The
+photo was doing none of the work and charging for all of it — it needed a
+camera and paper in front of you, it sent a picture of a student's homework
+through an image model, it cost the expensive per-image quota, and it refused
+every student whose revision happened on a screen or in their head.
+
+So the photo is gone and the quiz is the whole feature. The student names the
+topic they studied, picks a difficulty, and `POST /assistant/study-topic`
+decides whether that is quizzable school material — "the causes of the French
+Revolution" yes, "my cat" no — and writes five multiple-choice questions about
+it. `POST /assistant/study-quiz` marks them, unchanged from F158: the answer
+key still never reaches the browser, the ticket is still signed and still
+marked exactly once. Full marks pays 100, most of them 50, half 25; under half
+pays nothing.
+
+Letting the student choose the topic opens the one hole the photo did not
+have, and it is the obvious one: name the unit you know best, answer five easy
+questions, wait out the cooldown, repeat. Three rules close it.
+
+- **A topic pays full once a day, half the second time, and nothing after
+  that.** The tally is per topic, matched loosely so punctuation and casing
+  aren't a loophole, and it lives on the wallet rather than being derived from
+  the quiz log — a tally a student can reset by deleting rows is not a tally.
+  Failed attempts don't count against it: reading it again and passing should
+  pay properly.
+- **Difficulty moves the payout** (×0.75, ×1, ×1.25), so "easy" is not the
+  rational setting, and picking hard is a decision with an upside.
+- **The minutes are measured, not claimed** — the wall time between the
+  questions appearing and the answers going back. That is the only reason they
+  are allowed into the study log at all.
+
+**The quiz is now the only mint.** The focus timer stopped paying in the same
+change — paying by the minute for a running timer made the shop's best
+strategy "start a block and walk away" — and then so did everything else:
+finished assignments, streak days, flashcard reviews, reading sessions,
+habits and goals. Each was defensible on its own, and the argument for them
+was real: the app *watched* those happen, so there was no claim to check. But
+what they measured was app usage, not knowledge, and together they were most
+of the economy — a balance that mostly said "this student presses buttons
+here a lot".
+
+So `award()` is gone and `S.awardTokens` with it. There is no rate card and no
+way for any other module to pay: tokens are minted in exactly one function,
+`record()`, for a quiz the server marked. That is the property worth having,
+and it is one an added call site would quietly break, so `tests/shop.mjs` and
+`tests/inventory.mjs` both assert the absence rather than the behaviour.
+
+Removing the other routes left the boost items paying for nothing, since they
+multiplied `award()` and the quiz never went through it. They now multiply the
+quiz — and raise the daily cap by the same factor, because a multiplier under
+a fixed ceiling does not double a day's earnings, it just reaches the same
+ceiling in fewer quizzes, which is not what the card says and not worth 400
+tokens.
+
+The three consumables carried over and still fit — the 50/50 narrows a
+question, the cooldown skip starts the next quiz now, and the retake buys a
+fresh set of questions on a topic you just failed. What changed is that a
+retake is no longer patching over a blurry photo; it is a second run at
+material you have gone back to read.
+
+Photos already taken are not deleted, and the retention sweep that ages them
+out of IndexedDB stays for exactly that reason — a student who used the old
+route keeps their gallery until it expires, and nothing new is written to it.
+
+## Sign in first, and nothing on the device without one
+
+The app used to open straight onto a dashboard and save every keystroke to
+localStorage whether or not anybody had signed in. On a personal laptop that
+is offline-first working exactly as intended. On the shared laptop in a
+school library it means the next person to open the tab inherits the last
+student's classes, grades, notes and their parent's email address — with no
+sign-in to reach any of it, and no sign-out that would have cleared it.
+
+Two changes, and the second is the one that matters:
+
+**The login screen loads first** (`js/authgate.js`). Not a banner over a
+working dashboard — a full screen that owns the tab, with no Escape and no
+backdrop dismissal, and both first-run overlays — the U52 guided tour and
+the U49 setup wizard — held back until there is an app to walk somebody
+through. A tour of a screen covered by a login form is a tour of a login
+form. `index.html` ships `body.gate-pending` so the app chrome
+is hidden before any JS runs, rather than flashing a shell for a frame.
+
+**Signed out, nothing is written** (`js/store.js`, "the local gate"). The
+store persists only while a session token exists; otherwise it runs in memory
+and dies with the tab. Data found on the device *without* a session is erased
+on load rather than shown or migrated — a prefix sweep of localStorage plus
+the IndexedDB attachment store — because ignoring it would leave the previous
+student's records sitting there for whoever opens the tab next. Signing out
+flushes pending writes to the account and then clears the device; a token the
+server has retired takes the same path automatically on the next 401.
+
+The cost is real and is stated on the screen where the choice is made: work
+done signed out does not survive a refresh. **Continue without saving** is
+kept deliberately — a student with no account yet, or one who will not put an
+account on a borrowed machine, can still use the whole app — with a standing
+banner saying what they are getting.
+
+This is not a security boundary and is not claimed as one: the browser is the
+user's, and anyone can edit `js/store.js` to make their own device keep
+whatever they like. It addresses the ordinary case, which is not an attacker
+with devtools but the next person to sit down. `tests/gate.mjs` drives all of
+it in a real browser, including the two worth being paranoid about — data on
+disk with no session, and a session the server no longer honours.
+
+**Gem chests on the streak (F161).** Making the quiz the only mint left the
+streak paying nothing at all, and a streak is the one thing in this app that
+cannot be rushed — 49 days is 49 days, whatever a student does with their
+evenings. So every seventh day drops a gem chest, and the chest has a rarity:
+Common, Rare, Ultra or Elite, the same four bands the catalogue is priced in,
+so "an Ultra chest" already means something to anybody who has looked at the
+shop.
+
+A chest holds an **item** of its rarity, never tokens. That is what lets it
+exist beside the single-mint rule: tokens are minted in one function for a
+quiz the server marked, and a chest that paid currency would be a second mint
+wearing a bow. An item is the reward itself rather than a way to buy one.
+
+The rarity is rolled and the odds improve with the streak — a first week is
+70/25/5/0 and cannot be Elite at all; past two months it is 25/35/28/12. Every
+eighth chest is at least Ultra, so a long streak has a floor and not only
+better luck. **The odds are printed on the card**, before the chest is opened,
+because an undisclosed drop rate is the part of a loot box worth being
+suspicious of and there is no reason for one here.
+
+Three details worth stating:
+
+- **A week can only pay once.** The highest week already granted is recorded
+  on the wallet, so a reload, or a second device syncing the same day, cannot
+  turn seven days into two chests.
+- **A chest is never empty.** If the tier's cosmetics are all owned it gives a
+  consumable, and failing that it escalates to another tier — "nothing, you
+  own it all" is the one outcome a reward for 49 days must never have.
+- **Opening is a deliberate click**, on a screen that shows the rarity and the
+  odds first. The reveal is the moment worth having; it should not happen on
+  the way past.
 
 **Outside-school activities (F156).** The Activities screen assumed every
 extracurricular belonged to the school: its adult was picked from the staff

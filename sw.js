@@ -70,6 +70,7 @@ const SHELL = [
   "./js/views/parent.js",
   "./js/views/settings.js",
   "./js/views/assistant.js",
+  "./js/authgate.js",
   "./js/app.js"
 ];
 
