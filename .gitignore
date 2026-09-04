@@ -4,6 +4,9 @@ node_modules/
 # Netlify build/dev artifacts
 .netlify/
 
+# Local repo knowledge graph (Claude Code /graph skill) — regenerable, not source.
+.graph/
+
 # Local environment overrides — never commit real keys.
 .env
 .env.*
